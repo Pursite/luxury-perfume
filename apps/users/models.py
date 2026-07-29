@@ -7,7 +7,7 @@ from apps.lib.basemodel import BaseModel
 class CustomUserManager(BaseUserManager):
     def create_user(self, phone_number, **extra_fields):
         if not phone_number:
-            raise ValueError("Ph")
+            raise ValueError("Phone number is required.")
 
         user = self.model(phone_number=phone_number, **extra_fields)
         user.set_unusable_password()
@@ -18,10 +18,16 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
 
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+        if not password:
+            raise ValueError("Superuser must have a password.")
+
         user = self.create_user(phone_number, **extra_fields)
-        if password:
-            user.set_password(password)
-            user.save(using=self._db)
+        user.set_password(password)
+        user.save(using=self._db)
         return user
 
 
@@ -65,4 +71,3 @@ class Address(BaseModel):
     def __str__(self):
         identifier = self.user.username if self.user.username else self.user.phone_number
         return f"{identifier} - {self.title}"
-

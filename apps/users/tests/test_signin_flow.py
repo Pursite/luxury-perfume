@@ -4,6 +4,8 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.exceptions import ValidationError, AuthenticationFailed
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
+
 from apps.users.tests.factories import UserFactory
 
 
@@ -27,7 +29,6 @@ class TestSigninFlow:
     LOGIN_USER_PASS_URL = reverse('users:login_password')
     SEND_LOGIN_OTP_URL = reverse('users:login_send_otp')
     VERIFY_LOGIN_OTP_URL = reverse('users:verify_login_otp')
-
 
     def test_login_user_pass_success(self, api_client, mocker):
         """Success path: Valid credentials for a complete profile user returns 200 OK and tokens."""
@@ -64,7 +65,6 @@ class TestSigninFlow:
         response = api_client.post(self.LOGIN_USER_PASS_URL, data=payload, format='json')
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
 
     def test_send_login_otp_success(self, api_client, mocker):
         """Success path: Registered phone number returns 200 OK and success message."""
@@ -103,7 +103,6 @@ class TestSigninFlow:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "phone_number" in response.data
-
 
     def test_verify_login_otp_success(self, api_client, mocker):
         """Success path: Valid OTP for active user returns 200 OK and tokens."""
@@ -169,5 +168,51 @@ class TestSigninFlow:
             "otp": "123456"
         }
         response = api_client.post(self.VERIFY_LOGIN_OTP_URL, data=payload, format='json')
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+    LOGOUT_URL = reverse('users:logout')
+
+
+    def test_logout_success(self, api_client):
+        """Success path: Valid refresh token blacklists the token and logs out."""
+        user = UserFactory()
+        api_client.force_authenticate(user=user)
+
+        refresh_token = RefreshToken.for_user(user)
+
+        payload = {
+            "refresh": str(refresh_token)
+        }
+
+        response = api_client.post(self.LOGOUT_URL, data=payload, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["message"] == "successfully logged out."
+
+
+    def test_logout_invalid_or_blacklisted_token(self, api_client):
+        """Failure path: Sending a fake or invalid refresh token returns 400 Bad Request."""
+        user = UserFactory()
+        api_client.force_authenticate(user=user)
+
+        payload = {
+            "refresh": "fake-and-invalid-refresh-token"
+        }
+
+        response = api_client.post(self.LOGOUT_URL, data=payload, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "refresh" in response.data
+
+
+    def test_logout_unauthenticated_user(self, api_client):
+        """Failure path: Unauthenticated user cannot access the logout endpoint returns 401."""
+        payload = {
+            "refresh": "some-token"
+        }
+
+        response = api_client.post(self.LOGOUT_URL, data=payload, format='json')
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED

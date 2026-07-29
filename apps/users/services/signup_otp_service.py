@@ -1,4 +1,4 @@
-import random
+import secrets
 
 from rest_framework.exceptions import ValidationError
 
@@ -13,7 +13,7 @@ class SendOTPService:
 
     @staticmethod
     def _generate_otp_code() -> str:
-        return str(random.randint(100000, 999999))
+        return f"{secrets.randbelow(900000) + 100000:06d}"
 
     @classmethod
     def send_signup_otp(cls, phone_number: str) -> dict:
@@ -52,7 +52,7 @@ class SendOTPService:
 
         if not saved_otp:
             AppLogger.log_security(msg=f"OTP verification failed: Code expired or never requested for {phone_number}")
-            raise ValidationError({"otp": "otp code expired or never requested for {phone_number}."})
+            raise ValidationError({"otp": f"otp code expired or never requested for {phone_number}."})
 
         if saved_otp != submitted_otp:
             raise ValidationError({"otp": "otp code is wrong."})

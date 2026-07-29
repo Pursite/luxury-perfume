@@ -53,12 +53,12 @@ class VerifyOTPInputSerializer(serializers.Serializer):
 class UserPassLoginInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         max_length=150,
-        error_messages={'required': 'وارد کردن نام کاربری الزامی است.'}
+        error_messages={'required': 'username is required.'}
     )
     password = serializers.CharField(
         write_only=True,
         style={'input_type': 'password'},
-        error_messages={'required': 'وارد کردن رمز عبور الزامی است.'}
+        error_messages={'required': 'password is required.'}
     )
 
 
@@ -136,6 +136,12 @@ class UserOutputSerializer(serializers.ModelSerializer):
         ]
 
 
+class LogoutInputSerializer(serializers.Serializer):
+    refresh = serializers.CharField(
+        error_messages={'required': 'refresh token is required.'}
+    )
+
+
 class UserProfileUpdateInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         validators=[username_regex],
@@ -165,5 +171,25 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
     def validate_username(self, value):
         user = self.context['request'].user
         if UserSelector.is_username_taken(username=value, exclude_user_id=user.pk):
-            raise serializers.ValidationError("tihs username is already taken.")
+            raise serializers.ValidationError("this username is already taken.")
         return value
+
+
+class PasswordResetVerifyInputSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(
+        validators=[phone_regex],
+        max_length=11,
+        error_messages={'required': 'phone number is required.'}
+    )
+    otp = serializers.CharField(
+        max_length=6,
+        min_length=6,
+        error_messages={'required': 'otp is required.'}
+    )
+    password = serializers.CharField(
+        write_only=True,
+        validators=[validate_password_complexity],
+        min_length=6,
+        max_length=18,
+        error_messages={'required': 'enter new password.'}
+    )

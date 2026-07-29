@@ -11,4 +11,8 @@ urlpatterns = [
     path('login/userpass/', views.LoginWithUserPassAPIView.as_view(), name='login_password'),
     path('profile/complete/', views.CompleteProfileAPIView.as_view(), name='complete_profile'),
     path('profile/update/', views.UserProfileUpdateAPIView.as_view(), name='update_profile'),
+    path('logout/', views.LogoutAPIView.as_view(), name='logout'),
+    path('password-reset/send-otp/', views.SendPasswordResetOtpAPIView.as_view(), name='password_reset_send_otp'),
+    path('password-reset/verify-and-reset/', views.VerifyAndResetPasswordAPIView.as_view(),
+         name='password_reset_verify_and_reset'),
 ]

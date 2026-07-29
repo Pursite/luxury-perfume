@@ -4,16 +4,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import PhoneInputSerializer, VerifyOTPInputSerializer, UserPassLoginInputSerializer, \
-    UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer
+    UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer, LogoutInputSerializer, \
+    PasswordResetVerifyInputSerializer
 from .services.signup_otp_service import SendOTPService
+from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
 from .services.user_auth_service import UserAuthService
-from ..lib.throttles import OTPPhoneRateThrottle
+from ..lib.throttle import OTPPhoneNumberRateThrottle
 
 
 class SendOTPCodeAPIView(APIView):
     permission_classes = (AllowAny,)
-    throttle_classes = [OTPPhoneRateThrottle]
+    throttle_classes = [OTPPhoneNumberRateThrottle]
 
     def post(self, request):
         serializer = PhoneInputSerializer(data=request.data)
@@ -29,6 +31,7 @@ class SendOTPCodeAPIView(APIView):
 
 class VerifyOTPAPIView(APIView):
     permission_classes = (AllowAny,)
+
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
 
@@ -48,6 +51,7 @@ class VerifyOTPAPIView(APIView):
 class LoginWithUserPassAPIView(APIView):
     throttle_classes = [AnonRateThrottle]
     permission_classes = (AllowAny,)
+
     def post(self, request):
         serializer = UserPassLoginInputSerializer(data=request.data)
 
@@ -62,8 +66,9 @@ class LoginWithUserPassAPIView(APIView):
 
 
 class SendOtpLoginAPIView(APIView):
-    throttle_classes = [OTPPhoneRateThrottle]
+    throttle_classes = [OTPPhoneNumberRateThrottle]
     permission_classes = (AllowAny,)
+
     def post(self, request):
         serializer = PhoneInputSerializer(data=request.data)
 
@@ -78,6 +83,7 @@ class SendOtpLoginAPIView(APIView):
 
 class LoginWithOTPCodeAPIView(APIView):
     permission_classes = (AllowAny,)
+
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
 
@@ -113,7 +119,7 @@ class CompleteProfileAPIView(APIView):
         output_serializer = UserOutputSerializer(updated_user)
 
         return Response({
-            "message": "your profile is successfully updated, and you`r account registered",
+            "message": "your profile is successfully updated, and your account is registered",
             "data": output_serializer.data
         }, status=status.HTTP_200_OK)
 
@@ -122,19 +128,20 @@ class UserProfileUpdateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
-        try:
-            serializer = UserProfileUpdateInputSerializer(
-                data=request.data,
-                context={'request': request},
-                partial=True
-            )
+        serializer = UserProfileUpdateInputSerializer(
+            data=request.data,
+            context={'request': request},
+            partial=True
+        )
 
-            serializer.is_valid(raise_exception=True)
+        serializer.is_valid(raise_exception=True)
+
+        try:
             updated_user = UserAuthService.update_user_profile(
                 user=request.user,
                 validated_data=serializer.validated_data
             )
-        except Exception as e:
+        except Exception:
             return Response({"error": "something happened back in servers"}, status=status.HTTP_400_BAD_REQUEST)
 
         output_serializer = UserOutputSerializer(updated_user)
@@ -143,3 +150,54 @@ class UserProfileUpdateAPIView(APIView):
             "message": "your profile is successfully updated.",
             "data": output_serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class LogoutAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = LogoutInputSerializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
+
+        UserAuthService.logout_user(
+            refresh_token=serializer.validated_data['refresh']
+        )
+
+        return Response(
+            {"message": "successfully logged out."},
+            status=status.HTTP_200_OK
+        )
+
+
+class SendPasswordResetOtpAPIView(APIView):
+    throttle_classes = [OTPPhoneNumberRateThrottle]
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = PhoneInputSerializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data['phone_number']
+
+        result = PasswordResetService.send_reset_otp(phone_number=phone_number)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VerifyAndResetPasswordAPIView(APIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        serializer = PasswordResetVerifyInputSerializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
+
+        result = PasswordResetService.verify_and_reset_password(
+            phone_number=serializer.validated_data['phone_number'],
+            submitted_otp=serializer.validated_data['otp'],
+            new_password=serializer.validated_data['password']
+        )
+
+        return Response(result, status=status.HTTP_200_OK)

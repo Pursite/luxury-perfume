@@ -2,7 +2,8 @@ from django.db import transaction
 from rest_framework.exceptions import ValidationError
 from apps.lib.loggers import AppLogger
 from ..models import CustomUser, Address
-
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
 class UserAuthService:
 
@@ -41,7 +42,7 @@ class UserAuthService:
                 include_traceback=True
             )
             raise ValidationError({
-                "non_field_errors": ["unkown error."]
+                "non_field_errors": ["unknown error."]
             })
 
     @classmethod
@@ -72,4 +73,22 @@ class UserAuthService:
             )
             raise ValidationError({
                 "non_field_errors": ["unknown error."]
+            })
+
+    @classmethod
+    def logout_user(cls, refresh_token: str) -> None:
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            AppLogger.log_activity(
+                msg="User logged out successfully and token blacklisted.",
+                status="INFO"
+            )
+        except TokenError as e:
+            AppLogger.log_system_error(
+                msg=f"Logout failed, invalid or expired token: {str(e)}"
+            )
+            raise ValidationError({
+                "refresh": "token is invalid or expired."
             })

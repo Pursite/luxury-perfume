@@ -14,6 +14,7 @@ djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
 factory_boy==3.3.3
 Faker==40.31.0
+gunicorn==23.0.0
 iniconfig==2.3.0
 kombu==5.6.2
 packaging==26.2

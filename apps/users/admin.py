@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+
 from .models import CustomUser, Address
 
 
@@ -8,7 +10,7 @@ class AddressInline(admin.TabularInline):
 
 
 @admin.register(CustomUser)
-class CustomUserAdmin(admin.ModelAdmin):
+class CustomUserAdmin(UserAdmin):
     list_display = ('phone_number', 'username', 'first_name', 'last_name', 'is_active', 'is_staff',
                     'is_profile_complete')
     search_fields = ('phone_number', 'username', 'first_name', 'last_name', 'email')
@@ -18,6 +20,9 @@ class CustomUserAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
 
     inlines = [AddressInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related('addresses')
 
     fieldsets = (
         ('اطلاعات پایه', {
@@ -33,9 +38,16 @@ class CustomUserAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('phone_number', 'password1', 'password2'),
+        }),
+    )
 
 
 @admin.register(Address)
 class AddressAdmin(admin.ModelAdmin):
     list_display = ('user', 'title', 'postal_code')
     search_fields = ('user__phone_number', 'title', 'full_address')
+    list_select_related = ('user',)
