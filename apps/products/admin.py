@@ -26,6 +26,7 @@ class BrandAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
+        'uuid',
         'name',
         'category',
         'brand',
@@ -46,11 +47,12 @@ class ProductAdmin(admin.ModelAdmin):
     )
     search_fields = ('name', 'sku', 'description', 'taste_notes')
     prepopulated_fields = {'slug': ('name',)}
+    readonly_fields = ('uuid',)
     inlines = [ProductImageInline]
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'slug', 'sku', 'category', 'brand', 'description')
+            'fields': ('uuid', 'name', 'slug', 'sku', 'category', 'brand', 'description')
         }),
         ('Pricing and Stock', {
             'fields': ('price', 'discount_price', 'stock')

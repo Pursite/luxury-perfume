@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework_simplejwt.token_blacklist',
     "rest_framework",
+    "django_filters",
     "apps.lib",
     "apps.users",
     "apps.products",
@@ -141,6 +142,7 @@ REST_FRAMEWORK = {
     ],
 
     "DEFAULT_PAGINATION_CLASS": "apps.lib.paginations.CustomPagination",
+    "PAGE_SIZE": 12,
 
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
@@ -150,6 +152,7 @@ REST_FRAMEWORK = {
         "anon": "100/day",
         "user": "1000/day",
         "otp": "1/m",
+        "signup": "5/hour",
     },
 }
 

@@ -65,7 +65,7 @@ class LoginOtpService:
                 msg=f"Login OTP verification failed: Code expired or never requested for {phone_number}")
             raise ValidationError({"otp": "otp code expired or there is no request."})
 
-        if saved_otp != submitted_otp:
+        if not secrets.compare_digest(str(saved_otp), str(submitted_otp)):
             AppLogger.log_security(msg=f"Login OTP verification failed: Wrong code submitted for {phone_number}")
             raise ValidationError({"otp": "invalid otp."})
 

@@ -1,4 +1,6 @@
 import secrets
+
+from django.db import transaction
 from rest_framework.exceptions import ValidationError, AuthenticationFailed
 from apps.lib.loggers import AppLogger
 from apps.lib.cache import RedisCacheService
@@ -44,6 +46,7 @@ class PasswordResetService:
 
 
     @classmethod
+    @transaction.atomic
     def verify_and_reset_password(cls, phone_number: str, submitted_otp: str, new_password: str) -> dict:
         cache_key = f"otp_reset_{phone_number}"
 
@@ -55,7 +58,7 @@ class PasswordResetService:
             )
             raise ValidationError({"otp": "otp code expired or there is no request."})
 
-        if saved_otp != submitted_otp:
+        if not secrets.compare_digest(str(saved_otp), str(submitted_otp)):
             AppLogger.log_security(msg=f"Password reset verification failed: Wrong code submitted for {phone_number}")
             raise ValidationError({"otp": "invalid otp."})
 

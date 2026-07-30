@@ -36,7 +36,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
         regex=r'^09\d{9}$',
         message="Phone number must be entered in the format: '0912345678'."
     )
-    phone_number = models.CharField(validators=[phone_regex], max_length=11, unique=True)
+    phone_number = models.CharField(
+        validators=[phone_regex],
+        max_length=11,
+        unique=True,
+        null=True,
+        blank=True,
+    )
 
     username = models.CharField(max_length=150, unique=True, null=True, blank=True)
 

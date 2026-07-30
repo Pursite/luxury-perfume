@@ -4,6 +4,7 @@ from . import views
 app_name = 'apps.users'
 
 urlpatterns = [
+    path('signup/', views.UserSignupAPIView.as_view(), name='signup'),
     path('signup/send-otp/', views.SendOTPCodeAPIView.as_view(), name='signup_send_otp'),
     path('signup/verify-otp/', views.VerifyOTPAPIView.as_view(), name='signup_verify_otp'),
     path('login/send-otp/', views.SendOtpLoginAPIView.as_view(), name='login_send_otp'),

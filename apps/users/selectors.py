@@ -1,4 +1,6 @@
 from rest_framework.exceptions import AuthenticationFailed
+from typing import Optional
+
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
@@ -11,7 +13,7 @@ class UserSelector:
         return CustomUser.objects.filter(phone_number=phone_number).exists()
 
     @staticmethod
-    def get_user_by_phone(phone_number: str) -> CustomUser:
+    def get_user_by_phone(phone_number: str) -> Optional[CustomUser]:
         try:
             return CustomUser.objects.get(phone_number=phone_number)
         except CustomUser.DoesNotExist:
@@ -27,26 +29,25 @@ class UserSelector:
 
     @staticmethod
     def authenticate_by_username_password(username: str, password: str) -> CustomUser:
+        """Authenticate without disclosing account existence or account state."""
+        generic_error = "Username or password is incorrect."
         try:
             user = CustomUser.objects.get(username=username)
         except CustomUser.DoesNotExist:
-            raise AuthenticationFailed("Username or password is incorrect")
+            raise AuthenticationFailed(generic_error)
 
-        if not user.is_active:
-            raise AuthenticationFailed("Your account is inactive")
+        if not user.has_usable_password() or not user.check_password(password):
+            raise AuthenticationFailed(generic_error)
 
-        if not user.is_profile_complete:
-            raise AuthenticationFailed(
-                "You account is not complete, please complete your account."
-            )
-
-        if not user.check_password(password):
-            raise AuthenticationFailed("Username or password is incorrect")
-
-        if not user.has_usable_password():
-            raise AuthenticationFailed("No usable password defined for this user, please complete your account.")
+        if not user.is_active or not user.is_profile_complete:
+            raise AuthenticationFailed(generic_error)
 
         return user
+
+    @staticmethod
+    def signup_username_exists(*, username: str) -> bool:
+        """Check username availability with a single indexed, case-insensitive query."""
+        return CustomUser.objects.filter(username__iexact=username).exists()
 
     @staticmethod
     def is_username_taken(username: str, exclude_user_id: int = None) -> bool:

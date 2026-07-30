@@ -1,0 +1,154 @@
+from rest_framework import serializers
+
+from apps.products.models import Brand, Category, Product, ProductImage
+
+
+class CategorySummarySerializer(serializers.ModelSerializer):
+    uuid = serializers.UUIDField(source="id", read_only=True)
+
+    class Meta:
+        model = Category
+        fields = ("uuid", "name", "slug")
+
+
+class BrandSummarySerializer(serializers.ModelSerializer):
+    uuid = serializers.UUIDField(source="id", read_only=True)
+
+    class Meta:
+        model = Brand
+        fields = ("uuid", "name", "slug", "country")
+
+
+class ProductImageOutputSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductImage
+        fields = ("id", "image", "is_primary", "display_order")
+        read_only_fields = fields
+
+
+class ProductImageUploadInputSerializer(serializers.Serializer):
+    image = serializers.ImageField()
+    is_primary = serializers.BooleanField(default=False)
+    display_order = serializers.IntegerField(min_value=0, default=0)
+
+
+class ProductListOutputSerializer(serializers.ModelSerializer):
+    category = CategorySummarySerializer(read_only=True)
+    brand = BrandSummarySerializer(read_only=True)
+    primary_image = serializers.SerializerMethodField()
+    final_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "uuid",
+            "name",
+            "slug",
+            "sku",
+            "price",
+            "discount_price",
+            "final_price",
+            "stock",
+            "abv",
+            "volume_ml",
+            "category",
+            "brand",
+            "primary_image",
+            "is_featured",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_primary_image(self, product: Product):
+        images = list(product.images.all())
+        image = next((item for item in images if item.is_primary), None)
+        image = image or (images[0] if images else None)
+        if image is None:
+            return None
+        return ProductImageOutputSerializer(image, context=self.context).data
+
+
+class ProductDetailOutputSerializer(serializers.ModelSerializer):
+    category = CategorySummarySerializer(read_only=True)
+    brand = BrandSummarySerializer(read_only=True)
+    images = ProductImageOutputSerializer(many=True, read_only=True)
+    final_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "uuid",
+            "name",
+            "slug",
+            "sku",
+            "description",
+            "price",
+            "discount_price",
+            "final_price",
+            "stock",
+            "abv",
+            "volume_ml",
+            "country_of_origin",
+            "vintage_year",
+            "ibu",
+            "taste_notes",
+            "serving_temp",
+            "is_active",
+            "is_featured",
+            "category",
+            "brand",
+            "images",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class ProductWriteInputSerializer(serializers.ModelSerializer):
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.filter(is_active=True)
+    )
+    brand = serializers.PrimaryKeyRelatedField(
+        queryset=Brand.objects.all(),
+        allow_null=True,
+        required=False,
+    )
+
+    class Meta:
+        model = Product
+        fields = (
+            "category",
+            "brand",
+            "name",
+            "slug",
+            "sku",
+            "description",
+            "price",
+            "discount_price",
+            "stock",
+            "abv",
+            "volume_ml",
+            "country_of_origin",
+            "vintage_year",
+            "ibu",
+            "taste_notes",
+            "serving_temp",
+            "is_active",
+            "is_featured",
+        )
+
+    def validate(self, attrs):
+        price = attrs.get("price", getattr(self.instance, "price", None))
+        discount_price = attrs.get(
+            "discount_price",
+            getattr(self.instance, "discount_price", None),
+        )
+        if (
+            price is not None
+            and discount_price is not None
+            and discount_price >= price
+        ):
+            raise serializers.ValidationError({
+                "discount_price": "Discount price must be strictly lower than regular price.",
+            })
+        return attrs

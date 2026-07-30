@@ -1,4 +1,4 @@
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 
 class OTPPhoneNumberRateThrottle(SimpleRateThrottle):
     scope = "otp"
@@ -15,3 +15,8 @@ class OTPPhoneNumberRateThrottle(SimpleRateThrottle):
             "scope": self.scope,
             "ident": ident
         }
+
+class SignupRateThrottle(AnonRateThrottle):
+    """A dedicated anonymous registration limit, keyed by client IP."""
+
+    scope = "signup"

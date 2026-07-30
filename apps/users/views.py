@@ -5,12 +5,48 @@ from rest_framework.response import Response
 from rest_framework import status
 from .serializers import PhoneInputSerializer, VerifyOTPInputSerializer, UserPassLoginInputSerializer, \
     UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer, LogoutInputSerializer, \
-    PasswordResetVerifyInputSerializer
+    PasswordResetVerifyInputSerializer, UserSignupInputSerializer, UserSignupOutputSerializer
 from .services.signup_otp_service import SendOTPService
 from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
+from .selectors import UserSelector
+from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
-from ..lib.throttle import OTPPhoneNumberRateThrottle
+from ..lib.loggers import AppLogger
+from ..lib.throttle import OTPPhoneNumberRateThrottle, SignupRateThrottle
+
+
+class UserSignupAPIView(APIView):
+    """Direct, anonymous username/password signup with a dedicated strict throttle."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = (SignupRateThrottle,)
+
+    def post(self, request):
+        serializer = UserSignupInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            user = create_user_service(data=serializer.validated_data)
+        except SignupIdentityConflict:
+            return Response(
+                {
+                    "non_field_errors": [
+                        UserSignupInputSerializer.default_error_message,
+                    ],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        AppLogger.log_activity(msg="User registered with username/password", user=user)
+        output_serializer = UserSignupOutputSerializer(user)
+        return Response(
+            {
+                "user": output_serializer.data,
+                "tokens": UserSelector.generate_tokens_for_user(user),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SendOTPCodeAPIView(APIView):

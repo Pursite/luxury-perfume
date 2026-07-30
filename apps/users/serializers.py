@@ -1,5 +1,7 @@
 import re
 from rest_framework import serializers
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from .models import CustomUser, Address
 from .selectors import UserSelector
@@ -193,3 +195,50 @@ class PasswordResetVerifyInputSerializer(serializers.Serializer):
         max_length=18,
         error_messages={'required': 'enter new password.'}
     )
+
+
+class UserSignupInputSerializer(serializers.Serializer):
+    """Validated input for direct username/password registration only."""
+
+    username = serializers.CharField(
+        min_length=5,
+        max_length=150,
+        validators=[username_regex],
+    )
+    password = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+        min_length=12,
+        max_length=128,
+        style={"input_type": "password"},
+    )
+
+    default_error_message = "Unable to create an account with the provided information."
+
+    def validate_username(self, value):
+        return value.lower()
+
+    def validate(self, attrs):
+        if UserSelector.signup_username_exists(username=attrs["username"]):
+            raise serializers.ValidationError({
+                "non_field_errors": [self.default_error_message],
+            })
+
+        candidate_user = CustomUser(username=attrs["username"])
+        try:
+            password_validation.validate_password(
+                attrs["password"],
+                user=candidate_user,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)}) from exc
+        return attrs
+
+
+class UserSignupOutputSerializer(serializers.ModelSerializer):
+    """Deliberately minimal signup response with no password or PII fields."""
+
+    class Meta:
+        model = CustomUser
+        fields = ("username",)
+        read_only_fields = fields

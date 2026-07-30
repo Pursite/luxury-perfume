@@ -76,6 +76,7 @@ class UserAuthService:
             })
 
     @classmethod
+    @transaction.atomic
     def logout_user(cls, refresh_token: str) -> None:
         try:
             token = RefreshToken(refresh_token)

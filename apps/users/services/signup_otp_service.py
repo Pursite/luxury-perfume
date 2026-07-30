@@ -1,5 +1,6 @@
 import secrets
 
+from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
 from apps.lib.cache import RedisCacheService
@@ -45,6 +46,7 @@ class SendOTPService:
 
 
     @classmethod
+    @transaction.atomic
     def verify_signup_otp(cls, phone_number: str, submitted_otp: str) -> dict:
         cache_key = f"otp_signup_{phone_number}"
 
@@ -54,7 +56,7 @@ class SendOTPService:
             AppLogger.log_security(msg=f"OTP verification failed: Code expired or never requested for {phone_number}")
             raise ValidationError({"otp": f"otp code expired or never requested for {phone_number}."})
 
-        if saved_otp != submitted_otp:
+        if not secrets.compare_digest(str(saved_otp), str(submitted_otp)):
             raise ValidationError({"otp": "otp code is wrong."})
 
         if UserSelector.check_user_exists_by_phone(phone_number):
