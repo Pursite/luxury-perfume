@@ -1,5 +1,4 @@
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -13,7 +12,12 @@ from .selectors import UserSelector
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
 from ..lib.loggers import AppLogger
-from ..lib.throttle import OTPPhoneNumberRateThrottle, SignupRateThrottle
+from ..lib.throttle import (
+    OTPPhoneNumberRateThrottle,
+    OTPVerificationRateThrottle,
+    PasswordLoginRateThrottle,
+    SignupRateThrottle,
+)
 
 
 class UserSignupAPIView(APIView):
@@ -67,6 +71,7 @@ class SendOTPCodeAPIView(APIView):
 
 class VerifyOTPAPIView(APIView):
     permission_classes = (AllowAny,)
+    throttle_classes = (OTPVerificationRateThrottle,)
 
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
@@ -85,7 +90,7 @@ class VerifyOTPAPIView(APIView):
 
 
 class LoginWithUserPassAPIView(APIView):
-    throttle_classes = [AnonRateThrottle]
+    throttle_classes = (PasswordLoginRateThrottle,)
     permission_classes = (AllowAny,)
 
     def post(self, request):
@@ -119,6 +124,7 @@ class SendOtpLoginAPIView(APIView):
 
 class LoginWithOTPCodeAPIView(APIView):
     permission_classes = (AllowAny,)
+    throttle_classes = (OTPVerificationRateThrottle,)
 
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
@@ -172,13 +178,10 @@ class UserProfileUpdateAPIView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        try:
-            updated_user = UserAuthService.update_user_profile(
-                user=request.user,
-                validated_data=serializer.validated_data
-            )
-        except Exception:
-            return Response({"error": "something happened back in servers"}, status=status.HTTP_400_BAD_REQUEST)
+        updated_user = UserAuthService.update_user_profile(
+            user=request.user,
+            validated_data=serializer.validated_data
+        )
 
         output_serializer = UserOutputSerializer(updated_user)
 
@@ -224,6 +227,7 @@ class SendPasswordResetOtpAPIView(APIView):
 
 class VerifyAndResetPasswordAPIView(APIView):
     permission_classes = (AllowAny,)
+    throttle_classes = (OTPVerificationRateThrottle,)
 
     def post(self, request):
         serializer = PasswordResetVerifyInputSerializer(data=request.data)

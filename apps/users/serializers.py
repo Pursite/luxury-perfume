@@ -63,6 +63,9 @@ class UserPassLoginInputSerializer(serializers.Serializer):
         error_messages={'required': 'password is required.'}
     )
 
+    def validate_username(self, value):
+        return CustomUser.normalize_username(value)
+
 
 class AddressSerializer(serializers.ModelSerializer):
     class Meta:
@@ -116,6 +119,7 @@ class CompleteProfileInputSerializer(serializers.Serializer):
 
     def validate_username(self, value):
         user = self.context['request'].user
+        value = CustomUser.normalize_username(value)
         if UserSelector.is_username_taken(username=value, exclude_user_id=user.pk):
             raise serializers.ValidationError("this user is already taken.")
         return value
@@ -172,6 +176,7 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
 
     def validate_username(self, value):
         user = self.context['request'].user
+        value = CustomUser.normalize_username(value)
         if UserSelector.is_username_taken(username=value, exclude_user_id=user.pk):
             raise serializers.ValidationError("this username is already taken.")
         return value
@@ -216,7 +221,7 @@ class UserSignupInputSerializer(serializers.Serializer):
     default_error_message = "Unable to create an account with the provided information."
 
     def validate_username(self, value):
-        return value.lower()
+        return CustomUser.normalize_username(value)
 
     def validate(self, attrs):
         if UserSelector.signup_username_exists(username=attrs["username"]):

@@ -48,15 +48,16 @@ class TestSignupOTPFlow:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "phone_number" in response.data
 
-    def test_send_otp_user_already_exists(self, api_client):
-        """Failure path: Attempting to register an already existing phone number returns 400."""
+    def test_send_otp_existing_phone_uses_the_same_generic_response(self, api_client):
+        """Signup OTP requests must not disclose whether a phone already has an account."""
         existing_phone = "09129998877"
         UserFactory(phone_number=existing_phone)
 
         payload = {"phone_number": existing_phone}
         response = api_client.post(self.SEND_OTP_URL, data=payload, format='json')
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["message"] == "Verification code sent successfully."
 
     @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
     def test_send_otp_throttling(self, api_client, mocker):
@@ -119,4 +120,3 @@ class TestSignupOTPFlow:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "otp" in response.data
-

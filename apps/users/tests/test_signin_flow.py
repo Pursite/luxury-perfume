@@ -51,6 +51,21 @@ class TestSigninFlow:
         assert "tokens" in response.data
         assert response.data["tokens"]["access"] == "fake-access-token"
 
+    def test_login_user_pass_allows_an_incomplete_active_password_user(self, api_client):
+        user = UserFactory(username="new_password_user")
+        user.set_password("SecurePass123!")
+        user.save()
+        assert user.is_profile_complete is False
+
+        response = api_client.post(
+            self.LOGIN_USER_PASS_URL,
+            data={"username": "NEW_PASSWORD_USER", "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.data["tokens"]) == {"access", "refresh"}
+
     def test_login_user_pass_invalid_credentials(self, api_client, mocker):
         """Failure path: Invalid credentials or incomplete profile raises AuthenticationFailed."""
         mocker.patch(

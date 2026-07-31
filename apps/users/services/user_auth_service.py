@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
 from apps.lib.loggers import AppLogger
 from ..models import CustomUser, Address
@@ -18,7 +18,6 @@ class UserAuthService:
                     setattr(user, attr, value)
 
                 user.set_password(password)
-
                 user.is_active = True
                 user.save()
 
@@ -28,22 +27,17 @@ class UserAuthService:
                     full_address=address_data['full_address'],
                     postal_code=address_data.get('postal_code')
                 )
-
-            AppLogger.log_activity(
-                msg=f"User {user.phone_number} successfully completed profile and added first address.",
-                user=user,
-                status="INFO"
-            )
-            return user
-
-        except Exception as e:
-            AppLogger.log_system_error(
-                msg=f"Failed to complete profile for user {user.id}: {str(e)}",
-                include_traceback=True
-            )
+        except IntegrityError as exc:
             raise ValidationError({
-                "non_field_errors": ["unknown error."]
-            })
+                "non_field_errors": ["Unable to update the profile with the provided information."],
+            }) from exc
+
+        AppLogger.log_activity(
+            msg=f"User {user.phone_number} successfully completed profile and added first address.",
+            user=user,
+            status="INFO"
+        )
+        return user
 
     @classmethod
     def update_user_profile(cls, user: CustomUser, validated_data: dict) -> CustomUser:
@@ -58,22 +52,17 @@ class UserAuthService:
                     setattr(user, attr, value)
 
                 user.save()
-
-            AppLogger.log_activity(
-                msg=f"User {user.phone_number} successfully updated their profile info.",
-                user=user,
-                status="INFO"
-            )
-            return user
-
-        except Exception as e:
-            AppLogger.log_system_error(
-                msg=f"Failed to update profile for user {user.id}: {str(e)}",
-                include_traceback=True
-            )
+        except IntegrityError as exc:
             raise ValidationError({
-                "non_field_errors": ["unknown error."]
-            })
+                "non_field_errors": ["Unable to update the profile with the provided information."],
+            }) from exc
+
+        AppLogger.log_activity(
+            msg=f"User {user.phone_number} successfully updated their profile info.",
+            user=user,
+            status="INFO"
+        )
+        return user
 
     @classmethod
     @transaction.atomic

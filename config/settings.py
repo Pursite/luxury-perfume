@@ -134,7 +134,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
-        # TODO: Prefer IsAuthenticated globally once every public endpoint is explicitly marked AllowAny.
+        "rest_framework.permissions.IsAuthenticated",
     ],
 
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -149,10 +149,12 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/day",
-        "user": "1000/day",
-        "otp": "1/m",
-        "signup": "5/hour",
+        "anon": env("AUTH_ANON_THROTTLE_RATE", default="100/day"),
+        "user": env("AUTH_USER_THROTTLE_RATE", default="1000/day"),
+        "otp": env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
+        "otp_verify": env("OTP_VERIFY_THROTTLE_RATE", default="10/m"),
+        "signup": env("SIGNUP_THROTTLE_RATE", default="5/hour"),
+        "login": env("PASSWORD_LOGIN_THROTTLE_RATE", default="10/m"),
     },
 }
 
@@ -254,12 +256,23 @@ CACHES = {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "IGNORE_EXCEPTIONS": True,
         }
-    }
+    },
+    "security": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": env("REDIS_URL"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+    },
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ACCESS_TOKEN_LIFETIME": timedelta(
+        minutes=env.int("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", default=20)
+    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(
+        days=env.int("JWT_REFRESH_TOKEN_LIFETIME_DAYS", default=30)
+    ),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
@@ -269,6 +282,11 @@ SIMPLE_JWT = {
 }
 
 CACHE_TTL = 60 * 10
+OTP_EXPIRY_SECONDS = env.int("OTP_EXPIRY_SECONDS", default=120)
+OTP_VERIFICATION_MAX_ATTEMPTS = env.int("OTP_VERIFICATION_MAX_ATTEMPTS", default=5)
+OTP_VERIFICATION_LOCK_SECONDS = env.int("OTP_VERIFICATION_LOCK_SECONDS", default=300)
+PASSWORD_LOGIN_MAX_ATTEMPTS = env.int("PASSWORD_LOGIN_MAX_ATTEMPTS", default=5)
+PASSWORD_LOGIN_LOCK_SECONDS = env.int("PASSWORD_LOGIN_LOCK_SECONDS", default=300)
 
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")

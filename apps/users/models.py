@@ -5,16 +5,20 @@ from apps.lib.basemodel import BaseModel
 
 
 class CustomUserManager(BaseUserManager):
-    def create_user(self, phone_number, **extra_fields):
-        if not phone_number:
-            raise ValueError("Phone number is required.")
-
+    def create_user(self, phone_number=None, password=None, **extra_fields):
         user = self.model(phone_number=phone_number, **extra_fields)
-        user.set_unusable_password()
+        user.normalize_identities()
+        if user.is_active and not user.has_identity:
+            raise ValueError("An active user must have a username or phone number.")
+
+        if password is None:
+            user.set_unusable_password()
+        else:
+            user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, phone_number, password=None, **extra_fields):
+    def create_superuser(self, phone_number=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
 
@@ -25,10 +29,7 @@ class CustomUserManager(BaseUserManager):
         if not password:
             raise ValueError("Superuser must have a password.")
 
-        user = self.create_user(phone_number, **extra_fields)
-        user.set_password(password)
-        user.save(using=self._db)
-        return user
+        return self.create_user(phone_number, password=password, **extra_fields)
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
@@ -58,8 +59,58 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
     USERNAME_FIELD = 'phone_number'
     REQUIRED_FIELDS = []
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_active=False)
+                    | (models.Q(username__isnull=False) & ~models.Q(username=""))
+                    | (models.Q(phone_number__isnull=False) & ~models.Q(phone_number=""))
+                ),
+                name="users_active_user_requires_identity",
+            ),
+        ]
+
+    @staticmethod
+    def normalize_username(value):
+        if value is None:
+            return None
+        # Preserve stored casing for legacy and user-facing compatibility.  Lookup
+        # and availability checks are deliberately case-insensitive instead.
+        value = value.strip()
+        return value or None
+
+    @staticmethod
+    def normalize_phone_number(value):
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    def normalize_identities(self):
+        self.username = self.normalize_username(self.username)
+        self.phone_number = self.normalize_phone_number(self.phone_number)
+
+    @property
+    def has_identity(self):
+        return bool(self.username or self.phone_number)
+
+    def clean(self):
+        super().clean()
+        self.normalize_identities()
+        if self.is_active and not self.has_identity:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({
+                "__all__": "An active user must have a username or phone number.",
+            })
+
+    def save(self, *args, **kwargs):
+        self.normalize_identities()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
-        return self.username if self.username else self.phone_number
+        return self.username or self.phone_number or str(self.pk or "user")
 
     @property
     def is_profile_complete(self):
@@ -75,5 +126,4 @@ class Address(BaseModel):
     postal_code = models.CharField(max_length=10, blank=True, null=True)
 
     def __str__(self):
-        identifier = self.user.username if self.user.username else self.user.phone_number
-        return f"{identifier} - {self.title}"
+        return f"{self.user} - {self.title}"

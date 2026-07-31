@@ -24,7 +24,6 @@ pillow==12.3.0
 pluggy==1.6.0
 prompt_toolkit==3.0.52
 psycopg==3.3.4
-psycopg-binary==3.3.4
 Pygments==2.20.0
 PyJWT==2.13.0
 pytest==9.1.1

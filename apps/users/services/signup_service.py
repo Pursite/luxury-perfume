@@ -13,9 +13,10 @@ class SignupIdentityConflict(Exception):
 def create_user_service(*, data: dict[str, Any]) -> CustomUser:
     """Create an active password user without exposing uniqueness race details."""
     try:
-        user = CustomUser(username=data["username"])
-        user.set_password(data["password"])
-        user.save()
+        user = CustomUser.objects.create_user(
+            username=data["username"],
+            password=data["password"],
+        )
     except IntegrityError as exc:
         raise SignupIdentityConflict from exc
     return user

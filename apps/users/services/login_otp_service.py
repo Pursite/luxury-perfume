@@ -1,20 +1,42 @@
 import secrets
 
 from rest_framework.exceptions import ValidationError, AuthenticationFailed
+from apps.lib.security_cache import OTPVerificationGuard, PasswordLoginGuard
 from apps.lib.loggers import AppLogger
 from ..selectors import UserSelector
 from ..tasks import send_otp_sms_task
-from ...lib.cache import RedisCacheService
+from ..models import CustomUser
 
 
 class LoginOtpService:
+    purpose = "login"
+    generic_otp_error = {"otp": "Invalid or expired verification code."}
     @staticmethod
     def _generate_otp_code() -> str:
         return f"{secrets.randbelow(900000) + 100000:06d}"
 
     @classmethod
+    def _guard(cls, phone_number: str) -> OTPVerificationGuard:
+        return OTPVerificationGuard(cls.purpose, CustomUser.normalize_phone_number(phone_number))
+
+    @classmethod
+    def _attempt_key(cls, phone_number: str) -> str:
+        return cls._guard(phone_number).attempts_key
+
+    @classmethod
     def login_with_username_password(cls, username: str, password: str) -> dict:
-        user = UserSelector.authenticate_by_username_password(username=username, password=password)
+        username = CustomUser.normalize_username(username)
+        guard = PasswordLoginGuard(username)
+        guard.ensure_unlocked()
+        try:
+            user = UserSelector.authenticate_by_username_password(
+                username=username,
+                password=password,
+            )
+        except AuthenticationFailed:
+            guard.record_failure()
+            raise
+        guard.clear()
 
         tokens = UserSelector.generate_tokens_for_user(user)
 
@@ -27,56 +49,38 @@ class LoginOtpService:
 
     @classmethod
     def send_login_otp(cls, phone_number: str) -> dict:
+        phone_number = CustomUser.normalize_phone_number(phone_number)
         user_exists = UserSelector.check_user_exists_by_phone(phone_number)
         if not user_exists:
             AppLogger.log_security(msg=f"Login OTP requested for non-existent phone: {phone_number}")
-            raise ValidationError({
-                "phone_number": "no user found with this phone number."
-            })
+            return cls._request_response()
 
         otp_code = cls._generate_otp_code()
-
-        cache_key = f"otp_login_{phone_number}"
-        cache_success = RedisCacheService.set(cache_key, otp_code, timeout=120)
-
-        if not cache_success:
-            AppLogger.log_system_error(f"Redis operation failed during login OTP generation for: {phone_number}")
-            raise ValidationError({
-                "system": "please try again later."
-            })
+        cls._guard(phone_number).store_code(otp_code)
 
         send_otp_sms_task.delay(phone_number, otp_code)
 
         AppLogger.log_activity(msg=f"Login OTP token generated and queued via Celery", status="INFO")
 
+        return cls._request_response()
+
+    @staticmethod
+    def _request_response() -> dict:
+        from django.conf import settings
+
         return {
             "message": "otp code successfully sent.",
-            "expires_in": 120
+            "expires_in": settings.OTP_EXPIRY_SECONDS,
         }
 
     @classmethod
     def verify_login_otp(cls, phone_number: str, submitted_otp: str) -> dict:
-        cache_key = f"otp_login_{phone_number}"
-
-        saved_otp = RedisCacheService.get(cache_key)
-
-        if not saved_otp:
-            AppLogger.log_security(
-                msg=f"Login OTP verification failed: Code expired or never requested for {phone_number}")
-            raise ValidationError({"otp": "otp code expired or there is no request."})
-
-        if not secrets.compare_digest(str(saved_otp), str(submitted_otp)):
-            AppLogger.log_security(msg=f"Login OTP verification failed: Wrong code submitted for {phone_number}")
-            raise ValidationError({"otp": "invalid otp."})
+        phone_number = CustomUser.normalize_phone_number(phone_number)
+        cls._guard(phone_number).verify(submitted_otp)
 
         user = UserSelector.get_user_by_phone(phone_number)
-        if not user:
-            raise ValidationError({"phone_number": "no user found."})
-
-        if not user.is_active:
-            raise AuthenticationFailed("your account is deactivated.")
-
-        RedisCacheService.delete(cache_key)
+        if not user or not user.is_active:
+            raise ValidationError(cls.generic_otp_error)
 
         tokens = UserSelector.generate_tokens_for_user(user)
 

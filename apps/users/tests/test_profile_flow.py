@@ -127,18 +127,16 @@ class TestProfileFlow:
         user.refresh_from_db()
         assert user.check_password("NewStrongPass123!@") is True
 
-    def test_update_profile_service_exception(self, api_client, mocker):
-        """Failure path: Simulating a DB/Transaction error in the service layer."""
+    def test_update_profile_does_not_mask_unexpected_service_errors(self, api_client, mocker):
+        """Unexpected failures remain visible to Django's error handling."""
         user = UserFactory()
         api_client.force_authenticate(user=user)
 
         mocker.patch(
             'apps.users.services.user_auth_service.UserAuthService.update_user_profile',
-            side_effect=Exception("Database connection lost.")
+            side_effect=RuntimeError("Database connection lost.")
         )
 
         payload = {"first_name": "Test"}
-
-
-        response = api_client.patch(self.UPDATE_PROFILE_URL, data=payload, format='json')
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        with pytest.raises(RuntimeError, match="Database connection lost"):
+            api_client.patch(self.UPDATE_PROFILE_URL, data=payload, format='json')

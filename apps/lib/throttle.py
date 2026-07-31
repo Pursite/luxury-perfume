@@ -16,6 +16,14 @@ class OTPPhoneNumberRateThrottle(SimpleRateThrottle):
             "ident": ident
         }
 
+
+class OTPVerificationRateThrottle(OTPPhoneNumberRateThrottle):
+    scope = "otp_verify"
+
+
+class PasswordLoginRateThrottle(AnonRateThrottle):
+    scope = "login"
+
 class SignupRateThrottle(AnonRateThrottle):
     """A dedicated anonymous registration limit, keyed by client IP."""
 

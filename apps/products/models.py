@@ -30,6 +30,25 @@ class Category(BaseModel):
     def __str__(self) -> str:
         return self.name
 
+    def clean(self) -> None:
+        super().clean()
+        if not self.parent_id:
+            return
+
+        current = self.parent
+        visited_ids = set()
+        while current is not None:
+            if current.pk == self.pk or current.pk in visited_ids:
+                raise ValidationError({"parent": "A category cannot be its own ancestor."})
+            visited_ids.add(current.pk)
+            current = current.parent
+
+    def save(self, *args, **kwargs):
+        # Category writes have no dedicated service path, so enforce hierarchy
+        # integrity for normal model/admin saves as well as form validation.
+        self.clean()
+        return super().save(*args, **kwargs)
+
 
 class Brand(BaseModel):
     name = models.CharField(max_length=100)

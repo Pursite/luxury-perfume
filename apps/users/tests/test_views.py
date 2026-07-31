@@ -55,7 +55,7 @@ class TestUserSignupAPIView:
         assert "phone_number" not in response.data["user"]
         assert "email" not in response.data["user"]
 
-    def test_new_signup_cannot_use_password_login_until_profile_completion(
+    def test_new_signup_can_immediately_use_password_login(
         self,
         api_client,
         signup_payload,
@@ -63,11 +63,17 @@ class TestUserSignupAPIView:
         response = api_client.post(self.url, signup_payload, format="json")
         assert response.status_code == status.HTTP_201_CREATED
 
-        with pytest.raises(AuthenticationFailed, match="Username or password is incorrect"):
-            UserSelector.authenticate_by_username_password(
-                username=signup_payload["username"],
-                password=signup_payload["password"],
-            )
+        login_response = api_client.post(
+            reverse("apps.users:login_password"),
+            {
+                "username": signup_payload["username"],
+                "password": signup_payload["password"],
+            },
+            format="json",
+        )
+
+        assert login_response.status_code == status.HTTP_200_OK
+        assert set(login_response.data["tokens"]) == {"access", "refresh"}
 
     def test_duplicate_username_returns_generic_non_enumerating_error(
         self,
@@ -83,6 +89,23 @@ class TestUserSignupAPIView:
         assert "Unable to create an account" in str(response.data["non_field_errors"])
         assert "username" not in response.data
         assert "email" not in response.data
+
+    def test_case_variant_of_legacy_username_returns_generic_conflict(
+        self,
+        api_client,
+        signup_payload,
+    ):
+        user = UserFactory(username="legacy_customer")
+        CustomUser.objects.filter(pk=user.pk).update(username="Legacy_Customer")
+
+        response = api_client.post(
+            self.url,
+            {**signup_payload, "username": "LEGACY_CUSTOMER"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert set(response.data) == {"non_field_errors"}
 
     def test_weak_password_is_rejected_by_django_password_validators(
         self,
@@ -150,3 +173,19 @@ def test_password_login_does_not_disclose_inactive_account_state():
             username=user.username,
             password="CorrectHorseBatteryStaple42!",
         )
+
+
+@pytest.mark.django_db
+def test_password_login_supports_legacy_mixed_case_username():
+    user = CustomUser.objects.create_user(
+        username="legacy_customer",
+        password="CorrectHorseBatteryStaple42!",
+    )
+    CustomUser.objects.filter(pk=user.pk).update(username="Legacy_Customer")
+
+    authenticated = UserSelector.authenticate_by_username_password(
+        username="legacy_customer",
+        password="CorrectHorseBatteryStaple42!",
+    )
+
+    assert authenticated.pk == user.pk
