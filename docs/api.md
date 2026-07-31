@@ -1,817 +1,94 @@
-````markdown
-# API Reference
+# API reference
 
-## Overview
+## Conventions
 
-The API is versioned under:
-
-```text
-/api/v1/
-````
-
-Current API domains:
-
-```text
-/api/v1/users/
-/api/v1/products/
-```
-
-The project uses JSON for normal request and response bodies.
-
-Product image uploads use multipart form data.
-
-JWT access tokens must be sent using:
+All routes are under `/api/v1/`. Normal bodies are JSON. Send an access token for protected endpoints:
 
 ```http
 Authorization: Bearer <access-token>
 ```
 
----
-
-# Authentication
-
-## Username and Password Signup
-
-```http
-POST /api/v1/users/signup/
-```
-
-Creates a user with username/password credentials and returns JWT tokens.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "username": "armin",
-  "password": "strong-password",
-  "email": "armin@example.com"
-}
-```
-
-### Success
-
-```text
-201 Created
-```
-
-The response includes:
-
-* created user data
-* access token
-* refresh token
-
-Exact response fields follow the current signup output serializers and must remain backward-compatible.
-
----
-
-## Send Signup OTP
-
-```http
-POST /api/v1/users/signup/send-otp/
-```
-
-Requests an OTP for phone-based signup.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "otp code successfully sent.",
-  "expires_in": 120
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-This endpoint is throttled.
-
----
-
-## Verify Signup OTP
-
-```http
-POST /api/v1/users/signup/verify-otp/
-```
-
-Verifies a signup OTP and completes the phone-based signup flow.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789",
-  "otp": "123456"
-}
-```
-
-### Success
-
-```text
-201 Created
-```
-
-Invalid, expired, reused, or locked OTP attempts return validation or throttle errors.
-
----
-
-## Username and Password Login
-
-```http
-POST /api/v1/users/login/userpass/
-```
-
-Authenticates a user using username and password.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "username": "armin",
-  "password": "strong-password"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "successfully logged in.",
-  "tokens": {
-    "refresh": "<refresh-token>",
-    "access": "<access-token>"
-  }
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-Repeated failed attempts may return:
-
-```text
-429 Too Many Requests
-```
-
-Authentication failures use a generic response and do not reveal whether the username exists.
-
----
-
-## Send Login OTP
-
-```http
-POST /api/v1/users/login/send-otp/
-```
-
-Requests an OTP for phone-based login.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "otp code successfully sent.",
-  "expires_in": 120
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-The response is intentionally generic and does not confirm whether the phone number belongs to an account.
-
----
-
-## Verify Login OTP
-
-```http
-POST /api/v1/users/login/verify-otp/
-```
-
-Verifies a login OTP and returns JWT tokens.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789",
-  "otp": "123456"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "successfully logged in.",
-  "tokens": {
-    "refresh": "<refresh-token>",
-    "access": "<access-token>"
-  }
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
----
-
-## Complete Profile
-
-```http
-POST /api/v1/users/profile/complete/
-```
-
-Completes profile information for the authenticated user.
-
-### Authentication
-
-Required.
-
-### Headers
-
-```http
-Authorization: Bearer <access-token>
-Content-Type: application/json
-```
-
-### Success
-
-```text
-200 OK
-```
-
-Profile completion is informational and does not control login eligibility.
-
----
-
-## Update Profile
-
-```http
-PATCH /api/v1/users/profile/update/
-```
-
-Partially updates the authenticated user's profile.
-
-### Authentication
-
-Required.
-
-### Headers
-
-```http
-Authorization: Bearer <access-token>
-Content-Type: application/json
-```
-
-### Example request
-
-```json
-{
-  "first_name": "Armin",
-  "last_name": "Example",
-  "email": "armin@example.com"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "your profile is successfully updated.",
-  "data": {
-    "...": "serialized user fields"
-  }
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
----
-
-## Logout
-
-```http
-POST /api/v1/users/logout/
-```
-
-Blacklists a refresh token.
-
-### Authentication
-
-Required.
-
-### Example request
-
-```json
-{
-  "refresh": "<refresh-token>"
-}
-```
-
-### Example success response
-
-```json
-{
-  "message": "successfully logged out."
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-The access token remains usable until its normal expiry.
-
----
-
-## Send Password Reset OTP
-
-```http
-POST /api/v1/users/password-reset/send-otp/
-```
-
-Requests an OTP for password reset.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789"
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-The response must remain generic and must not reveal whether the account exists.
-
----
-
-## Verify OTP and Reset Password
-
-```http
-POST /api/v1/users/password-reset/verify-and-reset/
-```
-
-Verifies the OTP and replaces the account password.
-
-### Authentication
-
-Public.
-
-### Example request
-
-```json
-{
-  "phone_number": "09123456789",
-  "otp": "123456",
-  "password": "new-strong-password"
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
-The new password is stored using Django's password hashing system.
-
----
-
-# Products
-
-## List Products
-
-```http
-GET /api/v1/products/
-```
-
-Returns the public product catalogue.
-
-### Authentication
-
-Not required.
-
-Authenticated requests are also supported.
-
-### Query behavior
-
-The endpoint supports pagination and may support search, filtering, and ordering according to the current selector and filter configuration.
-
-Configured searchable fields include:
-
-```text
-name
-sku
-description
-taste_notes
-brand name
-category name
-```
-
-Configured ordering fields include:
-
-```text
-price
-created_at
-abv
-stock
-name
-volume_ml
-```
-
-Default ordering:
-
-```text
--created_at
-```
-
-### Success
-
-```text
-200 OK
-```
-
-### Response
-
-Returns a paginated product list.
-
-Anonymous responses may be served from Redis cache.
-
----
-
-## Create Product
-
-```http
-POST /api/v1/products/
-```
-
-Creates a product.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Headers
-
-```http
-Authorization: Bearer <access-token>
-Content-Type: application/json
-```
-
-### Success
-
-```text
-201 Created
-```
-
-The request body is validated through `ProductWriteInputSerializer`.
-
-Non-admin users receive a permission error.
-
----
-
-## Retrieve Product
-
-```http
-GET /api/v1/products/<product_uuid>/
-```
-
-Returns product details by UUID.
-
-### Authentication
-
-Not required.
-
-### Example
-
-```http
-GET /api/v1/products/123e4567-e89b-12d3-a456-426614174000/
-```
-
-### Success
-
-```text
-200 OK
-```
-
-Anonymous responses may be served from Redis cache.
-
-Staff users may be able to retrieve inactive products according to the current selector behavior.
-
----
-
-## Replace Product
-
-```http
-PUT /api/v1/products/<product_uuid>/
-```
-
-Fully updates a product.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Success
-
-```text
-200 OK
-```
-
----
-
-## Partially Update Product
-
-```http
-PATCH /api/v1/products/<product_uuid>/
-```
-
-Partially updates a product.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Example request
-
-```json
-{
-  "price": "1250000.00",
-  "stock": 20
-}
-```
-
-### Success
-
-```text
-200 OK
-```
-
----
-
-## Delete Product
-
-```http
-DELETE /api/v1/products/<product_uuid>/
-```
-
-Deletes a product according to the current product service behavior.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Success
-
-```text
-204 No Content
-```
-
----
-
-## Upload Product Image
-
-```http
-POST /api/v1/products/<product_uuid>/images/upload/
-```
-
-Uploads an image for a product.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Content type
-
-```http
-multipart/form-data
-```
-
-### Form fields
-
-```text
-image
-is_primary
-display_order
-```
-
-### Example
-
-```text
-image=<binary file>
-is_primary=true
-display_order=0
-```
-
-### Accepted image formats
-
-```text
-JPEG
-PNG
-WebP
-```
-
-The upload validator checks:
-
-* file size
-* MIME type
-* real image content
-* MIME/content consistency
-* image dimensions
-* corrupt files
-* decompression-bomb warnings
-* safe filename generation
-
-### Success
-
-```text
-201 Created
-```
-
----
-
-## Delete Product Image
-
-```http
-DELETE /api/v1/products/images/<image_id>/
-```
-
-Deletes a product image by its numeric internal ID.
-
-### Authentication
-
-Authenticated administrator/staff access required.
-
-### Example
-
-```http
-DELETE /api/v1/products/images/12/
-```
-
-### Success
-
-```text
-204 No Content
-```
-
----
-
-# Permissions Summary
-
-| Endpoint group               | Public | Authenticated user | Admin/staff |
-| ---------------------------- | -----: | -----------------: | ----------: |
-| Signup and login             |    Yes |                Yes |         Yes |
-| Password reset               |    Yes |                Yes |         Yes |
-| Profile operations           |     No |                Yes |         Yes |
-| Logout                       |     No |                Yes |         Yes |
-| Product list/detail          |    Yes |                Yes |         Yes |
-| Product create/update/delete |     No |                 No |         Yes |
-| Product image upload/delete  |     No |                 No |         Yes |
-
----
-
-# Common Status Codes
-
-```text
-200 OK
-201 Created
-204 No Content
-400 Bad Request
-401 Unauthorized
-403 Forbidden
-404 Not Found
-429 Too Many Requests
-503 Service Unavailable
-```
-
-## `400 Bad Request`
-
-Used for invalid request data, invalid OTP values, validation failures, and identity conflicts.
-
-## `401 Unauthorized`
-
-Used when authentication credentials are missing or invalid.
-
-## `403 Forbidden`
-
-Used when an authenticated user does not have sufficient permission.
-
-## `404 Not Found`
-
-Used when the requested resource does not exist or is not visible to the requester.
-
-## `429 Too Many Requests`
-
-Used for throttling and temporary authentication lockouts.
-
-## `503 Service Unavailable`
-
-Used when authentication protection cannot safely access the security cache.
-
----
-
-# Pagination
-
-Product lists use the project's custom pagination class.
-
-The configured default page size is:
-
-```text
-12
-```
-
-A typical response may contain:
+User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`. Examples with placeholder tokens, UUIDs, or product values are illustrative unless their fields are explicitly listed below.
+
+## Users
+
+| Method and path | Access | Request | Success |
+| --- | --- | --- | --- |
+| `POST /users/signup/` | Public; signup throttle | `username`, `password` | 201; `user.username` and `tokens.refresh`/`tokens.access` |
+| `POST /users/signup/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
+| `POST /users/signup/verify-otp/` | Public; OTP verification throttle | `phone_number`, `otp` | 201; message and tokens |
+| `POST /users/login/userpass/` | Public; password-login throttle | `username`, `password` | 200; message and tokens |
+| `POST /users/login/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
+| `POST /users/login/verify-otp/` | Public; OTP verification throttle | `phone_number`, `otp` | 200; message and tokens |
+| `POST /users/profile/complete/` | Authenticated | `username`, `password`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
+| `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `first_name`, `last_name`, `password` | 200; message and serialized user in `data` |
+| `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
+| `POST /users/password-reset/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
+| `POST /users/password-reset/verify-and-reset/` | Public; OTP verification throttle | `phone_number`, `otp`, `password` | 200; message and tokens |
+
+All user endpoint paths in this section are relative to `/api/v1/users/`. `phone_number` must match `09` followed by nine digits, such as `09123456789`. OTPs must be six characters. Detailed security behavior is in [authentication.md](authentication.md).
+
+The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
+
+## Products
+
+| Method and path | Access | Request / behavior | Success |
+| --- | --- | --- | --- |
+| `GET /products/` | Public | Lists active products | 200; paginated product list |
+| `POST /products/` | Authenticated staff only | Product write fields | 201; product detail |
+| `GET /products/<product_uuid>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
+| `PUT /products/<product_uuid>/` | Authenticated staff only | Complete product write fields | 200; product detail |
+| `PATCH /products/<product_uuid>/` | Authenticated staff only | Partial product write fields | 200; product detail |
+| `DELETE /products/<product_uuid>/` | Authenticated staff only | — | 204; no body |
+| `POST /products/<product_uuid>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
+| `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
+
+`product_uuid` is a UUID. Product write fields are `category`, optional nullable `brand`, `name`, `slug`, `sku`, `description`, `price`, optional `discount_price`, `stock`, `abv`, `volume_ml`, optional `country_of_origin`, optional `vintage_year`, optional `ibu`, optional `taste_notes`, optional `serving_temp`, `is_active`, and `is_featured`. `category` and `brand` use their UUID primary keys; the category must be active. `discount_price`, when provided, must be lower than `price`.
+
+Product-list output fields are `uuid`, `name`, `slug`, `sku`, `price`, `discount_price`, `final_price`, `stock`, `abv`, `volume_ml`, `category`, `brand`, `primary_image`, `is_featured`, and `created_at`. Detail adds `description`, `country_of_origin`, `vintage_year`, `ibu`, `taste_notes`, `serving_temp`, `is_active`, `images`, and `updated_at`. Category summaries have `uuid`, `name`, and `slug`; brand summaries add `country`. An image object has integer `id`, `image`, `thumbnail`, `is_primary`, and `display_order`.
+
+### Product list query parameters
+
+`GET /api/v1/products/` accepts:
+
+- Pagination: `page` and `page_size` (default 12, maximum 100).
+- Search: `search` across name, SKU, description, taste notes, brand name, and category name.
+- Ordering: `ordering` with `price`, `created_at`, `abv`, `stock`, `name`, or `volume_ml`; prefix a field with `-` for descending order. Default: `-created_at`.
+- Filters: UUID `category`, UUID `brand`, boolean `is_featured`, exact case-insensitive `country_of_origin`, `vintage_year`, `min_price`, `max_price`, `min_abv`, `max_abv`, and boolean `in_stock` (`true` selects stock above zero; `false` selects zero stock).
+
+A paginated response has this exact shape:
 
 ```json
 {
   "count": 25,
-  "next": "http://example.com/api/v1/products/?page=2",
-  "previous": null,
+  "total_pages": 3,
+  "current_page": 1,
+  "page_size": 12,
+  "links": {"next": "<url-or-null>", "previous": null},
   "results": []
 }
 ```
 
-The exact pagination field names follow `CustomPagination`.
+Anonymous product-list and detail responses use the default Redis cache when available. Cache behavior does not change visibility rules.
 
----
+### Image upload
 
-# API Stability
+`POST /api/v1/products/<product_uuid>/images/upload/` requires `multipart/form-data` with:
 
-The following should not change without an explicit compatibility decision:
+- `image` — required JPEG, PNG, or WebP upload.
+- `is_primary` — optional boolean, default `false`.
+- `display_order` — optional non-negative integer, default `0`.
 
-* existing routes
-* HTTP methods
-* JWT token response structure
-* authentication response structure
-* public versus protected endpoint behavior
-* identifier types such as product UUID and image integer ID
+The server checks declared MIME type, decoded image format, MIME/content consistency, corruption, decompression-bomb warnings, a 5 MB maximum size, and a 6000 × 6000 maximum dimension. It generates a safe filename. The image ID returned by this endpoint is the integer needed for the image-delete route.
 
-When new domains are added, they should use the same `/api/v1/` version prefix.
+## Status codes
 
+- `200 OK` — successful reads, login, profile, logout, and password-reset operations.
+- `201 Created` — direct signup, OTP signup verification, product creation, and image upload.
+- `204 No Content` — product or product-image deletion.
+- `400 Bad Request` — serializer validation or generic identity/OTP errors.
+- `401 Unauthorized` — missing/invalid JWT credentials on a protected endpoint, or failed username/password authentication.
+- `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation.
+- `404 Not Found` — unknown or non-visible product/image.
+- `429 Too Many Requests` — a configured throttle, temporary OTP lock, password-login lock, or active verification lease.
+- `503 Service Unavailable` — authentication protection cannot access the security cache safely.
