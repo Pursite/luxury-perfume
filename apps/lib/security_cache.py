@@ -70,9 +70,11 @@ class OTPVerificationGuard:
 class PasswordLoginGuard:
     """Temporarily slow repeated credential guesses without leaking account state."""
 
-    def __init__(self, username: str):
+    def __init__(self, username: str, client_ip: str):
         self.cache = caches["security"]
-        self.prefix = f"security:password-login:{username.casefold()}"
+        self.prefix = (
+            f"security:password-login:{username.casefold()}:ip:{client_ip}"
+        )
 
     @property
     def attempts_key(self):

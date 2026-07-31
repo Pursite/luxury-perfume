@@ -24,9 +24,14 @@ class LoginOtpService:
         return cls._guard(phone_number).attempts_key
 
     @classmethod
-    def login_with_username_password(cls, username: str, password: str) -> dict:
+    def login_with_username_password(
+        cls,
+        username: str,
+        password: str,
+        client_ip: str = "unknown",
+    ) -> dict:
         username = CustomUser.normalize_username(username)
-        guard = PasswordLoginGuard(username)
+        guard = PasswordLoginGuard(username, client_ip)
         guard.ensure_unlocked()
         try:
             user = UserSelector.authenticate_by_username_password(

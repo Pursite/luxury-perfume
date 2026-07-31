@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 from apps.lib.throttle import SignupRateThrottle
 from apps.users.models import CustomUser
 from apps.users.selectors import UserSelector
-from apps.users.services.signup_service import SignupIdentityConflict
+from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
 from apps.users.tests.factories import UserFactory
 
 
@@ -189,3 +189,19 @@ def test_password_login_supports_legacy_mixed_case_username():
     )
 
     assert authenticated.pk == user.pk
+
+
+@pytest.mark.django_db
+def test_signup_service_maps_manager_validation_conflicts_to_generic_conflicts():
+    CustomUser.objects.create_user(
+        username="existing_customer",
+        password="CorrectHorseBatteryStaple42!",
+    )
+
+    with pytest.raises(SignupIdentityConflict):
+        create_user_service(
+            data={
+                "username": "existing_customer",
+                "password": "CorrectHorseBatteryStaple42!",
+            }
+        )

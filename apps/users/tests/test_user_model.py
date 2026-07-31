@@ -1,4 +1,5 @@
 import pytest
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
@@ -36,6 +37,18 @@ class TestCustomUserManager:
         assert phone_user.has_usable_password() is False
         assert both_user.username == "Both_User"
         assert both_user.phone_number == "09123456788"
+
+    def test_create_user_runs_model_validation_for_invalid_phone_numbers(self):
+        with pytest.raises(DjangoValidationError, match="Phone number must be entered"):
+            CustomUser.objects.create_user(phone_number="not-a-phone-number")
+
+    def test_create_user_runs_model_validation_for_invalid_model_fields(self):
+        with pytest.raises(DjangoValidationError, match="Enter a valid email address"):
+            CustomUser.objects.create_user(
+                username="valid_username",
+                email="not-an-email",
+                password="StrongPass123!",
+            )
 
     def test_user_string_has_a_safe_fallback_without_an_identity(self):
         assert str(CustomUser(pk=123)) == "123"

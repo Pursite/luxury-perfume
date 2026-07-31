@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from apps.lib.basemodel import BaseModel
 
@@ -8,13 +9,18 @@ class CustomUserManager(BaseUserManager):
     def create_user(self, phone_number=None, password=None, **extra_fields):
         user = self.model(phone_number=phone_number, **extra_fields)
         user.normalize_identities()
-        if user.is_active and not user.has_identity:
-            raise ValueError("An active user must have a username or phone number.")
 
         if password is None:
             user.set_unusable_password()
         else:
             user.set_password(password)
+        try:
+            user.full_clean()
+        except DjangoValidationError as exc:
+            identity_error = "An active user must have a username or phone number."
+            if identity_error in exc.message_dict.get("__all__", []):
+                raise ValueError(identity_error) from exc
+            raise
         user.save(using=self._db)
         return user
 

@@ -1,5 +1,6 @@
 import secrets
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
 
@@ -61,7 +62,7 @@ class SendOTPService:
                 if UserSelector.check_user_exists_by_phone(phone_number):
                     raise ValidationError(cls.generic_otp_error)
                 user = CustomUser.objects.create_user(phone_number=phone_number)
-        except IntegrityError as exc:
+        except (DjangoValidationError, IntegrityError) as exc:
             raise ValidationError(cls.generic_otp_error) from exc
 
         tokens = UserSelector.generate_tokens_for_user(user)

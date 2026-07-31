@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 
 from apps.users.models import CustomUser
@@ -17,6 +18,6 @@ def create_user_service(*, data: dict[str, Any]) -> CustomUser:
             username=data["username"],
             password=data["password"],
         )
-    except IntegrityError as exc:
+    except (DjangoValidationError, IntegrityError) as exc:
         raise SignupIdentityConflict from exc
     return user

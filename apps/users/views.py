@@ -1,4 +1,5 @@
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -101,7 +102,11 @@ class LoginWithUserPassAPIView(APIView):
         username = serializer.validated_data['username']
         password = serializer.validated_data['password']
 
-        result = LoginOtpService.login_with_username_password(username=username, password=password)
+        result = LoginOtpService.login_with_username_password(
+            username=username,
+            password=password,
+            client_ip=BaseThrottle().get_ident(request),
+        )
 
         return Response(result, status=status.HTTP_200_OK)
 

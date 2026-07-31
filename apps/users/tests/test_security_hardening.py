@@ -140,6 +140,96 @@ def test_password_login_failures_lock_temporarily_and_success_clears_counter(set
 
 
 @pytest.mark.django_db
+def test_password_login_lockout_is_scoped_to_username_and_client_ip(settings):
+    settings.PASSWORD_LOGIN_MAX_ATTEMPTS = 2
+    settings.PASSWORD_LOGIN_LOCK_SECONDS = 60
+    first_user = CustomUser.objects.create_user(
+        username="first_lock_user",
+        password="StrongPass123!",
+    )
+    second_user = CustomUser.objects.create_user(
+        username="second_lock_user",
+        password="OtherStrongPass123!",
+    )
+    first_ip = "198.51.100.10"
+    second_ip = "198.51.100.11"
+
+    for _ in range(2):
+        with pytest.raises(AuthenticationFailed):
+            LoginOtpService.login_with_username_password(
+                first_user.username,
+                "wrong-password",
+                client_ip=first_ip,
+            )
+    with pytest.raises(Throttled):
+        LoginOtpService.login_with_username_password(
+            first_user.username,
+            "wrong-password",
+            client_ip=first_ip,
+        )
+
+    assert LoginOtpService.login_with_username_password(
+        first_user.username,
+        "StrongPass123!",
+        client_ip=second_ip,
+    )["tokens"]
+    assert LoginOtpService.login_with_username_password(
+        second_user.username,
+        "OtherStrongPass123!",
+        client_ip=first_ip,
+    )["tokens"]
+
+
+@pytest.mark.django_db
+def test_password_login_success_clears_only_matching_username_ip_counter(settings):
+    settings.PASSWORD_LOGIN_MAX_ATTEMPTS = 2
+    settings.PASSWORD_LOGIN_LOCK_SECONDS = 60
+    first_user = CustomUser.objects.create_user(
+        username="clear_first_user",
+        password="StrongPass123!",
+    )
+    second_user = CustomUser.objects.create_user(
+        username="clear_second_user",
+        password="OtherStrongPass123!",
+    )
+    client_ip = "203.0.113.15"
+
+    for user in (first_user, second_user):
+        with pytest.raises(AuthenticationFailed):
+            LoginOtpService.login_with_username_password(
+                user.username,
+                "wrong-password",
+                client_ip=client_ip,
+            )
+
+    assert LoginOtpService.login_with_username_password(
+        first_user.username,
+        "StrongPass123!",
+        client_ip=client_ip,
+    )["tokens"]
+
+    with pytest.raises(AuthenticationFailed):
+        LoginOtpService.login_with_username_password(
+            second_user.username,
+            "wrong-password",
+            client_ip=client_ip,
+        )
+    with pytest.raises(Throttled):
+        LoginOtpService.login_with_username_password(
+            second_user.username,
+            "wrong-password",
+            client_ip=client_ip,
+        )
+
+    with pytest.raises(AuthenticationFailed):
+        LoginOtpService.login_with_username_password(
+            first_user.username,
+            "wrong-password",
+            client_ip=client_ip,
+        )
+
+
+@pytest.mark.django_db
 def test_protected_profile_rejects_anonymous_and_public_login_is_explicit():
     client = APIClient()
     assert client.patch(reverse("users:update_profile"), {}, format="json").status_code == status.HTTP_401_UNAUTHORIZED
