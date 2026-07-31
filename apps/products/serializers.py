@@ -1,3 +1,8 @@
+from pathlib import Path
+import warnings
+
+from PIL import Image, UnidentifiedImageError
+from django.utils.text import get_valid_filename
 from rest_framework import serializers
 
 from apps.products.models import Brand, Category, Product, ProductImage
@@ -22,14 +27,73 @@ class BrandSummarySerializer(serializers.ModelSerializer):
 class ProductImageOutputSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
-        fields = ("id", "image", "is_primary", "display_order")
+        fields = ("id", "image", "thumbnail", "is_primary", "display_order")
         read_only_fields = fields
 
 
+class RestrictedImageField(serializers.ImageField):
+    """Keep the multipart MIME type so it can be checked after Pillow decodes it."""
+
+    def to_internal_value(self, data):
+        declared_mime_type = getattr(data, "content_type", None)
+        value = super().to_internal_value(data)
+        value.declared_mime_type = declared_mime_type
+        return value
+
+
 class ProductImageUploadInputSerializer(serializers.Serializer):
-    image = serializers.ImageField()
+    allowed_mime_types = {
+        "image/jpeg": ("JPEG", "jpg"),
+        "image/png": ("PNG", "png"),
+        "image/webp": ("WEBP", "webp"),
+    }
+    max_file_size = 5 * 1024 * 1024
+    max_dimension = 6000
+
+    image = RestrictedImageField()
     is_primary = serializers.BooleanField(default=False)
     display_order = serializers.IntegerField(min_value=0, default=0)
+
+    def validate_image(self, value):
+        if value.size > self.max_file_size:
+            raise serializers.ValidationError("Image size must not exceed 5 MB.")
+
+        declared_mime_type = getattr(value, "declared_mime_type", None)
+        if declared_mime_type not in self.allowed_mime_types:
+            raise serializers.ValidationError("Only JPEG, PNG, and WebP images are allowed.")
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                image = Image.open(value)
+                image_format = image.format
+                image.verify()
+
+            value.seek(0)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                image = Image.open(value)
+                width, height = image.size
+                image.load()
+        except (
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+            OSError,
+            UnidentifiedImageError,
+        ) as exc:
+            raise serializers.ValidationError("Upload a valid, non-corrupted image file.") from exc
+
+        expected_format, extension = self.allowed_mime_types[declared_mime_type]
+        if image_format != expected_format:
+            raise serializers.ValidationError("Image content does not match its MIME type.")
+        if width > self.max_dimension or height > self.max_dimension:
+            raise serializers.ValidationError("Image dimensions must not exceed 6000 x 6000 pixels.")
+
+        original_name = Path(str(value.name).replace("\\", "/")).name
+        safe_stem = get_valid_filename(Path(original_name).stem).lstrip(".")[:80]
+        value.name = f"{safe_stem or 'product-image'}.{extension}"
+        value.seek(0)
+        return value
 
 
 class ProductListOutputSerializer(serializers.ModelSerializer):

@@ -24,6 +24,15 @@ class RedisCacheService:
             return False
 
     @staticmethod
+    def incr(key, timeout=None):
+        try:
+            cache.add(key, 0, timeout=timeout)
+            return cache.incr(key)
+        except Exception as e:
+            AppLogger.log_system_error(f"Redis INCR Error for key {key}: {str(e)}")
+            return None
+
+    @staticmethod
     def delete(key):
         try:
             cache.delete(key)

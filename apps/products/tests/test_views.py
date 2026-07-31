@@ -10,6 +10,9 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.products.models import Product, ProductImage
+from apps.products.selectors import get_product_detail, get_public_products_queryset
+from apps.products.serializers import ProductImageUploadInputSerializer
+from apps.products.tasks import generate_product_image_thumbnail
 from apps.products.tests.factories import BrandFactory, CategoryFactory, ProductFactory, ProductImageFactory
 from apps.users.tests.factories import UserFactory
 
@@ -322,3 +325,192 @@ class TestProductImageAPIView:
         assert api_client.delete(url).status_code == status.HTTP_204_NO_CONTENT
         assert not ProductImage.objects.filter(id=image.id).exists()
         assert api_client.delete(url).status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+class TestProductPublicCache:
+    def test_list_response_is_reused_from_cache(self, api_client, mocker):
+        ProductFactory.create_batch(2)
+        selector = mocker.patch(
+            "apps.products.views.get_public_products_queryset",
+            wraps=get_public_products_queryset,
+        )
+        url = reverse("apps.products:product-list")
+
+        first_response = api_client.get(url)
+        second_response = api_client.get(url)
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.data == first_response.data
+        assert selector.call_count == 1
+
+    def test_detail_response_is_reused_from_cache(self, api_client, mocker):
+        product = ProductFactory()
+        selector = mocker.patch(
+            "apps.products.views.get_product_detail",
+            wraps=get_product_detail,
+        )
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_uuid": product.uuid},
+        )
+
+        first_response = api_client.get(url)
+        second_response = api_client.get(url)
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.data == first_response.data
+        assert selector.call_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_product_save_invalidates_cached_detail(api_client):
+    product = ProductFactory(name="Before cache invalidation")
+    url = reverse(
+        "apps.products:product-detail",
+        kwargs={"product_uuid": product.uuid},
+    )
+
+    assert api_client.get(url).data["name"] == "Before cache invalidation"
+    product.name = "After cache invalidation"
+    product.save(update_fields=["name"])
+
+    response = api_client.get(url)
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["name"] == "After cache invalidation"
+
+
+@pytest.mark.django_db
+class TestProductImageUploadValidation:
+    def _upload_url(self, product):
+        return reverse(
+            "apps.products:product-image-upload",
+            kwargs={"product_uuid": product.uuid},
+        )
+
+    def test_rejects_disallowed_declared_mime_type(
+        self,
+        api_client,
+        admin_user,
+        image_file,
+    ):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+        content = BytesIO()
+        Image.new("RGB", (20, 20), color="blue").save(content, "GIF")
+        upload = SimpleUploadedFile(
+            "wine.gif",
+            content.getvalue(),
+            content_type="image/gif",
+        )
+
+        response = api_client.post(
+            self._upload_url(product),
+            {"image": upload},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "image" in response.data
+
+    def test_rejects_mime_type_that_does_not_match_image_content(self, image_file):
+        original = image_file("wine.jpg")
+        upload = SimpleUploadedFile(
+            "wine.png",
+            original.read(),
+            content_type="image/png",
+        )
+
+        serializer = ProductImageUploadInputSerializer(data={"image": upload})
+
+        assert serializer.is_valid() is False
+        assert "image" in serializer.errors
+
+    def test_rejects_corrupted_and_oversized_uploads(self, api_client, admin_user):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+
+        corrupted = SimpleUploadedFile(
+            "corrupted.jpg",
+            b"not an image",
+            content_type="image/jpeg",
+        )
+        corrupt_response = api_client.post(
+            self._upload_url(product),
+            {"image": corrupted},
+            format="multipart",
+        )
+
+        valid_content = BytesIO()
+        Image.new("RGB", (20, 20), color="green").save(valid_content, "JPEG")
+        oversized = SimpleUploadedFile(
+            "oversized.jpg",
+            valid_content.getvalue() + (b"x" * (5 * 1024 * 1024)),
+            content_type="image/jpeg",
+        )
+        oversized_response = api_client.post(
+            self._upload_url(product),
+            {"image": oversized},
+            format="multipart",
+        )
+
+        assert corrupt_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert oversized_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "image" in corrupt_response.data
+        assert "image" in oversized_response.data
+
+    def test_rejects_images_with_excessive_dimensions(self, api_client, admin_user):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+        content = BytesIO()
+        Image.new("RGB", (6001, 1), color="green").save(content, "PNG")
+        oversized_dimensions = SimpleUploadedFile(
+            "too-wide.png",
+            content.getvalue(),
+            content_type="image/png",
+        )
+
+        response = api_client.post(
+            self._upload_url(product),
+            {"image": oversized_dimensions},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "image" in response.data
+
+    @pytest.mark.django_db(transaction=True)
+    def test_upload_sanitizes_filename_and_schedules_thumbnail(
+        self,
+        api_client,
+        admin_user,
+        image_file,
+        mocker,
+    ):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+        task_delay = mocker.patch(
+            "apps.products.services.generate_product_image_thumbnail.delay"
+        )
+
+        response = api_client.post(
+            self._upload_url(product),
+            {"image": image_file("../../Wine bottle.JPG")},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        image = ProductImage.objects.get(id=response.data["id"])
+        assert ".." not in image.image.name
+        assert image.image.name.endswith(".jpg")
+        task_delay.assert_called_once_with(image.id)
+
+
+@pytest.mark.django_db
+def test_thumbnail_task_creates_webp_derivative():
+    product_image = ProductImageFactory()
+
+    generate_product_image_thumbnail(product_image.id)
+
+    product_image.refresh_from_db()
+    assert product_image.thumbnail.name.endswith("-thumbnail.webp")

@@ -158,6 +158,7 @@ class ProductImage(BaseModel):
         related_name="images",
     )
     image = models.ImageField(upload_to="products/")
+    thumbnail = models.ImageField(upload_to="products/thumbnails/", blank=True)
     is_primary = models.BooleanField(default=False)
     display_order = models.PositiveIntegerField(default=0)
 

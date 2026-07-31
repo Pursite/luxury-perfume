@@ -5,6 +5,7 @@ from django.db import transaction
 
 from apps.lib.loggers import AppLogger
 from apps.products.models import Product, ProductImage
+from apps.products.tasks import generate_product_image_thumbnail
 
 
 @transaction.atomic
@@ -27,7 +28,12 @@ def update_product_service(
 @transaction.atomic
 def delete_product_service(*, product: Product) -> None:
     """Delete a product and schedule uploaded-file removal after commit."""
-    image_names = [image.image.name for image in product.images.all() if image.image.name]
+    image_names = [
+        field.name
+        for image in product.images.all()
+        for field in (image.image, image.thumbnail)
+        if field.name
+    ]
     storage = ProductImage._meta.get_field("image").storage
     product.delete()
     transaction.on_commit(lambda: _delete_files(storage, image_names))
@@ -48,22 +54,28 @@ def create_product_image_service(
             is_primary=False
         )
 
-    return ProductImage.objects.create(
+    product_image = ProductImage.objects.create(
         product=product,
         image=image_file,
         is_primary=is_primary,
         display_order=display_order,
     )
+    transaction.on_commit(lambda: _enqueue_thumbnail(product_image.id))
+    return product_image
 
 
 @transaction.atomic
 def delete_product_image_service(*, product_image: ProductImage) -> None:
     """Delete an image record and delete its object-storage file after commit."""
-    image_name = product_image.image.name
+    image_names = [
+        field.name
+        for field in (product_image.image, product_image.thumbnail)
+        if field.name
+    ]
     storage = product_image.image.storage
     product_image.delete()
-    if image_name:
-        transaction.on_commit(lambda: _delete_files(storage, [image_name]))
+    if image_names:
+        transaction.on_commit(lambda: _delete_files(storage, image_names))
 
 
 def _delete_files(storage: Any, image_names: Iterable[str]) -> None:
@@ -75,3 +87,14 @@ def _delete_files(storage: Any, image_names: Iterable[str]) -> None:
                 msg=f"Failed to delete product image from storage: {image_name}",
                 include_traceback=True,
             )
+
+
+def _enqueue_thumbnail(product_image_id: int) -> None:
+    """Keep a broker outage from turning a committed upload into an HTTP failure."""
+    try:
+        generate_product_image_thumbnail.delay(product_image_id)
+    except Exception:
+        AppLogger.log_system_error(
+            msg=f"Failed to queue thumbnail for product image {product_image_id}",
+            include_traceback=True,
+        )

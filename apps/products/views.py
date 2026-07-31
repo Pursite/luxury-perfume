@@ -4,9 +4,16 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
+from apps.lib.cache import RedisCacheService
 from apps.lib.loggers import AppLogger
 from apps.lib.paginations import CustomPagination
 from apps.lib.permissions import IsAdmin
+from apps.products.cache import (
+    PRODUCT_DETAIL_CACHE_TTL,
+    PRODUCT_LIST_CACHE_TTL,
+    product_detail_cache_key,
+    product_list_cache_key,
+)
 from apps.products.selectors import (
     get_product_by_uuid,
     get_product_detail,
@@ -51,6 +58,13 @@ class ProductListCreateAPIView(APIView):
         return [permissions.AllowAny()]
 
     def get(self, request, *args, **kwargs):
+        cache_key = None
+        if not request.user.is_authenticated:
+            cache_key = product_list_cache_key(request)
+            cached_data = RedisCacheService.get(cache_key)
+            if cached_data is not None:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
         queryset = get_public_products_queryset(request=request, view=self)
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request, view=self)
@@ -60,14 +74,22 @@ class ProductListCreateAPIView(APIView):
                 many=True,
                 context={"request": request},
             )
-            return paginator.get_paginated_response(serializer.data)
+            response = paginator.get_paginated_response(serializer.data)
+        else:
+            serializer = ProductListOutputSerializer(
+                queryset,
+                many=True,
+                context={"request": request},
+            )
+            response = Response(serializer.data, status=status.HTTP_200_OK)
 
-        serializer = ProductListOutputSerializer(
-            queryset,
-            many=True,
-            context={"request": request},
-        )
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        if cache_key is not None:
+            RedisCacheService.set(
+                cache_key,
+                response.data,
+                timeout=PRODUCT_LIST_CACHE_TTL,
+            )
+        return response
 
     def post(self, request, *args, **kwargs):
         serializer = ProductWriteInputSerializer(data=request.data)
@@ -98,9 +120,25 @@ class ProductDetailAPIView(APIView):
         )
 
     def get(self, request, *args, **kwargs):
+        cache_key = None
+        if not request.user.is_authenticated:
+            cache_key = product_detail_cache_key(
+                product_uuid=self.kwargs["product_uuid"]
+            )
+            cached_data = RedisCacheService.get(cache_key)
+            if cached_data is not None:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
         product = self.get_object()
         serializer = ProductDetailOutputSerializer(product, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        response = Response(serializer.data, status=status.HTTP_200_OK)
+        if cache_key is not None:
+            RedisCacheService.set(
+                cache_key,
+                response.data,
+                timeout=PRODUCT_DETAIL_CACHE_TTL,
+            )
+        return response
 
     def put(self, request, *args, **kwargs):
         return self._update(request, partial=False)
