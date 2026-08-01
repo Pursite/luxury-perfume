@@ -13,6 +13,8 @@ wine-shop/
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
 ├── docs/
 ├── .env.example
+├── .env.development.example
+├── .env.production.example
 ├── manage.py
 ├── requirements.txt
 ├── Dockerfile
@@ -66,22 +68,22 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 
 PostgreSQL stores durable users, addresses, catalogue records, product images, and Simple JWT blacklist records.
 
-Redis has two configured cache aliases that use `REDIS_URL`:
+Redis has two configured cache aliases with separate URLs:
 
-- `default` is used for ordinary catalogue caching. It is configured to ignore cache exceptions, so a cache failure can fall back to the database.
-- `security` stores OTP codes, attempt counters, locks, leases, and password-login guard state. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
+- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. It is configured to ignore cache exceptions, so a cache failure can fall back to the database.
+- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, and password-login guard state. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
 
 JWT authentication is the DRF default. Simple JWT uses Bearer access tokens, refresh-token rotation, and blacklist-after-rotation. See [authentication.md](authentication.md).
 
 ## Configuration and logging
 
-`config/settings.py` reads `.env` in the repository root with `django-environ`. Required runtime values include the Django secret key, PostgreSQL connection, Redis URL, and Celery broker/result backend. `.env.example` is the supported variable inventory and contains placeholders only.
+`config.settings.base` reads `.env` in the repository root with `django-environ`; `development`, `production`, and `test` overlay environment-specific infrastructure. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, SMTP, and transport-hardening values. `.env.development.example` and `.env.production.example` are the tracked templates; `.env.example` directs operators to the appropriate one.
 
 Settings configure system, activity, and security loggers with rotating files beneath `logs/`. Logging helpers record messages plus an authenticated user ID when available. They must not receive passwords, OTP codes, JWTs, credentials, or sensitive internal errors. The current services do include phone numbers in some log messages, so treat those files as sensitive operational data.
 
 ## Testing
 
-Pytest uses `config.test_settings`, which substitutes SQLite and local-memory caches. The repository tests authentication, profile flows, permissions, OTP and login hardening, product reads/writes, category integrity, uploads, and cache behavior.
+Pytest uses `config.settings.test`, which substitutes SQLite, separate local-memory cache namespaces, eager Celery tasks, and in-memory email. The repository tests authentication, profile flows, permissions, OTP and login hardening, product reads/writes, category integrity, uploads, and cache behavior.
 
 ```bash
 venv/bin/python -m pytest

@@ -37,10 +37,10 @@ python3 -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-cp .env.example .env
+cp .env.development.example .env
 ```
 
-Replace every placeholder in `.env`; do not commit it. `.env.example` lists the supported variables for Django, PostgreSQL, Redis, Celery, JWT lifetimes, OTP/login guards, and throttles.
+`.env.development.example` is the tracked direct-host development template. For deployment, copy `.env.production.example` to `.env` on the production host and replace every placeholder. `.env.example` points to both environment-specific templates. Do not commit any `.env` file.
 
 Create a PostgreSQL database and role matching `DB_NAME`, `DB_USER`, and `DB_PASSWORD`, then apply migrations:
 
@@ -48,7 +48,7 @@ Create a PostgreSQL database and role matching `DB_NAME`, `DB_USER`, and `DB_PAS
 venv/bin/python manage.py migrate
 ```
 
-Start Redis using your operating system's service manager, then verify it:
+Start Redis directly on the host using your operating system's service manager, then verify it:
 
 ```bash
 redis-cli ping
@@ -57,6 +57,7 @@ redis-cli ping
 Start the Celery worker in another terminal:
 
 ```bash
+DJANGO_SETTINGS_MODULE=config.settings.development \
 venv/bin/celery -A config worker --loglevel=INFO
 ```
 
@@ -65,6 +66,9 @@ Start Django:
 ```bash
 venv/bin/python manage.py runserver
 ```
+
+`manage.py` defaults to `config.settings.development`; it uses PostgreSQL on
+`localhost:5432` and Redis databases 0 through 3 on `localhost:6379`.
 
 The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 

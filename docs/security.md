@@ -28,7 +28,7 @@ Product uploads are staff-only and use multipart parsers. JPEG, PNG, and WebP ar
 
 ## Configuration, logging, and transport
 
-Secrets are loaded from `.env` with `django-environ`; `.env.example` contains placeholders and must not be replaced with real credentials. `SECRET_KEY` is also the current JWT signing key. Settings support allowed hosts, CORS origins, trusted CSRF origins, HTTPS redirect/HSTS, and secure session/CSRF cookies.
+Secrets are loaded from `.env` with `django-environ`; `.env.production.example` contains placeholders and `.env.development.example` contains local-only values. Neither template should be used as production credentials. Production requires a dedicated `JWT_SIGNING_KEY`, separate from `SECRET_KEY`, as well as host/origin, SMTP, PostgreSQL, Redis, Celery, and HTTPS configuration. Development uses direct localhost infrastructure and disables HTTPS redirect, HSTS, and secure cookies.
 
 The project writes rotating system, activity, and security log files in `logs/`. Logging helpers do not add passwords, OTP values, JWTs, or credentials themselves, but callers must keep sensitive values out of log messages. Current OTP-related services log some phone numbers, so protect log access and retention as operational data. Do not expose internal exception details in API responses.
 

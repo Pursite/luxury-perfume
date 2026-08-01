@@ -4,7 +4,7 @@
 
 ## Repository-provided behavior
 
-The application uses PostgreSQL, Redis, Celery, and Gunicorn. `config/settings.py` loads `.env`, writes logs beneath `logs/`, uses `staticfiles/` as `STATIC_ROOT`, and uses `media/` as `MEDIA_ROOT`. Redis is required both for the ordinary cache and the fail-closed authentication security cache; Celery also uses configured Redis broker/result URLs.
+The application uses PostgreSQL, Redis, Celery, and Gunicorn. `config.settings.production` loads `.env`, writes logs beneath `logs/`, uses `staticfiles/` as `STATIC_ROOT`, and uses `media/` as `MEDIA_ROOT`. Redis is required both for the ordinary cache and the fail-closed authentication security cache; Celery also uses configured Redis broker/result URLs.
 
 The repository includes a `Dockerfile` and `docker-compose.yml`, but they are not a complete production deployment solution. The compose file expects an untracked `.env.docker`, exposes development-oriented host ports/volumes, and must be reviewed before any production use. No CI/CD deployment workflow, Kubernetes configuration, health endpoint, object-storage configuration, or backup automation is present.
 
@@ -28,11 +28,11 @@ python -m pip install -r requirements.txt
 Copy the environment template and replace every placeholder:
 
 ```bash
-cp .env.example .env
+cp .env.production.example .env
 chmod 600 .env
 ```
 
-`SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `REDIS_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` are required by settings. Set `DEBUG=False`, a correct `ALLOWED_HOSTS` value, and production values for JWT, OTP, login-lock, throttle, CORS, CSRF, and HTTPS-related settings. The values in `.env.example` are examples and defaults, not a production policy.
+`SECRET_KEY`, `JWT_SIGNING_KEY`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`, PostgreSQL values, `CACHE_REDIS_URL`, `SECURITY_REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, SMTP values, and HTTPS settings are required by production settings. `config.settings.production` always uses `DEBUG=False`. `.env.production.example` contains placeholders, while `.env.example` points to the environment-specific templates.
 
 ## Database, Redis, and static files
 
@@ -53,9 +53,13 @@ Use a dedicated PostgreSQL role with only the privileges the application needs. 
 The repository-supported executable entry points are:
 
 ```bash
+DJANGO_SETTINGS_MODULE=config.settings.production \
 venv/bin/gunicorn --bind 127.0.0.1:8000 config.wsgi:application
+DJANGO_SETTINGS_MODULE=config.settings.production \
 venv/bin/celery -A config worker --loglevel=INFO
 ```
+
+The WSGI, ASGI, and Celery entry points default to `config.settings.production`.
 
 Example systemd unit fragments (adapt paths, users, groups, dependencies, resource limits, and restart policy):
 
@@ -64,7 +68,7 @@ Example systemd unit fragments (adapt paths, users, groups, dependencies, resour
 User=wine-shop
 WorkingDirectory=/srv/wine-shop
 EnvironmentFile=/srv/wine-shop/.env
-ExecStart=/srv/wine-shop/venv/bin/gunicorn --bind 127.0.0.1:8000 config.wsgi:application
+ExecStart=/usr/bin/env DJANGO_SETTINGS_MODULE=config.settings.production /srv/wine-shop/venv/bin/gunicorn --bind 127.0.0.1:8000 config.wsgi:application
 Restart=on-failure
 ```
 
@@ -73,7 +77,7 @@ Restart=on-failure
 User=wine-shop
 WorkingDirectory=/srv/wine-shop
 EnvironmentFile=/srv/wine-shop/.env
-ExecStart=/srv/wine-shop/venv/bin/celery -A config worker --loglevel=INFO
+ExecStart=/usr/bin/env DJANGO_SETTINGS_MODULE=config.settings.production /srv/wine-shop/venv/bin/celery -A config worker --loglevel=INFO
 Restart=on-failure
 ```
 
