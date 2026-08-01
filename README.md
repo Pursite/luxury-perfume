@@ -103,4 +103,5 @@ The repository contains a `Dockerfile` and `docker-compose.yml`, but it does not
 
 ## License
 
-No license has been selected. Until a license is added, normal copyright restrictions apply.
+This project is licensed under the MIT License.  
+Copyright © 2026 Armin Bahadori.
