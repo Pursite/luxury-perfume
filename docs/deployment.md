@@ -26,12 +26,16 @@ development credentials and Docker service hostnames.
 ```bash
 cd /path/to/wine-shop
 cp .env.development.example .env
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml config -q
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 Django is available at `http://localhost:8000`; PostgreSQL and Redis are also
 published locally using `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` from `.env`.
-Source bind mounts exist only in this development override.
+The Django port is configurable with `DJANGO_HOST_PORT`. All three host
+bindings are fixed to `127.0.0.1` in the development override and are not
+reachable directly from the LAN. Source bind mounts exist only in this
+development override.
 
 ## Production preparation
 
@@ -47,11 +51,51 @@ cd /srv/wine-shop
 cp .env.production.example .env
 chmod 600 .env
 # Edit .env and replace every replace-with-* value before continuing.
+```
 
-# UID/GID 10001 is the non-root application user in the image. Nginx needs
-# read and traverse access; these modes provide that without granting writes.
-sudo install -d -o 10001 -g 10001 -m 0755 \
+On Debian or Ubuntu, install POSIX ACL support and prepare the asset paths as
+follows. The application and Celery worker run as UID/GID `10001`; `www-data`
+is the usual host Nginx worker user. If the `user` directive in
+`/etc/nginx/nginx.conf` names another account, substitute that account in the
+three `setfacl` commands.
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends acl
+
+sudo install -d -o 10001 -g 10001 -m 0750 \
   /srv/wine-shop/staticfiles /srv/wine-shop/media
+sudo chown -R 10001:10001 \
+  /srv/wine-shop/staticfiles /srv/wine-shop/media
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+  -type d -exec chmod 0750 {} +
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+  -type f -exec chmod 0640 {} +
+
+# Nginx may traverse the parent paths and read existing assets, but cannot
+# write application data.
+sudo setfacl -m u:www-data:--x /srv /srv/wine-shop
+sudo setfacl -R -m u:www-data:rX \
+  /srv/wine-shop/staticfiles /srv/wine-shop/media
+
+# New files and directories inherit owner write access and Nginx
+# read/traverse access. File creation modes remove execute permission on files.
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media -type d \
+  -exec setfacl \
+  -m d:u::rwx,d:u:www-data:rx,d:g::r-x,d:m::r-x,d:o::--- {} +
+```
+
+These commands are safe to repeat after restoring files from backup. Do not
+use `chmod 777`: Django uploads, `collectstatic`, and Celery thumbnail tasks
+write as UID `10001`, while Nginx receives only read/traverse ACLs. After
+running `collectstatic`, verify that the Nginx worker can traverse both mounts,
+read a static file, and cannot write media:
+
+```bash
+sudo -u www-data test -x /srv/wine-shop/staticfiles
+sudo -u www-data test -x /srv/wine-shop/media
+sudo -u www-data test -r /srv/wine-shop/staticfiles/admin/css/base.css
+sudo -u www-data test ! -w /srv/wine-shop/media
 ```
 
 Keep `.env` private and out of source control. The production sample sets
@@ -80,14 +124,60 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml 
 ```
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
-service uses Gunicorn on container port `8000`; production publishes that port
-only as `127.0.0.1:8000` for the host proxy. PostgreSQL and Redis have no host
-port mappings in the production merge.
+image defaults to Gunicorn on container port `8000`, while Compose overrides
+the command only for development Django and the Celery worker. Production
+publishes Gunicorn only as `127.0.0.1:8000` for the host proxy. PostgreSQL and
+Redis have no host port mappings in the production merge.
 
 Static assets are written to `/srv/wine-shop/staticfiles` by `collectstatic`.
 Uploaded media is stored at `/srv/wine-shop/media`. Both directories are bind
 mounted into the application; Nginx reads them directly, so do not delete or
 replace them during routine deployments.
+
+## Redis durability and capacity
+
+One Redis instance currently provides four logical databases: ordinary cache,
+fail-closed authentication security state, Celery broker data, and Celery
+results. Compose enables AOF and explicitly uses `appendfsync everysec` so a
+normal process or container restart can recover persisted state. On abrupt
+host or power failure this policy typically limits lost acknowledged writes to
+about one second, but it is not a durability guarantee and does not protect
+against storage loss.
+
+AOF persistence writes every Redis value to the `redis_data` named volume,
+including temporary OTP values, cache entries, and Celery payloads. Deleted or
+expired values can remain in historical AOF commands until a rewrite, so treat
+the volume and any copy of it as sensitive data. Restrict host access, do not
+publish Redis, and do not include the volume in broadly accessible backups.
+Monitor free space and AOF size: cache churn and Celery traffic can grow the
+file until Redis rewrites it, and a rewrite needs additional disk and memory
+headroom. AOF improves restart recovery but is not a backup.
+
+Compose explicitly sets `maxmemory-policy noeviction` because all logical
+databases share one instance-wide policy; an evicting policy could silently
+discard fail-closed OTP, lockout, or verification state. Compose does not set a
+host-independent `maxmemory` value or a container memory limit. Do not assume
+that this leaves Redis safely bounded: choose a ceiling only from measured
+peak usage and the VPS memory budget, leaving headroom for Redis overhead, AOF
+rewrites, PostgreSQL, Django, and Celery. With a positive `maxmemory`,
+`noeviction` rejects writes at the limit rather than discarding security state,
+so alert on memory usage and rejected writes. Workloads that require cache
+eviction independently of security and queue data need separate Redis
+instances, which are outside this single-VPS layout.
+
+Confirm the effective production policy after startup rather than relying on
+image defaults:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
+  exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
+```
+
+Celery results expire after `CELERY_RESULT_EXPIRES_SECONDS` (86400 seconds by
+default). Ordinary cache entries default to ten minutes; product-list and
+product-detail responses use one- and five-minute TTLs, and the catalogue cache
+version uses seven days. These expirations bound normal cache/result retention,
+but capacity and disk monitoring are still required.
 
 ## Host Nginx
 

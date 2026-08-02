@@ -4,6 +4,7 @@ from django.apps import apps
 from django.core.cache import caches
 from django.db import connections
 from django.http import JsonResponse
+from django.views.decorators.http import require_GET
 
 
 _SECURITY_CACHE_HEALTH_KEY = "health:ready"
@@ -26,11 +27,13 @@ def _security_cache_ready() -> bool:
         return False
 
 
+@require_GET
 def live(request):
     """Confirm that this Django process can handle an HTTP request."""
     return JsonResponse({"status": "ok"})
 
 
+@require_GET
 def ready(request):
     """Confirm dependencies required to serve requests safely are available."""
     database = "ok" if _database_ready() else "unavailable"
@@ -47,6 +50,7 @@ def ready(request):
     )
 
 
+@require_GET
 def startup(request):
     """Confirm Django has initialized its application registry."""
     is_started = apps.ready

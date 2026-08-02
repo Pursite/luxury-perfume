@@ -39,3 +39,5 @@ ENV PATH=/usr/local/bin:$PATH
 EXPOSE 8000
 
 USER app
+
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60"]
