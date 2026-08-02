@@ -26,8 +26,15 @@ development credentials and Docker service hostnames.
 ```bash
 cd /path/to/wine-shop
 cp .env.development.example .env
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml config -q
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  config -q
+
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up --build
 ```
 
 Django is available at `http://localhost:8000`; PostgreSQL and Redis are also
@@ -36,6 +43,12 @@ The Django port is configurable with `DJANGO_HOST_PORT`. All three host
 bindings are fixed to `127.0.0.1` in the development override and are not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
+
+Docker containers resolve PostgreSQL as `db` and Redis as `redis`; `localhost`
+inside a container refers to that same container. Optional direct-host Django
+or Celery processes therefore need temporary shell overrides for `DB_HOST` and
+the four Redis URLs, as shown in the README, instead of another tracked env
+inventory.
 
 ## Production preparation
 
@@ -50,7 +63,18 @@ cd /srv/wine-shop
 
 cp .env.production.example .env
 chmod 600 .env
-# Edit .env and replace every replace-with-* value before continuing.
+```
+
+Edit `.env` and replace every `replace-with-*` value, example domain, and SMTP
+placeholder with deployment-specific values. Keep `DB_HOST=db` and the Redis
+service hostnames unchanged for this Compose layout. Then validate the selected
+production configuration:
+
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  config -q
 ```
 
 On Debian or Ubuntu, install POSIX ACL support and prepare the asset paths as
@@ -104,11 +128,10 @@ those with publicly reachable database or cache endpoints for this layout.
 
 ## Build, migrations, static files, and startup
 
-Review the merged production configuration before each release:
+Build the already validated production configuration:
 
 ```bash
 cd /srv/wine-shop
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml config -q
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml build
 ```
 

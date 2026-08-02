@@ -26,49 +26,56 @@ Requests are coordinated by views, validated and represented by serializers, the
 
 For the complete design, see [architecture.md](docs/architecture.md).
 
-## Local setup
+## Development setup
 
-Requirements: Python 3.12+, PostgreSQL, Redis, and Git. A Celery worker is needed for queued OTP tasks; the current OTP task is a provider placeholder and does not deliver an SMS until a provider integration is implemented.
+Docker Compose is the supported default development workflow. Copy the complete
+development template to the local, ignored `.env`, validate the merged Compose
+configuration, and start the stack:
 
 ```bash
-git clone https://github.com/Pursite/wine-shop.git
-cd wine-shop
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 cp .env.development.example .env
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  config -q
+
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up --build
 ```
 
-`.env.development.example` is the tracked direct-host development template. For deployment, copy `.env.production.example` to `.env` on the production host and replace every placeholder. `.env.example` points to both environment-specific templates. Do not commit any `.env` file.
+Inside Docker, Django and Celery reach PostgreSQL as `db` and Redis as `redis`.
+Do not replace those service names with `localhost` in `.env` when using
+Compose. The development override publishes the configured host ports only on
+`127.0.0.1`.
 
-Create a PostgreSQL database and role matching `DB_NAME`, `DB_USER`, and `DB_PASSWORD`, then apply migrations:
+`.env` is always local and ignored. `.env.example` is an instruction-only
+selector, while `.env.development.example` and `.env.production.example` are
+safe, tracked templates. Never put real secrets in an example file or commit a
+populated `.env`.
+
+Direct-host execution is optional. Install the Python dependencies and run
+PostgreSQL and Redis on the host (or use the ports published by the development
+stack), then override only the container-specific addresses in the current
+shell:
 
 ```bash
+export DJANGO_SETTINGS_MODULE=config.settings.development
+export DB_HOST=localhost
+export CACHE_REDIS_URL=redis://localhost:6379/0
+export SECURITY_REDIS_URL=redis://localhost:6379/1
+export CELERY_BROKER_URL=redis://localhost:6379/2
+export CELERY_RESULT_BACKEND=redis://localhost:6379/3
+
 venv/bin/python manage.py migrate
-```
-
-Start Redis directly on the host using your operating system's service manager, then verify it:
-
-```bash
-redis-cli ping
-```
-
-Start the Celery worker in another terminal:
-
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.development \
 venv/bin/celery -A config worker --loglevel=INFO
-```
-
-Start Django:
-
-```bash
 venv/bin/python manage.py runserver
 ```
 
-`manage.py` defaults to `config.settings.development`; it uses PostgreSQL on
-`localhost:5432` and Redis databases 0 through 3 on `localhost:6379`.
+Shell environment variables take precedence over `.env`, so this does not
+require a second tracked development inventory. Adjust `DB_PORT` and the Redis
+URL ports too if the published host ports differ from their defaults.
 
 The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 
@@ -99,9 +106,9 @@ The users, authentication, profiles, products, categories, brands, and product-i
 
 Planned, not implemented: inventory, cart, orders, payments, shipping, reviews, CI automation, a production health endpoint, object-storage integration, and an SMS-provider integration.
 
-The repository includes a Docker Compose deployment layout for a single VPS;
-see `docs/deployment.md` for development overrides, host-managed Nginx, and
-production operations.
+The repository includes a Docker Compose deployment layout for development and
+a single VPS; see `docs/deployment.md` for production template preparation,
+host-managed Nginx, and operations.
 
 ## License
 
