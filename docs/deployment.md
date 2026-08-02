@@ -25,16 +25,16 @@ development credentials and Docker service hostnames.
 
 ```bash
 cd /path/to/wine-shop
-cp .env.development.example .env.development
+cp .env.development.example .env
 
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   config -q
 
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   up --build
@@ -42,7 +42,7 @@ docker compose \
 
 Django is available at `http://localhost:8000`; PostgreSQL and Redis are also
 published locally using `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` from
-`.env.development`.
+`.env`.
 The Django port is configurable with `DJANGO_HOST_PORT`. All three host
 bindings are fixed to `127.0.0.1` in the development override and are not
 reachable directly from the LAN. Source bind mounts exist only in this
@@ -65,18 +65,18 @@ sudo chown "$USER":"$USER" /srv/wine-shop
 git clone <repository-url> /srv/wine-shop
 cd /srv/wine-shop
 
-cp .env.production.example .env.production
-chmod 600 .env.production
+cp .env.production.example .env
+chmod 600 .env
 ```
 
-Edit `.env.production` and replace every `replace-with-*` value, example
-domain, and SMTP placeholder with deployment-specific values. Keep `DB_HOST=db`
+Edit `.env` and replace every `replace-with-*` value and example domain with
+deployment-specific values. Keep `DB_HOST=db`
 and the Redis service hostnames unchanged for this Compose layout. Then validate
 the selected production configuration:
 
 ```bash
 docker compose \
-  --env-file .env.production \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.prod.yml \
   config -q
@@ -127,7 +127,7 @@ sudo -u www-data test -r /srv/wine-shop/staticfiles/admin/css/base.css
 sudo -u www-data test ! -w /srv/wine-shop/media
 ```
 
-Keep `.env.production` private and out of source control. The production sample sets
+Keep `.env` private and out of source control. The production sample sets
 `DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
 those with publicly reachable database or cache endpoints for this layout.
 
@@ -137,7 +137,7 @@ Build the already validated production configuration:
 
 ```bash
 cd /srv/wine-shop
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml build
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml build
 ```
 
 Start only dependencies, then apply reviewed migrations and collect static
@@ -145,10 +145,10 @@ files explicitly. Neither action runs automatically when the web container
 starts.
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d db redis
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py migrate
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d db redis
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py migrate
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
@@ -197,7 +197,7 @@ Confirm the effective production policy after startup rather than relying on
 image defaults:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml \
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
   exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
 ```
 
@@ -292,7 +292,7 @@ For example, write a database dump outside the checkout and archive media:
 
 ```bash
 sudo install -d -m 0700 /srv/wine-shop-backups
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
   sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
   > /srv/wine-shop-backups/wine-shop-$(date +%F).sql
 sudo tar -C /srv/wine-shop -czf /srv/wine-shop-backups/media-$(date +%F).tar.gz media
@@ -313,7 +313,7 @@ or irreversible migration, restore the tested database backup instead.
 Useful operational checks:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml ps
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 web celery
-docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py check --deploy
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 web celery
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py check --deploy
 ```

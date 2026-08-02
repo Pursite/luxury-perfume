@@ -29,31 +29,31 @@ For the complete design, see [architecture.md](docs/architecture.md).
 ## Development setup
 
 Docker Compose is the supported default development workflow. Copy the complete
-development template to the local, ignored `.env.development`, validate the
+development template to the local, ignored `.env`, validate the
 merged Compose configuration, and start the stack:
 
 ```bash
-cp .env.development.example .env.development
+cp .env.development.example .env
 
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   config -q
 
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   up --build
 ```
 
 Inside Docker, Django and Celery reach PostgreSQL as `db` and Redis as `redis`.
-Do not replace those service names with `localhost` in `.env.development` when using
+Do not replace those service names with `localhost` in `.env` when using
 Compose. The development override publishes the configured host ports only on
 `127.0.0.1`.
 
-`.env.development` and `.env.production` are always local and ignored.
+`.env` is always local and ignored.
 `.env.development.example` and `.env.production.example` are safe, tracked
 templates. Never put real secrets in an example file or commit a populated
 runtime environment file.
@@ -64,11 +64,6 @@ stack), then override only the container-specific addresses in the current
 shell:
 
 ```bash
-set -a
-. .env.development
-set +a
-
-export DJANGO_SETTINGS_MODULE=config.settings.development
 export DB_HOST=localhost
 export CACHE_REDIS_URL=redis://localhost:6379/0
 export SECURITY_REDIS_URL=redis://localhost:6379/1
@@ -80,10 +75,10 @@ venv/bin/celery -A config worker --loglevel=INFO
 venv/bin/python manage.py runserver
 ```
 
-Django settings do not load an env file themselves. The shell above makes
-`.env.development` process environment for this optional host workflow, then
-overrides only container-specific addresses. Adjust `DB_PORT` and the Redis URL
-ports too if the published host ports differ from their defaults.
+Django automatically loads the root `.env` file. The shell overrides above
+change only container-specific addresses for this optional host workflow.
+Adjust `DB_PORT` and the Redis URL ports too if the published host ports differ
+from their defaults.
 
 The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 
@@ -91,13 +86,13 @@ The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 
 ```bash
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   run --rm web python manage.py check
 
 docker compose \
-  --env-file .env.development \
+  --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.dev.yml \
   run --rm --no-deps -e DJANGO_SETTINGS_MODULE=config.settings.test \

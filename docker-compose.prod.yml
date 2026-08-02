@@ -1,7 +1,5 @@
 services:
   web:
-    env_file:
-      - .env.production
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -13,8 +11,6 @@ services:
         target: /app/media
 
   celery:
-    env_file:
-      - .env.production
     volumes:
       - type: bind
         source: /srv/wine-shop/media
