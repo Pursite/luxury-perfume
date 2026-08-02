@@ -24,11 +24,18 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --create-home --uid 10001 --gid app app
 
 COPY --from=builder /install /usr/local
-COPY . /app
+COPY --chown=app:app . /app
+
+RUN mkdir -p /app/staticfiles /app/media /app/logs \
+    && chown -R app:app /app
 
 ENV PATH=/usr/local/bin:$PATH
 
 EXPOSE 8000
+
+USER app

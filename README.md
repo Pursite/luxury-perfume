@@ -99,7 +99,9 @@ The users, authentication, profiles, products, categories, brands, and product-i
 
 Planned, not implemented: inventory, cart, orders, payments, shipping, reviews, CI automation, a production health endpoint, object-storage integration, and an SMS-provider integration.
 
-The repository contains a `Dockerfile` and `docker-compose.yml`, but it does not contain a complete, verified production deployment automation workflow.
+The repository includes a Docker Compose deployment layout for a single VPS;
+see `docs/deployment.md` for development overrides, host-managed Nginx, and
+production operations.
 
 ## License
 

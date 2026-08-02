@@ -1,0 +1,17 @@
+services:
+  web:
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - type: bind
+        source: /srv/wine-shop/staticfiles
+        target: /app/staticfiles
+      - type: bind
+        source: /srv/wine-shop/media
+        target: /app/media
+
+  celery:
+    volumes:
+      - type: bind
+        source: /srv/wine-shop/media
+        target: /app/media

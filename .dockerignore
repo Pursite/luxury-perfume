@@ -1,0 +1,40 @@
+.git
+.gitignore
+.dockerignore
+
+# Environment files and secrets are supplied at container runtime.
+.env
+.env.*
+*.pem
+*.key
+auth_key.json
+secrets.json
+
+# Local virtual environments, caches, test artefacts, and editor files.
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.coverage*
+*.sqlite3
+*.db
+
+# Runtime data is mounted at runtime and must not become part of an image.
+logs/
+media/
+staticfiles/
+postgres_data/
+redis_data/
+
+# Development-only and repository metadata.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+docs/
+AGENTS.md

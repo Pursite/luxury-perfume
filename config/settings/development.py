@@ -19,6 +19,7 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD", default="wine_shop"),  # noqa: F405
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),  # noqa: F405
+        "OPTIONS": {"connect_timeout": DB_CONNECT_TIMEOUT_SECONDS},  # noqa: F405
     }
 }
 

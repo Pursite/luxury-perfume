@@ -16,6 +16,7 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD"),  # noqa: F405
         "HOST": env("DB_HOST"),  # noqa: F405
         "PORT": env("DB_PORT"),  # noqa: F405
+        "OPTIONS": {"connect_timeout": DB_CONNECT_TIMEOUT_SECONDS},  # noqa: F405
     }
 }
 
