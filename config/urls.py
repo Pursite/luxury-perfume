@@ -19,7 +19,13 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from config.health import live, ready, startup
+
+
 urlpatterns = [
+    path("health/live", live, name="health-live"),
+    path("health/ready", ready, name="health-ready"),
+    path("health/startup", startup, name="health-startup"),
     path('admin/', admin.site.urls),
     path("api/v1/users/", include("apps.users.urls", namespace="users")),
     path("api/v1/products/", include("apps.products.urls", namespace="products")),

@@ -12,7 +12,6 @@ wine-shop/
 │   └── users/        # identity and profile domain
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
 ├── docs/
-├── .env.example
 ├── .env.development.example
 ├── .env.production.example
 ├── manage.py
@@ -77,7 +76,7 @@ JWT authentication is the DRF default. Simple JWT uses Bearer access tokens, ref
 
 ## Configuration and logging
 
-`config.settings.base` reads `.env` in the repository root with `django-environ`; `development`, `production`, and `test` overlay environment-specific infrastructure. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, SMTP, and transport-hardening values. `.env.development.example` and `.env.production.example` are the tracked templates; `.env.example` directs operators to the appropriate one.
+`config.settings.base` loads the root `.env` file with `django-environ`. Docker Compose also uses that file for interpolation and injects it into the `web` and `celery` services. Copy either tracked environment-specific example to `.env` to select the Django settings module. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, and transport-hardening values.
 
 Settings configure system, activity, and security loggers with rotating files beneath `logs/`. Logging helpers record messages plus an authenticated user ID when available. They must not receive passwords, OTP codes, JWTs, credentials, or sensitive internal errors. The current services do include phone numbers in some log messages, so treat those files as sensitive operational data.
 

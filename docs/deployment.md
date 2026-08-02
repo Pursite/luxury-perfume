@@ -1,99 +1,319 @@
-# Deployment
+# Docker Compose deployment
 
-> **Important:** The Nginx, systemd, Gunicorn, Celery, and deployment examples are templates. They must be adapted and tested for the target host and are not guaranteed production-ready repository configuration.
+This deployment model is intended for one VPS. Docker Compose runs Django,
+Celery, PostgreSQL, and Redis. Nginx is installed and managed directly on the
+host; it terminates TLS, serves static/media files, and proxies Django only
+through `127.0.0.1:8000`.
 
-## Repository-provided behavior
+No Nginx, certificate, or Certbot container is used or required.
 
-The application uses PostgreSQL, Redis, Celery, and Gunicorn. `config.settings.production` loads `.env`, writes logs beneath `logs/`, uses `staticfiles/` as `STATIC_ROOT`, and uses `media/` as `MEDIA_ROOT`. Redis is required both for the ordinary cache and the fail-closed authentication security cache; Celery also uses configured Redis broker/result URLs.
+## Compose files
 
-The repository includes a `Dockerfile` and `docker-compose.yml`, but they are not a complete production deployment solution. The compose file expects an untracked `.env.docker`, exposes development-oriented host ports/volumes, and must be reviewed before any production use. No CI/CD deployment workflow, Kubernetes configuration, health endpoint, object-storage configuration, or backup automation is present.
+- `docker-compose.yml` is the shared service definition. It has no source-code
+  mounts and publishes no service ports.
+- `docker-compose.dev.yml` adds local source mounts and PostgreSQL/Redis ports
+  for development.
+- `docker-compose.prod.yml` binds Django to `127.0.0.1:8000` and mounts the
+  host asset directories. PostgreSQL and Redis remain internal to Docker.
 
-The current OTP Celery task is a placeholder and does not call an SMS provider. Running a worker lets it process queued tasks but does not make OTP delivery real.
+Always pass the base file first, followed by the intended override.
 
-## Prepare the host
+## Development
 
-Recommended production practice is to run a dedicated non-root deployment user, PostgreSQL role, Redis service, application virtual environment, Gunicorn process, Celery worker, reverse proxy, persistent media storage, and TLS termination. Keep PostgreSQL and Redis off public networks.
-
-Clone a tested commit and install the pinned dependencies:
+Create a local environment file from the tracked example. It contains only
+development credentials and Docker service hostnames.
 
 ```bash
-git clone <repository-url> wine-shop
-cd wine-shop
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+cd /path/to/wine-shop
+cp .env.development.example .env
+
+docker compose \
+  --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  config -q
+
+docker compose \
+  --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up --build
 ```
 
-Copy the environment template and replace every placeholder:
+Django is available at `http://localhost:8000`; PostgreSQL and Redis are also
+published locally using `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` from
+`.env`.
+The Django port is configurable with `DJANGO_HOST_PORT`. All three host
+bindings are fixed to `127.0.0.1` in the development override and are not
+reachable directly from the LAN. Source bind mounts exist only in this
+development override.
+
+Docker containers resolve PostgreSQL as `db` and Redis as `redis`; `localhost`
+inside a container refers to that same container. Optional direct-host Django
+or Celery processes therefore need temporary shell overrides for `DB_HOST` and
+the four Redis URLs, as shown in the README, instead of another tracked env
+inventory.
+
+## Production preparation
+
+The production checkout and persistent host data paths below are fixed by this
+deployment guide:
 
 ```bash
+sudo mkdir -p /srv/wine-shop
+sudo chown "$USER":"$USER" /srv/wine-shop
+git clone <repository-url> /srv/wine-shop
+cd /srv/wine-shop
+
 cp .env.production.example .env
 chmod 600 .env
 ```
 
-`SECRET_KEY`, `JWT_SIGNING_KEY`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`, PostgreSQL values, `CACHE_REDIS_URL`, `SECURITY_REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, SMTP values, and HTTPS settings are required by production settings. `config.settings.production` always uses `DEBUG=False`. `.env.production.example` contains placeholders, while `.env.example` points to the environment-specific templates.
-
-## Database, Redis, and static files
-
-Back up the database before migrations. Review and apply only committed migrations:
-
-```bash
-venv/bin/python manage.py showmigrations
-venv/bin/python manage.py migrate
-venv/bin/python manage.py collectstatic --noinput
-```
-
-Use a dedicated PostgreSQL role with only the privileges the application needs. Redis must be private, authenticated or ACL-protected where supported, capacity-managed to avoid security-state eviction, and protected with TLS when traffic crosses an untrusted network.
-
-`media/` stores uploaded product images in the current configuration. It must be persistent and shared by every application instance; object storage is not configured by this repository.
-
-## Process examples
-
-The repository-supported executable entry points are:
+Edit `.env` and replace every `replace-with-*` value and example domain with
+deployment-specific values. Keep `DB_HOST=db`
+and the Redis service hostnames unchanged for this Compose layout. Then validate
+the selected production configuration:
 
 ```bash
-DJANGO_SETTINGS_MODULE=config.settings.production \
-venv/bin/gunicorn --bind 127.0.0.1:8000 config.wsgi:application
-DJANGO_SETTINGS_MODULE=config.settings.production \
-venv/bin/celery -A config worker --loglevel=INFO
+docker compose \
+  --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  config -q
 ```
 
-The WSGI, ASGI, and Celery entry points default to `config.settings.production`.
-
-Example systemd unit fragments (adapt paths, users, groups, dependencies, resource limits, and restart policy):
-
-```ini
-[Service]
-User=wine-shop
-WorkingDirectory=/srv/wine-shop
-EnvironmentFile=/srv/wine-shop/.env
-ExecStart=/usr/bin/env DJANGO_SETTINGS_MODULE=config.settings.production /srv/wine-shop/venv/bin/gunicorn --bind 127.0.0.1:8000 config.wsgi:application
-Restart=on-failure
-```
-
-```ini
-[Service]
-User=wine-shop
-WorkingDirectory=/srv/wine-shop
-EnvironmentFile=/srv/wine-shop/.env
-ExecStart=/usr/bin/env DJANGO_SETTINGS_MODULE=config.settings.production /srv/wine-shop/venv/bin/celery -A config worker --loglevel=INFO
-Restart=on-failure
-```
-
-An Nginx template should terminate TLS, forward `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto`, proxy requests to Gunicorn, serve `staticfiles/` and appropriately protected media, and set `client_max_body_size` above the application's 5 MB image limit. The settings trust `X-Forwarded-Proto` through `SECURE_PROXY_SSL_HEADER`, so only a trusted proxy may set it.
-
-## Verification and operations
-
-Before deployment, run checks in an environment with the intended settings and dependencies:
+On Debian or Ubuntu, install POSIX ACL support and prepare the asset paths as
+follows. The application and Celery worker run as UID/GID `10001`; `www-data`
+is the usual host Nginx worker user. If the `user` directive in
+`/etc/nginx/nginx.conf` names another account, substitute that account in the
+three `setfacl` commands.
 
 ```bash
-venv/bin/python -m pytest
-venv/bin/python manage.py check
-venv/bin/python manage.py check --deploy
-venv/bin/python manage.py makemigrations --check --dry-run
+sudo apt-get update
+sudo apt-get install --no-install-recommends acl
+
+sudo install -d -o 10001 -g 10001 -m 0750 \
+  /srv/wine-shop/staticfiles /srv/wine-shop/media
+sudo chown -R 10001:10001 \
+  /srv/wine-shop/staticfiles /srv/wine-shop/media
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+  -type d -exec chmod 0750 {} +
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+  -type f -exec chmod 0640 {} +
+
+# Nginx may traverse the parent paths and read existing assets, but cannot
+# write application data.
+sudo setfacl -m u:www-data:--x /srv /srv/wine-shop
+sudo setfacl -R -m u:www-data:rX \
+  /srv/wine-shop/staticfiles /srv/wine-shop/media
+
+# New files and directories inherit owner write access and Nginx
+# read/traverse access. File creation modes remove execute permission on files.
+sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media -type d \
+  -exec setfacl \
+  -m d:u::rwx,d:u:www-data:rx,d:g::r-x,d:m::r-x,d:o::--- {} +
 ```
 
-After deployment, verify a public product request, protected-route rejection without a JWT, staff authorization, PostgreSQL and Redis connectivity, worker availability, static/media serving, JWT refresh and logout behavior, and logs. Treat `check --deploy` findings as review items, not proof that the host configuration is secure.
+These commands are safe to repeat after restoring files from backup. Do not
+use `chmod 777`: Django uploads, `collectstatic`, and Celery thumbnail tasks
+write as UID `10001`, while Nginx receives only read/traverse ACLs. After
+running `collectstatic`, verify that the Nginx worker can traverse both mounts,
+read a static file, and cannot write media:
 
-Maintain tested database backups and a rollback procedure before applying migrations. The repository does not supply automation for either. Do not automatically reverse migrations on production data without verifying reversibility and data impact.
+```bash
+sudo -u www-data test -x /srv/wine-shop/staticfiles
+sudo -u www-data test -x /srv/wine-shop/media
+sudo -u www-data test -r /srv/wine-shop/staticfiles/admin/css/base.css
+sudo -u www-data test ! -w /srv/wine-shop/media
+```
+
+Keep `.env` private and out of source control. The production sample sets
+`DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
+those with publicly reachable database or cache endpoints for this layout.
+
+## Build, migrations, static files, and startup
+
+Build the already validated production configuration:
+
+```bash
+cd /srv/wine-shop
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml build
+```
+
+Start only dependencies, then apply reviewed migrations and collect static
+files explicitly. Neither action runs automatically when the web container
+starts.
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d db redis
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py migrate
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+The same image runs Django and Celery as UID/GID `10001`, not root. The web
+image defaults to Gunicorn on container port `8000`, while Compose overrides
+the command only for development Django and the Celery worker. Production
+publishes Gunicorn only as `127.0.0.1:8000` for the host proxy. PostgreSQL and
+Redis have no host port mappings in the production merge.
+
+Static assets are written to `/srv/wine-shop/staticfiles` by `collectstatic`.
+Uploaded media is stored at `/srv/wine-shop/media`. Both directories are bind
+mounted into the application; Nginx reads them directly, so do not delete or
+replace them during routine deployments.
+
+## Redis durability and capacity
+
+One Redis instance currently provides four logical databases: ordinary cache,
+fail-closed authentication security state, Celery broker data, and Celery
+results. Compose enables AOF and explicitly uses `appendfsync everysec` so a
+normal process or container restart can recover persisted state. On abrupt
+host or power failure this policy typically limits lost acknowledged writes to
+about one second, but it is not a durability guarantee and does not protect
+against storage loss.
+
+AOF persistence writes every Redis value to the `redis_data` named volume,
+including temporary OTP values, cache entries, and Celery payloads. Deleted or
+expired values can remain in historical AOF commands until a rewrite, so treat
+the volume and any copy of it as sensitive data. Restrict host access, do not
+publish Redis, and do not include the volume in broadly accessible backups.
+Monitor free space and AOF size: cache churn and Celery traffic can grow the
+file until Redis rewrites it, and a rewrite needs additional disk and memory
+headroom. AOF improves restart recovery but is not a backup.
+
+Compose explicitly sets `maxmemory-policy noeviction` because all logical
+databases share one instance-wide policy; an evicting policy could silently
+discard fail-closed OTP, lockout, or verification state. Compose does not set a
+host-independent `maxmemory` value or a container memory limit. Do not assume
+that this leaves Redis safely bounded: choose a ceiling only from measured
+peak usage and the VPS memory budget, leaving headroom for Redis overhead, AOF
+rewrites, PostgreSQL, Django, and Celery. With a positive `maxmemory`,
+`noeviction` rejects writes at the limit rather than discarding security state,
+so alert on memory usage and rejected writes. Workloads that require cache
+eviction independently of security and queue data need separate Redis
+instances, which are outside this single-VPS layout.
+
+Confirm the effective production policy after startup rather than relying on
+image defaults:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
+  exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
+```
+
+Celery results expire after `CELERY_RESULT_EXPIRES_SECONDS` (86400 seconds by
+default). Ordinary cache entries default to ten minutes; product-list and
+product-detail responses use one- and five-minute TTLs, and the catalogue cache
+version uses seven days. These expirations bound normal cache/result retention,
+but capacity and disk monitoring are still required.
+
+## Host Nginx
+
+Install and operate Nginx and TLS certificates on the host according to the
+host operating system's security update process. The upstream is always
+`http://127.0.0.1:8000`; do not expose Docker's Gunicorn port on a public host
+interface.
+
+Example site configuration (replace the hostname and certificate paths):
+
+```nginx
+server {
+    listen 80;
+    server_name api.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.example.com;
+
+    ssl_certificate     /etc/ssl/certs/api.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/api.example.com/privkey.pem;
+    client_max_body_size 10m;
+
+    location /static/ {
+        alias /srv/wine-shop/staticfiles/;
+        access_log off;
+        expires 7d;
+    }
+
+    location /media/ {
+        alias /srv/wine-shop/media/;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+}
+```
+
+The production settings trust `X-Forwarded-Proto` when
+`SECURE_PROXY_SSL_HEADER_ENABLED=True`. Only the local, host-managed Nginx
+should be able to reach the Gunicorn listener. Restrict media further in Nginx
+if uploaded product images must not be public.
+
+After installing the site, validate and reload the host service using the
+operating system's Nginx commands, then verify both paths:
+
+```bash
+curl --fail https://api.example.com/health/live
+curl --fail https://api.example.com/health/ready
+curl --fail https://api.example.com/health/startup
+curl --fail -I https://api.example.com/static/admin/css/base.css
+```
+
+Health endpoints are plain Django views, so DRF authentication and throttling
+do not apply. `/health/live` confirms only that the Django process handles an
+HTTP request. `/health/ready` verifies PostgreSQL and the fail-closed security
+Redis cache; the ordinary cache is intentionally omitted because it falls back
+to PostgreSQL. `/health/startup` confirms only that Django's app registry is
+initialized: this project has no long-running application startup phase.
+
+The web container healthcheck calls `/health/ready` with the Python standard
+library. Its 20-second `start_period`, 30-second interval, 5-second timeout,
+and three retries allow Django to initialize without making startup duplicate
+readiness. Docker Compose records an unhealthy result but does not
+automatically restart a container that remains running and unhealthy; monitor
+container health and restart or replace unhealthy containers operationally.
+
+## Release, rollback, and backups
+
+Before every migration, make a tested PostgreSQL backup and copy media to
+separate storage. Docker named volumes and files on the same VPS are not a
+backup. Never run `docker compose down -v` on production: it removes the
+PostgreSQL and Redis volumes.
+
+For example, write a database dump outside the checkout and archive media:
+
+```bash
+sudo install -d -m 0700 /srv/wine-shop-backups
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
+  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  > /srv/wine-shop-backups/wine-shop-$(date +%F).sql
+sudo tar -C /srv/wine-shop -czf /srv/wine-shop-backups/media-$(date +%F).tar.gz media
+```
+
+Store backup copies off the VPS, test restoration on a non-production system,
+and protect backup files as carefully as the database credentials. Redis is
+persisted for restart resilience but is not a replacement for a database or
+media backup.
+
+For a code-only rollback, deploy the previously tested Git revision or image,
+run `collectstatic --noinput` from that revision, and recreate the application
+containers with the same production Compose command. Do not automatically
+reverse database migrations: verify reversibility, data loss, and compatibility
+with the older application version first. If a release includes a destructive
+or irreversible migration, restore the tested database backup instead.
+
+Useful operational checks:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 web celery
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py check --deploy
+```

@@ -1,68 +1,74 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: wine_shop_db
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      - POSTGRES_DB=wine_shop_db
-      - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
-    ports:
-      - "5433:5432"
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d wine_shop_db"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
-    container_name: wine_shop_redis
     restart: unless-stopped
-    ports:
-      - "6380:6379"
+    command: >-
+      redis-server --appendonly yes --appendfsync everysec
+      --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   web:
     build:
       context: .
       target: final
-    container_name: wine_shop_web
-    restart: unless-stopped
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8080 --workers 2 --threads 10 --access-logfile -
-    volumes:
-      - .:/app
-      - static_volume:/app/staticfiles
-      - media_volume:/app/media
-    ports:
-      - "8080:8080"
     env_file:
-      - .env.docker
+      - .env
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   celery:
     build:
       context: .
       target: final
-    container_name: wine_shop_celery
-    restart: unless-stopped
-    command: celery -A config worker --loglevel=info
-    volumes:
-      - .:/app
     env_file:
-      - .env.docker
+      - .env
+    restart: unless-stopped
+    command: celery -A config worker --loglevel=INFO
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   postgres_data:
-  static_volume:
-  media_volume:
+  redis_data:

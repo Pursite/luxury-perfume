@@ -28,7 +28,7 @@ Product uploads are staff-only and use multipart parsers. JPEG, PNG, and WebP ar
 
 ## Configuration, logging, and transport
 
-Secrets are loaded from `.env` with `django-environ`; `.env.production.example` contains placeholders and `.env.development.example` contains local-only values. Neither template should be used as production credentials. Production requires a dedicated `JWT_SIGNING_KEY`, separate from `SECRET_KEY`, as well as host/origin, SMTP, PostgreSQL, Redis, Celery, and HTTPS configuration. Development uses direct localhost infrastructure and disables HTTPS redirect, HSTS, and secure cookies.
+Django loads the root `.env` file with `django-environ`, and Docker Compose uses that same ignored file for interpolation and injects it into the `web` and `celery` services. Copy the appropriate tracked example to `.env`; examples contain only non-production values or placeholders, never production credentials. Production requires a dedicated `JWT_SIGNING_KEY`, separate from `SECRET_KEY`, as well as host/origin, PostgreSQL, Redis, Celery, and HTTPS configuration. Docker Compose development uses the internal `db` and `redis` service names and disables HTTPS redirect, HSTS, and secure cookies; optional direct-host processes should temporarily override those container hostnames in their shell.
 
 The project writes rotating system, activity, and security log files in `logs/`. Logging helpers do not add passwords, OTP values, JWTs, or credentials themselves, but callers must keep sensitive values out of log messages. Current OTP-related services log some phone numbers, so protect log access and retention as operational data. Do not expose internal exception details in API responses.
 

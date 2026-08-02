@@ -16,6 +16,7 @@ DATABASES = {
         "PASSWORD": env("DB_PASSWORD"),  # noqa: F405
         "HOST": env("DB_HOST"),  # noqa: F405
         "PORT": env("DB_PORT"),  # noqa: F405
+        "OPTIONS": {"connect_timeout": DB_CONNECT_TIMEOUT_SECONDS},  # noqa: F405
     }
 }
 
@@ -37,11 +38,3 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS")  # n
 SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD")  # noqa: F405
 SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE")  # noqa: F405
 CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE")  # noqa: F405
-
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = env("EMAIL_HOST")  # noqa: F405
-EMAIL_PORT = env.int("EMAIL_PORT")  # noqa: F405
-EMAIL_HOST_USER = env("EMAIL_HOST_USER")  # noqa: F405
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")  # noqa: F405
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS")  # noqa: F405
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")  # noqa: F405

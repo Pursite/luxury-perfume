@@ -14,6 +14,8 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 SECRET_KEY = env("SECRET_KEY")
+DB_CONNECT_TIMEOUT_SECONDS = env.int("DB_CONNECT_TIMEOUT_SECONDS", default=3)
+REDIS_SOCKET_TIMEOUT_SECONDS = env.float("REDIS_SOCKET_TIMEOUT_SECONDS", default=2)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -183,7 +185,11 @@ LOGGING = {
 
 def redis_cache(location, *, ignore_exceptions=False):
     """Build a Redis cache configuration while preserving cache failure policy."""
-    options = {"CLIENT_CLASS": "django_redis.client.DefaultClient"}
+    options = {
+        "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        "SOCKET_CONNECT_TIMEOUT": REDIS_SOCKET_TIMEOUT_SECONDS,
+        "SOCKET_TIMEOUT": REDIS_SOCKET_TIMEOUT_SECONDS,
+    }
     if ignore_exceptions:
         options["IGNORE_EXCEPTIONS"] = True
     return {
@@ -219,6 +225,7 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_RESULT_EXPIRES = env.int("CELERY_RESULT_EXPIRES_SECONDS", default=86400)
 CELERY_TASK_MAX_RETRIES = 3
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
