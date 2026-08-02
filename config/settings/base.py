@@ -8,7 +8,6 @@ import environ
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / ".env")
 
 LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
