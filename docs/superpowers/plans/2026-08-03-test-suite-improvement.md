@@ -214,7 +214,11 @@ Run: `COVERAGE_FILE=/tmp/wine-shop-products.coverage venv/bin/python -m pytest a
 - Modify: `docs/architecture.md`
 
 **Interfaces:**
-- Consumes environment variables `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `CACHE_REDIS_URL`, and `SECURITY_REDIS_URL`.
+- Consumes dedicated integration environment variables
+  `INTEGRATION_DB_NAME`, `INTEGRATION_DB_USER`,
+  `INTEGRATION_DB_PASSWORD`, `INTEGRATION_DB_HOST`,
+  `INTEGRATION_DB_PORT`, `INTEGRATION_CACHE_REDIS_URL`, and
+  `INTEGRATION_SECURITY_REDIS_URL`.
 - Produces a Django settings module selected with `--ds=config.settings.integration`.
 
 - [ ] **Step 1: Add integration settings**
@@ -241,10 +245,10 @@ Use the real `security` alias to store/verify/consume OTP state, verify replay f
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.integration \
-DB_NAME=wine_shop_test DB_USER=wine_shop DB_PASSWORD=test-only-password \
-DB_HOST=127.0.0.1 DB_PORT=5432 \
-CACHE_REDIS_URL=redis://127.0.0.1:6379/14 \
-SECURITY_REDIS_URL=redis://127.0.0.1:6379/15 \
+INTEGRATION_DB_NAME=wine_shop_test INTEGRATION_DB_USER=wine_shop \
+INTEGRATION_DB_HOST=127.0.0.1 INTEGRATION_DB_PORT=5432 \
+INTEGRATION_CACHE_REDIS_URL=redis://127.0.0.1:6379/14 \
+INTEGRATION_SECURITY_REDIS_URL=redis://127.0.0.1:6379/15 \
 venv/bin/python -m pytest -m integration --ds=config.settings.integration -q
 ```
 

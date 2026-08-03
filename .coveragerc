@@ -1,0 +1,20 @@
+[run]
+branch = True
+source =
+    apps
+    config
+omit =
+    */tests/*
+    */migrations/*
+    */__pycache__/*
+    config/asgi.py
+    config/wsgi.py
+    config/settings/*
+
+[report]
+fail_under = 85
+show_missing = True
+skip_covered = True
+exclude_also =
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

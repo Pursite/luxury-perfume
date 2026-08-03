@@ -16,6 +16,11 @@ ENV/
 pip-log.txt
 pip-delete-this-directory.txt
 
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
 
 __pycache__/
 *.py[cod]

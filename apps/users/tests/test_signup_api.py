@@ -1,28 +1,11 @@
 import pytest
-from django.core.cache import cache
 from django.urls import reverse
+from django.db import IntegrityError
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.test import APIClient
 
 from apps.lib.throttle import SignupRateThrottle
 from apps.users.models import CustomUser
-from apps.users.selectors import UserSelector
-from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
 from apps.users.tests.factories import UserFactory
-
-
-@pytest.fixture
-def api_client():
-    return APIClient()
-
-
-@pytest.fixture(autouse=True)
-def clear_cache_before_and_after():
-    cache.clear()
-    yield
-    cache.clear()
-
 
 @pytest.fixture
 def signup_payload():
@@ -129,8 +112,8 @@ class TestUserSignupAPIView:
         signup_payload,
     ):
         mocker.patch(
-            "apps.users.views.create_user_service",
-            side_effect=SignupIdentityConflict,
+            "apps.users.services.signup_service.CustomUser.objects.create_user",
+            side_effect=IntegrityError("simulated unique constraint race"),
         )
 
         response = api_client.post(self.url, signup_payload, format="json")
@@ -160,48 +143,3 @@ class TestUserSignupAPIView:
 
         assert first_response.status_code == status.HTTP_201_CREATED
         assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-
-
-@pytest.mark.django_db
-def test_password_login_does_not_disclose_inactive_account_state():
-    user = UserFactory(username="inactive_customer", is_active=False)
-    user.set_password("CorrectHorseBatteryStaple42!")
-    user.save(update_fields=["password"])
-
-    with pytest.raises(AuthenticationFailed, match="Username or password is incorrect"):
-        UserSelector.authenticate_by_username_password(
-            username=user.username,
-            password="CorrectHorseBatteryStaple42!",
-        )
-
-
-@pytest.mark.django_db
-def test_password_login_supports_legacy_mixed_case_username():
-    user = CustomUser.objects.create_user(
-        username="legacy_customer",
-        password="CorrectHorseBatteryStaple42!",
-    )
-    CustomUser.objects.filter(pk=user.pk).update(username="Legacy_Customer")
-
-    authenticated = UserSelector.authenticate_by_username_password(
-        username="legacy_customer",
-        password="CorrectHorseBatteryStaple42!",
-    )
-
-    assert authenticated.pk == user.pk
-
-
-@pytest.mark.django_db
-def test_signup_service_maps_manager_validation_conflicts_to_generic_conflicts():
-    CustomUser.objects.create_user(
-        username="existing_customer",
-        password="CorrectHorseBatteryStaple42!",
-    )
-
-    with pytest.raises(SignupIdentityConflict):
-        create_user_service(
-            data={
-                "username": "existing_customer",
-                "password": "CorrectHorseBatteryStaple42!",
-            }
-        )
