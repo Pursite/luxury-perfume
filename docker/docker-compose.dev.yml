@@ -3,10 +3,10 @@ services:
   web:
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - .:/app
+      - ..:/app
     ports:
       - "127.0.0.1:${DJANGO_HOST_PORT:-8000}:8000"
 
   celery:
     volumes:
-      - .:/app
+      - ..:/app

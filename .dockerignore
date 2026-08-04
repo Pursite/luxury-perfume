@@ -5,6 +5,7 @@
 # Environment files and secrets are supplied at container runtime.
 .env
 .env.*
+docker/env/.env.*
 *.pem
 *.key
 auth_key.json

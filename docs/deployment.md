@@ -9,12 +9,13 @@ No Nginx, certificate, or Certbot container is used or required.
 
 ## Compose files
 
-- `docker-compose.yml` is the shared service definition. It has no source-code
-  mounts and publishes no service ports.
-- `docker-compose.dev.yml` adds local source mounts and PostgreSQL/Redis ports
-  for development.
-- `docker-compose.prod.yml` binds Django to `127.0.0.1:8000` and mounts the
-  host asset directories. PostgreSQL and Redis remain internal to Docker.
+- `docker/docker-compose.yml` is the shared service definition. It has no
+  source-code mounts and publishes no service ports. Its fixed project name is
+  `wine-shop`, preserving the existing production container and volume names.
+- `docker/docker-compose.dev.yml` adds local source mounts and PostgreSQL/Redis
+  ports for development.
+- `docker/docker-compose.prod.yml` binds Django to `127.0.0.1:8000` and mounts
+  the host asset directories. PostgreSQL and Redis remain internal to Docker.
 
 Always pass the base file first, followed by the intended override.
 
@@ -25,18 +26,18 @@ development credentials and Docker service hostnames.
 
 ```bash
 cd /path/to/wine-shop
-cp .env.development.example .env
+cp docker/env/.env.development.example .env
 
 docker compose \
   --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.dev.yml \
   config -q
 
 docker compose \
   --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.dev.yml \
   up --build
 ```
 
@@ -65,7 +66,7 @@ sudo chown "$USER":"$USER" /srv/wine-shop
 git clone <repository-url> /srv/wine-shop
 cd /srv/wine-shop
 
-cp .env.production.example .env
+cp docker/env/.env.production.example .env
 chmod 600 .env
 ```
 
@@ -77,8 +78,8 @@ the selected production configuration:
 ```bash
 docker compose \
   --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.prod.yml \
   config -q
 ```
 
@@ -133,7 +134,7 @@ those with publicly reachable database or cache endpoints for this layout.
 
 ## Manual GitHub Actions deployment
 
-`.github/workflows/deploy.yml` is deliberately manual-only. Run **Deploy
+`.github/workflows/cd.yml` is deliberately manual-only. Run **Deploy
 production** with `workflow_dispatch` from the reviewed branch or tag to deploy
 that workflow run's exact commit. The job uses GitHub's `production`
 environment and serializes deployments, so configure that environment with
@@ -180,7 +181,7 @@ Build the already validated production configuration:
 
 ```bash
 cd /srv/wine-shop
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml build
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build
 ```
 
 Start only dependencies, then apply reviewed migrations and collect static
@@ -188,10 +189,10 @@ files explicitly. Neither action runs automatically when the web container
 starts.
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d db redis
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py migrate
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db redis
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm web python manage.py migrate
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
 ```
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
@@ -240,7 +241,7 @@ Confirm the effective production policy after startup rather than relying on
 image defaults:
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml \
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
   exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
 ```
 
@@ -335,7 +336,7 @@ For example, write a database dump outside the checkout and archive media:
 
 ```bash
 sudo install -d -m 0700 /srv/wine-shop-backups
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T db \
   sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
   > /srv/wine-shop-backups/wine-shop-$(date +%F).sql
 sudo tar -C /srv/wine-shop -czf /srv/wine-shop-backups/media-$(date +%F).tar.gz media
@@ -356,7 +357,7 @@ or irreversible migration, restore the tested database backup instead.
 Useful operational checks:
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml ps
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 web celery
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml exec web python manage.py check --deploy
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 web celery
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec web python manage.py check --deploy
 ```

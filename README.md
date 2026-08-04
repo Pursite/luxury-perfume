@@ -18,8 +18,10 @@ See [authentication details](docs/authentication.md), the [API reference](docs/a
 - PostgreSQL, Redis, Celery, and Gunicorn
 - Pytest, pytest-django, factory_boy, and Faker
 
-Runtime package versions are in [requirements.txt](requirements.txt); test-only
-tooling is layered on top through [requirements-test.txt](requirements-test.txt).
+Runtime package versions are in
+[requirements/requirements.txt](requirements/requirements.txt); test-only
+tooling is layered on top through
+[requirements/requirements-test.txt](requirements/requirements-test.txt).
 
 ## Architecture
 
@@ -34,18 +36,18 @@ development template to the local, ignored `.env`, validate the
 merged Compose configuration, and start the stack:
 
 ```bash
-cp .env.development.example .env
+cp docker/env/.env.development.example .env
 
 docker compose \
   --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.dev.yml \
   config -q
 
 docker compose \
   --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.dev.yml \
   up --build
 ```
 
@@ -55,9 +57,9 @@ Compose. The development override publishes the configured host ports only on
 `127.0.0.1`.
 
 `.env` is always local and ignored.
-`.env.development.example` and `.env.production.example` are safe, tracked
-templates. Never put real secrets in an example file or commit a populated
-runtime environment file.
+`docker/env/.env.development.example` and
+`docker/env/.env.production.example` are safe, tracked templates. Never put
+real secrets in an example file or commit a populated runtime environment file.
 
 Direct-host execution is optional. Install the Python dependencies and run
 PostgreSQL and Redis on the host (or use the ports published by the development
@@ -86,7 +88,7 @@ The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 ## Tests and checks
 
 ```bash
-python -m pip install --requirement requirements-test.txt
+python -m pip install --requirement requirements/requirements-test.txt
 venv/bin/python -m pytest
 venv/bin/python manage.py check --settings=config.settings.test
 venv/bin/python manage.py makemigrations --check --dry-run \
@@ -98,13 +100,13 @@ measures production branch coverage, and enforces an 85% minimum. To run the
 marked PostgreSQL/Redis checks with isolated loopback-only services:
 
 ```bash
-docker compose -f docker-compose.integration.yml up -d --wait
+docker compose -f docker/docker-compose.integration.yml up -d --wait
 venv/bin/python -m pytest \
   -o addopts="--strict-config --strict-markers" \
   -m integration \
   --ds=config.settings.integration \
   -q
-docker compose -f docker-compose.integration.yml down
+docker compose -f docker/docker-compose.integration.yml down
 ```
 
 Override the dedicated `INTEGRATION_DB_*`,

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements/requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 

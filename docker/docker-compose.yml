@@ -1,3 +1,5 @@
+name: wine-shop
+
 services:
   db:
     image: postgres:16-alpine
@@ -32,10 +34,11 @@ services:
 
   web:
     build:
-      context: .
+      context: ..
+      dockerfile: docker/Dockerfile
       target: final
     env_file:
-      - .env
+      - ../.env
     restart: unless-stopped
     depends_on:
       db:
@@ -61,10 +64,11 @@ services:
 
   celery:
     build:
-      context: .
+      context: ..
+      dockerfile: docker/Dockerfile
       target: final
     env_file:
-      - .env
+      - ../.env
     restart: unless-stopped
     command: celery -A config worker --loglevel=INFO
     depends_on:
