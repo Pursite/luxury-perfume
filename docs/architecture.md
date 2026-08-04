@@ -82,12 +82,31 @@ Settings configure system, activity, and security loggers with rotating files be
 
 ## Testing
 
-Pytest uses `config.settings.test`, which substitutes SQLite, separate local-memory cache namespaces, eager Celery tasks, and in-memory email. The repository tests authentication, profile flows, permissions, OTP and login hardening, product reads/writes, category integrity, uploads, and cache behavior.
+Pytest uses `config.settings.test`, which substitutes SQLite, separate
+local-memory cache namespaces, eager Celery tasks, and in-memory email. The root
+`conftest.py` clears every configured cache alias around each test. Coverage is
+measured over production code with branch tracking, excludes tests and
+migrations, and requires at least 85%.
 
 ```bash
 venv/bin/python -m pytest
-venv/bin/python manage.py check
-venv/bin/python manage.py makemigrations --check --dry-run
+venv/bin/python manage.py check --settings=config.settings.test
+venv/bin/python manage.py makemigrations --check --dry-run \
+  --settings=config.settings.test
+```
+
+PostgreSQL row locking, database constraints, real transaction behavior, and
+Redis security-cache state are covered by tests explicitly marked
+`integration`. `config.settings.integration` reads test service endpoints from
+the environment; `docker-compose.integration.yml` supplies isolated local
+defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
+
+```bash
+docker compose -f docker-compose.integration.yml up -d --wait
+venv/bin/python -m pytest \
+  -o addopts="--strict-config --strict-markers" \
+  -m integration --ds=config.settings.integration -q
+docker compose -f docker-compose.integration.yml down
 ```
 
 Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.

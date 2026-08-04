@@ -1,0 +1,135 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${VPS_HOST:?Configure the production VPS_HOST environment secret.}"
+          : "${VPS_USER:?Configure the production VPS_USER environment secret.}"
+          : "${VPS_SSH_PRIVATE_KEY:?Configure the production VPS_SSH_PRIVATE_KEY environment secret.}"
+          : "${VPS_KNOWN_HOSTS:?Configure the production VPS_KNOWN_HOSTS environment secret.}"
+          VPS_PORT="${VPS_PORT:-22}"
+          [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]] || {
+            echo "VPS_PORT must be a valid TCP port." >&2
+            exit 1
+          }
+          (( VPS_PORT >= 1 && VPS_PORT <= 65535 )) || {
+            echo "VPS_PORT must be a valid TCP port." >&2
+            exit 1
+          }
+          [[ "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "VPS_USER contains unsupported characters." >&2
+            exit 1
+          }
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+
+      - name: Configure strict SSH host verification
+        id: ssh
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_directory="$RUNNER_TEMP/wine-shop-deploy-ssh"
+          install -d -m 700 "$ssh_directory"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$ssh_directory/id_ed25519"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_directory/known_hosts"
+          chmod 600 "$ssh_directory/id_ed25519"
+          chmod 600 "$ssh_directory/known_hosts"
+          echo "directory=$ssh_directory" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy selected commit
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+          SSH_DIRECTORY: ${{ steps.ssh.outputs.directory }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "The workflow did not provide a full commit SHA." >&2
+            exit 1
+          }
+
+          trap 'rm -f "$SSH_DIRECTORY/id_ed25519" "$SSH_DIRECTORY/known_hosts"; rmdir "$SSH_DIRECTORY"' EXIT
+
+          ssh \
+            -i "$SSH_DIRECTORY/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$SSH_DIRECTORY/known_hosts" \
+            -p "$VPS_PORT" \
+            "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_SHA=$DEPLOY_SHA bash -se" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          project_directory=/srv/wine-shop
+          test -d "$project_directory/.git"
+          cd "$project_directory"
+          test -f .env
+
+          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            echo "The deployment checkout contains local source changes; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags --depth=1 origin "$DEPLOY_SHA"
+          git cat-file -e "$DEPLOY_SHA^{commit}"
+          git checkout --detach "$DEPLOY_SHA"
+
+          compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml)
+          "${compose[@]}" config -q
+          "${compose[@]}" build web celery
+          "${compose[@]}" up -d --no-recreate db redis
+
+          dependencies_ready=false
+          for attempt in {1..12}; do
+            if "${compose[@]}" exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 \
+              && "${compose[@]}" exec -T redis redis-cli ping >/dev/null 2>&1; then
+              dependencies_ready=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$dependencies_ready" != true ]; then
+            echo "PostgreSQL or Redis did not become ready in time." >&2
+            exit 1
+          fi
+
+          "${compose[@]}" run --rm --no-deps web python manage.py migrate --noinput
+          "${compose[@]}" run --rm --no-deps web python manage.py collectstatic --noinput
+          "${compose[@]}" up -d --no-deps --force-recreate web celery
+
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --max-time 5 \
+              -H 'X-Forwarded-Proto: https' \
+              http://127.0.0.1:8000/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The application did not pass its readiness check in time." >&2
+          exit 1
+          REMOTE_SCRIPT

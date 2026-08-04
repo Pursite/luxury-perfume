@@ -18,7 +18,8 @@ See [authentication details](docs/authentication.md), the [API reference](docs/a
 - PostgreSQL, Redis, Celery, and Gunicorn
 - Pytest, pytest-django, factory_boy, and Faker
 
-Exact package versions are in [requirements.txt](requirements.txt).
+Runtime package versions are in [requirements.txt](requirements.txt); test-only
+tooling is layered on top through [requirements-test.txt](requirements-test.txt).
 
 ## Architecture
 
@@ -85,19 +86,31 @@ The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 ## Tests and checks
 
 ```bash
-docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
-  run --rm web python manage.py check
-
-docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.dev.yml \
-  run --rm --no-deps -e DJANGO_SETTINGS_MODULE=config.settings.test \
-  web pytest config/tests/test_health.py
+python -m pip install --requirement requirements-test.txt
+venv/bin/python -m pytest
+venv/bin/python manage.py check --settings=config.settings.test
+venv/bin/python manage.py makemigrations --check --dry-run \
+  --settings=config.settings.test
 ```
+
+The default suite uses SQLite and LocMem, excludes tests marked `integration`,
+measures production branch coverage, and enforces an 85% minimum. To run the
+marked PostgreSQL/Redis checks with isolated loopback-only services:
+
+```bash
+docker compose -f docker-compose.integration.yml up -d --wait
+venv/bin/python -m pytest \
+  -o addopts="--strict-config --strict-markers" \
+  -m integration \
+  --ds=config.settings.integration \
+  -q
+docker compose -f docker-compose.integration.yml down
+```
+
+Override the dedicated `INTEGRATION_DB_*`,
+`INTEGRATION_CACHE_REDIS_URL`, and `INTEGRATION_SECURITY_REDIS_URL`
+environment variables when using existing test services. Never point
+integration tests at production databases or Redis databases.
 
 ## Documentation
 
@@ -116,10 +129,12 @@ Update the relevant document whenever routes, configuration, authentication beha
 
 The users, authentication, profiles, products, categories, brands, and product-image domains are implemented. The project remains under active development.
 
-Planned, not implemented: inventory, cart, orders, payments, shipping, reviews, CI automation, a production health endpoint, object-storage integration, and an SMS-provider integration.
+Planned, not implemented: inventory, cart, orders, payments, shipping, reviews,
+object-storage integration, and an SMS-provider integration.
 
 The repository includes a Docker Compose deployment layout for development and
-a single VPS; see `docs/deployment.md` for production template preparation,
+a single VPS, plus a manual GitHub Actions production deployment workflow; see
+`docs/deployment.md` for production template preparation, environment secrets,
 host-managed Nginx, and operations.
 
 ## License

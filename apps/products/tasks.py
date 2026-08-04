@@ -20,6 +20,7 @@ THUMBNAIL_SIZE = (600, 600)
 )
 def generate_product_image_thumbnail(product_image_id: int) -> None:
     """Generate a WebP thumbnail without delaying an image-upload response."""
+    generated_thumbnail_name = None
     try:
         product_image = ProductImage.objects.get(pk=product_image_id)
     except ProductImage.DoesNotExist:
@@ -43,8 +44,20 @@ def generate_product_image_thumbnail(product_image_id: int) -> None:
             ContentFile(output.getvalue()),
             save=False,
         )
+        generated_thumbnail_name = product_image.thumbnail.name
         product_image.save(update_fields=["thumbnail", "updated_at"])
     except Exception:
+        if generated_thumbnail_name:
+            try:
+                product_image.thumbnail.storage.delete(generated_thumbnail_name)
+            except Exception:
+                AppLogger.log_system_error(
+                    msg=(
+                        "Failed to clean up thumbnail after generation failure "
+                        f"for product image {product_image_id}"
+                    ),
+                    include_traceback=True,
+                )
         AppLogger.log_system_error(
             msg=f"Thumbnail generation failed for product image {product_image_id}",
             include_traceback=True,

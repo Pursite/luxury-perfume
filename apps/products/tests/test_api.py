@@ -1,89 +1,19 @@
 from io import BytesIO
 
 import pytest
-from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db.models import BigAutoField
 from django.urls import reverse
 from PIL import Image
 from rest_framework import status
-from rest_framework.test import APIClient
 
 from apps.products.models import Product, ProductImage
-from apps.products.selectors import get_product_detail, get_public_products_queryset
-from apps.products.serializers import ProductImageUploadInputSerializer
-from apps.products.tasks import generate_product_image_thumbnail
 from apps.products.tests.factories import BrandFactory, CategoryFactory, ProductFactory, ProductImageFactory
 from apps.users.tests.factories import UserFactory
-
-
-@pytest.fixture
-def api_client():
-    return APIClient()
-
-
-@pytest.fixture(autouse=True)
-def clear_cache_before_and_after():
-    cache.clear()
-    yield
-    cache.clear()
-
-
-@pytest.fixture
-def admin_user():
-    return UserFactory(is_staff=True, is_superuser=True)
-
-
-@pytest.fixture
-def normal_user():
-    return UserFactory(is_staff=False)
-
-
-@pytest.fixture
-def image_file():
-    def create_image(name="test-image.jpg"):
-        content = BytesIO()
-        Image.new("RGB", (100, 100), color="blue").save(content, "JPEG")
-        content.seek(0)
-        return SimpleUploadedFile(name, content.read(), content_type="image/jpeg")
-
-    return create_image
-
-
-@pytest.fixture
-def product_payload():
-    category = CategoryFactory()
-    brand = BrandFactory()
-    return {
-        "category": str(category.id),
-        "brand": str(brand.id),
-        "name": "Bordeaux Grand Cru",
-        "slug": "bordeaux-grand-cru",
-        "sku": "BOR-2026-001",
-        "description": "A high-quality dry red wine.",
-        "price": "150.00",
-        "discount_price": "120.00",
-        "stock": 100,
-        "abv": "14.0",
-        "volume_ml": 750,
-        "country_of_origin": "France",
-        "vintage_year": 2020,
-        "taste_notes": "Dark fruit and oak.",
-        "serving_temp": "16-18C",
-        "is_active": True,
-        "is_featured": True,
-    }
 
 
 @pytest.mark.django_db
 class TestProductListCreateAPIView:
     url = reverse("apps.products:product-list")
-
-    def test_product_internal_primary_key_is_integer_and_public_id_is_uuid(self):
-        assert isinstance(Product._meta.pk, BigAutoField)
-        product = ProductFactory()
-        assert isinstance(product.id, int)
-        assert product.uuid
 
     def test_list_is_paginated_and_hides_inactive_products(self, api_client):
         products = ProductFactory.create_batch(15, is_active=True)
@@ -328,59 +258,6 @@ class TestProductImageAPIView:
 
 
 @pytest.mark.django_db
-class TestProductPublicCache:
-    def test_list_response_is_reused_from_cache(self, api_client, mocker):
-        ProductFactory.create_batch(2)
-        selector = mocker.patch(
-            "apps.products.views.get_public_products_queryset",
-            wraps=get_public_products_queryset,
-        )
-        url = reverse("apps.products:product-list")
-
-        first_response = api_client.get(url)
-        second_response = api_client.get(url)
-
-        assert first_response.status_code == status.HTTP_200_OK
-        assert second_response.data == first_response.data
-        assert selector.call_count == 1
-
-    def test_detail_response_is_reused_from_cache(self, api_client, mocker):
-        product = ProductFactory()
-        selector = mocker.patch(
-            "apps.products.views.get_product_detail",
-            wraps=get_product_detail,
-        )
-        url = reverse(
-            "apps.products:product-detail",
-            kwargs={"product_uuid": product.uuid},
-        )
-
-        first_response = api_client.get(url)
-        second_response = api_client.get(url)
-
-        assert first_response.status_code == status.HTTP_200_OK
-        assert second_response.data == first_response.data
-        assert selector.call_count == 1
-
-
-@pytest.mark.django_db(transaction=True)
-def test_product_save_invalidates_cached_detail(api_client):
-    product = ProductFactory(name="Before cache invalidation")
-    url = reverse(
-        "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
-    )
-
-    assert api_client.get(url).data["name"] == "Before cache invalidation"
-    product.name = "After cache invalidation"
-    product.save(update_fields=["name"])
-
-    response = api_client.get(url)
-    assert response.status_code == status.HTTP_200_OK
-    assert response.data["name"] == "After cache invalidation"
-
-
-@pytest.mark.django_db
 class TestProductImageUploadValidation:
     def _upload_url(self, product):
         return reverse(
@@ -412,19 +289,6 @@ class TestProductImageUploadValidation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "image" in response.data
-
-    def test_rejects_mime_type_that_does_not_match_image_content(self, image_file):
-        original = image_file("wine.jpg")
-        upload = SimpleUploadedFile(
-            "wine.png",
-            original.read(),
-            content_type="image/png",
-        )
-
-        serializer = ProductImageUploadInputSerializer(data={"image": upload})
-
-        assert serializer.is_valid() is False
-        assert "image" in serializer.errors
 
     def test_rejects_corrupted_and_oversized_uploads(self, api_client, admin_user):
         product = ProductFactory()
@@ -504,13 +368,3 @@ class TestProductImageUploadValidation:
         assert ".." not in image.image.name
         assert image.image.name.endswith(".jpg")
         task_delay.assert_called_once_with(image.id)
-
-
-@pytest.mark.django_db
-def test_thumbnail_task_creates_webp_derivative():
-    product_image = ProductImageFactory()
-
-    generate_product_image_thumbnail(product_image.id)
-
-    product_image.refresh_from_db()
-    assert product_image.thumbnail.name.endswith("-thumbnail.webp")

@@ -1,14 +1,8 @@
 import pytest
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APIClient
 from apps.users.tests.factories import UserFactory, AddressFactory
 from apps.users.models import Address
-
-
-@pytest.fixture
-def api_client():
-    return APIClient()
 
 
 @pytest.mark.django_db
@@ -35,7 +29,6 @@ class TestProfileFlow:
         }
 
         response = api_client.post(self.COMPLETE_PROFILE_URL, data=payload, format='json')
-        print("\n=== SERALIZER ERROR ===", response.data)
         assert response.status_code == status.HTTP_200_OK
         assert "data" in response.data
 
@@ -132,9 +125,10 @@ class TestProfileFlow:
         user = UserFactory()
         api_client.force_authenticate(user=user)
 
-        mocker.patch(
-            'apps.users.services.user_auth_service.UserAuthService.update_user_profile',
-            side_effect=RuntimeError("Database connection lost.")
+        mocker.patch.object(
+            user,
+            "save",
+            side_effect=RuntimeError("Database connection lost."),
         )
 
         payload = {"first_name": "Test"}
