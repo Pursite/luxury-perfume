@@ -12,7 +12,7 @@
 
 - Work directly on the current branch.
 - Preserve API compatibility and existing application behavior unless a failing test proves a correctness or security defect.
-- Preserve the staged `.gitignore` change and unrelated `docker-compose.prod.yml` edit.
+- Preserve the staged `.gitignore` change and unrelated `docker/docker-compose.prod.yml` edit.
 - Exclude tests, migrations, generated files, and environment entry points from coverage.
 - Enforce branch coverage and at least 85% production-code coverage.
 - Keep integration tests explicitly marked and runnable locally and in CI.
@@ -261,26 +261,26 @@ Run the documented command. If services are unavailable, start isolated Docker C
 ### Task 5: Dependency Separation and CI
 
 **Files:**
-- Modify: `requirements.txt`
-- Create: `requirements-test.txt`
-- Create: `.github/workflows/tests.yml`
+- Modify: `requirements/requirements.txt`
+- Create: `requirements/requirements-test.txt`
+- Create: `.github/workflows/ci.yml`
 - Modify: `README.md`
 
 **Interfaces:**
-- `requirements-test.txt` includes `-r requirements.txt` and pins pytest, pytest-django, pytest-cov, pytest-mock, factory_boy, Faker, and coverage tooling.
-- Docker continues consuming `requirements.txt` unchanged in path and invocation.
+- `requirements/requirements-test.txt` includes `-r requirements.txt` and pins pytest, pytest-django, pytest-cov, pytest-mock, factory_boy, Faker, and coverage tooling.
+- Docker continues consuming `requirements/requirements.txt` in its updated path and unchanged invocation behavior.
 
 - [ ] **Step 1: Move test-only direct dependencies**
 
-Remove test runners, plugins, coverage tools, factory_boy, Faker, and test-only direct helpers from production requirements. Add exact pins to `requirements-test.txt` after `-r requirements.txt`.
+Remove test runners, plugins, coverage tools, factory_boy, Faker, and test-only direct helpers from production requirements. Add exact pins to `requirements/requirements-test.txt` after `-r requirements.txt`.
 
 - [ ] **Step 2: Verify production imports and Docker dependency path**
 
-Run `venv/bin/python manage.py check` and inspect the Dockerfile to confirm it still installs `requirements.txt` only.
+Run `venv/bin/python manage.py check` and inspect `docker/Dockerfile` to confirm it still installs `requirements/requirements.txt` only.
 
 - [ ] **Step 3: Add the default CI job**
 
-Install `requirements-test.txt`; run `pytest`, `manage.py check`, and `manage.py makemigrations --check --dry-run` using test settings.
+Install `requirements/requirements-test.txt`; run `pytest`, `manage.py check`, and `manage.py makemigrations --check --dry-run` using test settings.
 
 - [ ] **Step 4: Add the PostgreSQL/Redis integration CI job**
 
@@ -323,7 +323,7 @@ Search for `pytest.raises(Exception)`, debug `print(`, duplicate `api_client` fi
 
 - [ ] **Step 5: Review the final diff and working tree**
 
-Confirm `.gitignore` retains the pre-existing staged lines, `docker-compose.prod.yml` differs only by the user's unrelated edit, no secrets appear, and no assertions were weakened merely to pass.
+Confirm `.gitignore` retains the pre-existing staged lines, `docker/docker-compose.prod.yml` differs only by the user's unrelated edit, no secrets appear, and no assertions were weakened merely to pass.
 
 - [ ] **Step 6: Report exact evidence**
 

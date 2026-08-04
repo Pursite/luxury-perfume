@@ -11,13 +11,15 @@ wine-shop/
 │   ├── products/     # catalogue domain
 │   └── users/        # identity and profile domain
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
+├── docker/
+│   ├── env/           # tracked environment templates
+│   ├── Dockerfile
+│   └── docker-compose*.yml
 ├── docs/
-├── .env.development.example
-├── .env.production.example
 ├── manage.py
-├── requirements.txt
-├── Dockerfile
-└── docker-compose.yml
+└── requirements/
+    ├── requirements.txt
+    └── requirements-test.txt
 ```
 
 ## Request layers
@@ -98,15 +100,15 @@ venv/bin/python manage.py makemigrations --check --dry-run \
 PostgreSQL row locking, database constraints, real transaction behavior, and
 Redis security-cache state are covered by tests explicitly marked
 `integration`. `config.settings.integration` reads test service endpoints from
-the environment; `docker-compose.integration.yml` supplies isolated local
-defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
+the environment; `docker/docker-compose.integration.yml` supplies isolated
+local defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
 
 ```bash
-docker compose -f docker-compose.integration.yml up -d --wait
+docker compose -f docker/docker-compose.integration.yml up -d --wait
 venv/bin/python -m pytest \
   -o addopts="--strict-config --strict-markers" \
   -m integration --ds=config.settings.integration -q
-docker compose -f docker-compose.integration.yml down
+docker compose -f docker/docker-compose.integration.yml down
 ```
 
 Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.

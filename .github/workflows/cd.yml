@@ -99,7 +99,7 @@ jobs:
           git cat-file -e "$DEPLOY_SHA^{commit}"
           git checkout --detach "$DEPLOY_SHA"
 
-          compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml)
+          compose=(docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml)
           "${compose[@]}" config -q
           "${compose[@]}" build web celery
           "${compose[@]}" up -d --no-recreate db redis

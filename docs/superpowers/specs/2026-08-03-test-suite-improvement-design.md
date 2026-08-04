@@ -12,7 +12,7 @@ database-specific guarantees without changing public application behavior.
 - Preserve API compatibility and existing application behavior unless a new or
   corrected test proves a real correctness or security defect.
 - Preserve the existing staged `.gitignore` changes and the unrelated local
-  `docker-compose.prod.yml` change.
+  `docker/docker-compose.prod.yml` change.
 - Never expose or log passwords, OTPs, JWTs, credentials, or sensitive internal
   errors in tests, fixtures, CI output, or application changes.
 - Keep the default suite fast with SQLite, LocMem caches, eager Celery, and
@@ -98,11 +98,11 @@ the default invocation, and run branch coverage with an 85% production-code
 minimum. Coverage configuration will omit test modules, migrations, generated
 files, and runtime entry points that are not meaningful unit-test targets.
 
-Production dependencies will remain in `requirements.txt`. Test-only packages
-will move to `requirements-test.txt`, which includes the production requirements
-first. Docker will continue installing `requirements.txt`, so runtime images do
-not gain test tooling and existing production installation behavior remains
-compatible.
+Production dependencies will remain in `requirements/requirements.txt`.
+Test-only packages will move to `requirements/requirements-test.txt`, which
+includes the production requirements first. Docker will continue installing
+`requirements/requirements.txt`, so runtime images do not gain test tooling
+and existing production installation behavior remains compatible.
 
 GitHub Actions will have:
 
