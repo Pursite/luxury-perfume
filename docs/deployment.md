@@ -131,6 +131,49 @@ Keep `.env` private and out of source control. The production sample sets
 `DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
 those with publicly reachable database or cache endpoints for this layout.
 
+## Manual GitHub Actions deployment
+
+`.github/workflows/deploy.yml` is deliberately manual-only. Run **Deploy
+production** with `workflow_dispatch` from the reviewed branch or tag to deploy
+that workflow run's exact commit. The job uses GitHub's `production`
+environment and serializes deployments, so configure that environment with
+the required reviewers and branch/tag restrictions before its first use.
+
+Add these environment secrets to `production`; do not add them as repository
+secrets:
+
+- `VPS_HOST`: the VPS hostname or address.
+- `VPS_PORT`: the SSH port; leave it unset to use `22`.
+- `VPS_USER`: the restricted VPS account that owns `/srv/wine-shop` and is
+  allowed to use Docker Compose for this project.
+- `VPS_SSH_PRIVATE_KEY`: the Actions-to-VPS private key. It needs only the
+  restricted account's SSH access.
+- `VPS_KNOWN_HOSTS`: the exact, pre-verified SSH host-key entry for the VPS.
+  Obtain and verify the server fingerprint through a trusted channel before
+  saving it; the workflow never uses `ssh-keyscan` or disables host checking.
+
+The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
+for example with a read-only deploy key stored on the VPS. The workflow does
+not copy source, write `.env`, or install host software. It refuses to run if
+the checkout has tracked or untracked source changes; ignored state such as
+the private `.env`, static files, media, logs, and Compose volumes is left
+untouched.
+
+Within `/srv/wine-shop`, the workflow fetches and checks out the exact commit,
+validates the merged production Compose configuration, builds `web` and
+`celery`, starts the existing `db` and `redis` services without recreating
+them, waits for them, runs migrations and `collectstatic`, and force-recreates
+only `web` and `celery`.
+It then calls the local readiness endpoint with the same trusted-proxy header
+that host Nginx sends. It never runs `docker compose down`, removes volumes,
+prunes Docker resources, uses `git clean`, or modifies Nginx, VPN services,
+database data, media, static files, or the server's `.env`.
+
+The workflow intentionally does not create backups or reverse migrations.
+Follow the backup procedure below before any release containing a migration;
+if deployment fails after migrations, use the reviewed rollback guidance
+rather than an automatic database rollback.
+
 ## Build, migrations, static files, and startup
 
 Build the already validated production configuration:

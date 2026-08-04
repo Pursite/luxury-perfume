@@ -37,7 +37,9 @@ The project writes rotating system, activity, and security log files in `logs/`.
 - OTP delivery is only a Celery task placeholder; an SMS provider is not implemented.
 - OTP values are stored as cache values rather than password hashes; Redis access must be tightly restricted.
 - The verification lease reduces concurrency risk but does not make verification a fully atomic Redis operation.
-- The repository has no documented automated security scanning, production
-  health endpoint, managed object storage, or production deployment automation.
+- The repository has no documented automated security scanning or managed
+  object storage. Production deployments are manual GitHub Actions runs gated
+  by the `production` environment and a pre-verified VPS SSH host key; see
+  [deployment.md](deployment.md).
 
 Review security-sensitive changes for permissions, authentication, input validation, secret handling, cache-failure behavior, logging, uploads, concurrency, and database integrity. Report suspected vulnerabilities privately to the repository maintainer; do not include exploit details or real secrets in public issues.

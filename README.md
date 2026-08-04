@@ -130,11 +130,11 @@ Update the relevant document whenever routes, configuration, authentication beha
 The users, authentication, profiles, products, categories, brands, and product-image domains are implemented. The project remains under active development.
 
 Planned, not implemented: inventory, cart, orders, payments, shipping, reviews,
-a production health endpoint, object-storage integration, and an SMS-provider
-integration.
+object-storage integration, and an SMS-provider integration.
 
 The repository includes a Docker Compose deployment layout for development and
-a single VPS; see `docs/deployment.md` for production template preparation,
+a single VPS, plus a manual GitHub Actions production deployment workflow; see
+`docs/deployment.md` for production template preparation, environment secrets,
 host-managed Nginx, and operations.
 
 ## License
