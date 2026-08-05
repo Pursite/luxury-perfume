@@ -21,7 +21,7 @@ DATABASES = {
 }
 
 CACHES = {
-    "default": redis_cache(
+    "default": redis_cache(  # noqa: F405
         env("CACHE_REDIS_URL"),  # noqa: F405
         ignore_exceptions=True,
     ),

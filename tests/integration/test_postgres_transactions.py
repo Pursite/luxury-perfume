@@ -5,11 +5,16 @@ from threading import Barrier
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, close_old_connections, transaction
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.products.cache import get_catalog_cache_version
 from apps.products.models import Product, ProductImage
 from apps.products.services import create_product_image_service
 from apps.products.tests.factories import ProductFactory, ProductImageFactory
+from apps.users.models import CustomUser
+from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
+from apps.users.services.user_auth_service import UserAuthService
 
 
 pytestmark = [
@@ -97,3 +102,70 @@ def test_primary_image_updates_are_serialized_by_real_row_lock(mocker):
         is_primary=True,
     ).count() == 1
 
+
+def test_postgresql_enforces_casefold_identity_constraints():
+    CustomUser.objects.create(
+        username="CaseFoldCustomer",
+        email="CaseFold@example.com",
+        password="!",
+    )
+
+    with pytest.raises(IntegrityError) as username_error:
+        with transaction.atomic():
+            CustomUser.objects.create(
+                username="casefoldcustomer",
+                email="other@example.com",
+                password="!",
+            )
+    assert username_error.value.__cause__.diag.constraint_name == "users_unique_username_casefold"
+
+    with pytest.raises(IntegrityError) as email_error:
+        with transaction.atomic():
+            CustomUser.objects.create(
+                username="other_customer",
+                email="casefold@example.com",
+                password="!",
+            )
+    assert email_error.value.__cause__.diag.constraint_name == "users_unique_email_casefold"
+
+
+def test_casefold_signup_race_allows_only_one_identity():
+    ready = Barrier(2)
+
+    def signup(username):
+        close_old_connections()
+        try:
+            ready.wait(timeout=10)
+            create_user_service(
+                data={"username": username, "password": "StrongPassword123!"},
+            )
+            return "created"
+        except SignupIdentityConflict:
+            return "conflict"
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = [
+            executor.submit(signup, username)
+            for username in ("RacingUser", "racinguser")
+        ]
+        results = [outcome.result(timeout=20) for outcome in outcomes]
+
+    assert sorted(results) == ["conflict", "created"]
+    assert CustomUser.objects.filter(username__iexact="racinguser").count() == 1
+
+
+def test_postgresql_password_change_blacklists_existing_refresh_tokens():
+    user = CustomUser.objects.create_user(
+        username="token_state_customer",
+        password="OriginalPassword123!",
+    )
+    refresh = RefreshToken.for_user(user)
+
+    UserAuthService.update_user_profile(
+        user=user,
+        validated_data={"password": "ReplacementPassword123!"},
+    )
+
+    assert BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()

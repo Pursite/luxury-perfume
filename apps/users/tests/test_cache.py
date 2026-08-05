@@ -76,18 +76,19 @@ def test_security_cache_failures_fail_closed(mocker, operation):
             "set",
             side_effect=OSError("cache unavailable"),
         )
-        action = lambda: guard.store_code("123456")
+        def action():
+            guard.store_code("123456")
     else:
         mocker.patch.object(
             guard.cache,
             "get",
             side_effect=OSError("cache unavailable"),
         )
-        action = lambda: guard.verify("123456")
+        def action():
+            guard.verify("123456")
 
     with pytest.raises(SecurityCacheUnavailable) as exc_info:
         action()
 
     assert exc_info.value.status_code == 503
     assert "temporarily unavailable" in str(exc_info.value.detail)
-

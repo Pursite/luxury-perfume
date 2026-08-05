@@ -1,7 +1,8 @@
 import pytest
 from django.urls import reverse
 from rest_framework import status
-from apps.users.tests.factories import UserFactory, AddressFactory
+from rest_framework_simplejwt.tokens import RefreshToken
+from apps.users.tests.factories import UserFactory
 from apps.users.models import Address
 
 
@@ -52,7 +53,7 @@ class TestProfileFlow:
 
         payload = {
             "username": "my_user_123",
-            "password": "weakpassword",
+            "password": "short",
             "email": "test@example.com",
             "first_name": "John",
             "last_name": "Doe",
@@ -120,17 +121,32 @@ class TestProfileFlow:
         user.refresh_from_db()
         assert user.check_password("NewStrongPass123!@") is True
 
-    def test_update_profile_does_not_mask_unexpected_service_errors(self, api_client, mocker):
-        """Unexpected failures remain visible to Django's error handling."""
+    def test_password_update_invalidates_existing_access_and_refresh_tokens(self, api_client):
         user = UserFactory()
+        user.set_password("OriginalPassword123!")
+        user.save(update_fields=["password"])
+        refresh = RefreshToken.for_user(user)
+        stale_access = str(refresh.access_token)
         api_client.force_authenticate(user=user)
 
-        mocker.patch.object(
-            user,
-            "save",
-            side_effect=RuntimeError("Database connection lost."),
+        password_update = api_client.patch(
+            self.UPDATE_PROFILE_URL,
+            {"password": "NewStrongPass123!@"},
+            format="json",
+        )
+        api_client.force_authenticate(user=None)
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {stale_access}")
+        stale_access_response = api_client.patch(
+            self.UPDATE_PROFILE_URL,
+            {"first_name": "Rejected"},
+            format="json",
+        )
+        refresh_response = api_client.post(
+            reverse("users:token_refresh"),
+            {"refresh": str(refresh)},
+            format="json",
         )
 
-        payload = {"first_name": "Test"}
-        with pytest.raises(RuntimeError, match="Database connection lost"):
-            api_client.patch(self.UPDATE_PROFILE_URL, data=payload, format='json')
+        assert password_update.status_code == status.HTTP_200_OK
+        assert stale_access_response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert refresh_response.status_code == status.HTTP_401_UNAUTHORIZED

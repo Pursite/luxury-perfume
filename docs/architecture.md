@@ -42,7 +42,7 @@ Output serializer and HTTP response
 - **Serializers** validate and normalize request data and define output representations. Product upload serializers also validate image content.
 - **Services** implement state-changing workflows such as signup, OTP handling, password reset, logout, product writes, image writes, and post-commit cleanup/queueing.
 - **Selectors** contain reusable read queries, including case-insensitive username lookups and filtered product queries.
-- **Models** define durable state and model-level invariants. PostgreSQL constraints add final protection for active-user identities, product discount prices, and primary product images.
+- **Models** define durable state and model-level invariants. PostgreSQL constraints add final protection for active-user identities, case-insensitive username/email uniqueness, product discount prices, and primary product images.
 
 ## Applications
 
@@ -67,20 +67,20 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 
 ## Data, cache, and authentication
 
-PostgreSQL stores durable users, addresses, catalogue records, product images, and Simple JWT blacklist records.
+PostgreSQL stores durable users, addresses, catalogue records, product images, and Simple JWT outstanding/blacklist records. The identity migration checks for legacy case-fold conflicts before adding its functional unique constraints, so it stops without rewriting data if remediation is required.
 
 Redis has two configured cache aliases with separate URLs:
 
 - `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. It is configured to ignore cache exceptions, so a cache failure can fall back to the database.
-- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, and password-login guard state. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
+- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, password-login guard state, and OTP phone/IP throttle histories. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
 
-JWT authentication is the DRF default. Simple JWT uses Bearer access tokens, refresh-token rotation, and blacklist-after-rotation. See [authentication.md](authentication.md).
+JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
 
 ## Configuration and logging
 
 `config.settings.base` loads the root `.env` file with `django-environ`. Docker Compose also uses that file for interpolation and injects it into the `web` and `celery` services. Copy either tracked environment-specific example to `.env` to select the Django settings module. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, and transport-hardening values.
 
-Settings configure system, activity, and security loggers with rotating files beneath `logs/`. Logging helpers record messages plus an authenticated user ID when available. They must not receive passwords, OTP codes, JWTs, credentials, or sensitive internal errors. The current services do include phone numbers in some log messages, so treat those files as sensitive operational data.
+Settings configure system, activity, and security loggers with rotating files beneath `logs/`. Logging helpers record messages plus an authenticated user ID when available. They must not receive passwords, OTP codes, JWTs, credentials, phone numbers, or sensitive internal errors.
 
 ## Testing
 
@@ -97,9 +97,10 @@ venv/bin/python manage.py makemigrations --check --dry-run \
   --settings=config.settings.test
 ```
 
-PostgreSQL row locking, database constraints, real transaction behavior, and
-Redis security-cache state are covered by tests explicitly marked
-`integration`. `config.settings.integration` reads test service endpoints from
+PostgreSQL row locking, case-insensitive identity constraints, concurrent
+signup, real transaction behavior, Redis security-cache state, normalized
+phone/IP throttle keys, and concurrent OTP consumption are covered by tests
+explicitly marked `integration`. `config.settings.integration` reads test service endpoints from
 the environment; `docker/docker-compose.integration.yml` supplies isolated
 local defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
 

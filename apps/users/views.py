@@ -15,7 +15,9 @@ from .services.user_auth_service import UserAuthService
 from ..lib.loggers import AppLogger
 from ..lib.throttle import (
     OTPPhoneNumberRateThrottle,
+    OTPIPRateThrottle,
     OTPVerificationRateThrottle,
+    OTPVerificationIPRateThrottle,
     PasswordLoginRateThrottle,
     SignupRateThrottle,
 )
@@ -56,7 +58,7 @@ class UserSignupAPIView(APIView):
 
 class SendOTPCodeAPIView(APIView):
     permission_classes = (AllowAny,)
-    throttle_classes = [OTPPhoneNumberRateThrottle]
+    throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
 
     def post(self, request):
         serializer = PhoneInputSerializer(data=request.data)
@@ -72,7 +74,7 @@ class SendOTPCodeAPIView(APIView):
 
 class VerifyOTPAPIView(APIView):
     permission_classes = (AllowAny,)
-    throttle_classes = (OTPVerificationRateThrottle,)
+    throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
@@ -112,7 +114,7 @@ class LoginWithUserPassAPIView(APIView):
 
 
 class SendOtpLoginAPIView(APIView):
-    throttle_classes = [OTPPhoneNumberRateThrottle]
+    throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
     permission_classes = (AllowAny,)
 
     def post(self, request):
@@ -129,7 +131,7 @@ class SendOtpLoginAPIView(APIView):
 
 class LoginWithOTPCodeAPIView(APIView):
     permission_classes = (AllowAny,)
-    throttle_classes = (OTPVerificationRateThrottle,)
+    throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
         serializer = VerifyOTPInputSerializer(data=request.data)
@@ -205,6 +207,7 @@ class LogoutAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         UserAuthService.logout_user(
+            user=request.user,
             refresh_token=serializer.validated_data['refresh']
         )
 
@@ -215,7 +218,7 @@ class LogoutAPIView(APIView):
 
 
 class SendPasswordResetOtpAPIView(APIView):
-    throttle_classes = [OTPPhoneNumberRateThrottle]
+    throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
     permission_classes = (AllowAny,)
 
     def post(self, request):
@@ -232,7 +235,7 @@ class SendPasswordResetOtpAPIView(APIView):
 
 class VerifyAndResetPasswordAPIView(APIView):
     permission_classes = (AllowAny,)
-    throttle_classes = (OTPVerificationRateThrottle,)
+    throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
         serializer = PasswordResetVerifyInputSerializer(data=request.data)

@@ -195,6 +195,12 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
 ```
 
+The case-insensitive identity migration is a release gate: it first checks for
+legacy usernames or emails that collide after case-folding. If it aborts, it
+does not rewrite records or disclose their values. Stop the release, resolve
+the conflicts privately with a reviewed data procedure, then retry the same
+migration. Do not bypass it with manual constraint creation.
+
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
 image defaults to Gunicorn on container port `8000`, while Compose overrides
 the command only for development Django and the Celery worker. Production
@@ -297,9 +303,11 @@ server {
 ```
 
 The production settings trust `X-Forwarded-Proto` when
-`SECURE_PROXY_SSL_HEADER_ENABLED=True`. Only the local, host-managed Nginx
-should be able to reach the Gunicorn listener. Restrict media further in Nginx
-if uploaded product images must not be public.
+`SECURE_PROXY_SSL_HEADER_ENABLED=True` and one forwarding proxy for DRF client
+IP throttling through `DRF_NUM_PROXIES=1`. Only the local, host-managed Nginx
+should be able to reach the Gunicorn listener; otherwise a client could forge
+the forwarded address used by OTP limits. Restrict media further in Nginx if
+uploaded product images must not be public.
 
 After installing the site, validate and reload the host service using the
 operating system's Nginx commands, then verify both paths:
@@ -331,6 +339,12 @@ Before every migration, make a tested PostgreSQL backup and copy media to
 separate storage. Docker named volumes and files on the same VPS are not a
 backup. Never run `docker compose down -v` on production: it removes the
 PostgreSQL and Redis volumes.
+
+Before deploying this release, confirm the production `.env` has a dedicated
+JWT signing key with at least 32 random bytes, `DRF_NUM_PROXIES=1` for the
+documented Nginx topology, and explicit phone/IP OTP throttle rates. After
+starting the updated containers, run `python manage.py check --deploy` inside
+the web image before accepting traffic.
 
 For example, write a database dump outside the checkout and archive media:
 
