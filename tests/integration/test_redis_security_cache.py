@@ -3,12 +3,22 @@ from django.core.cache import caches
 from django.db import close_old_connections
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.test import APIRequestFactory
-
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
 from apps.lib.security_cache import OTPVerificationGuard
 from apps.lib.throttle import OTPIPRateThrottle, OTPPhoneNumberRateThrottle
 
-
 pytestmark = pytest.mark.integration
+
+
+def make_request(factory, phone_number, ip):
+    raw_request = factory.post(
+        "/otp/",
+        {"phone_number": phone_number},
+        format="json",
+        REMOTE_ADDR=ip,
+    )
+    return Request(raw_request, parsers=[JSONParser()])
 
 
 def test_redis_otp_consumption_is_visible_to_new_guard_instance():
@@ -18,8 +28,8 @@ def test_redis_otp_consumption_is_visible_to_new_guard_instance():
     OTPVerificationGuard("login", phone_number).verify("123456")
 
     with pytest.raises(
-        ValidationError,
-        match="Invalid or expired verification code",
+            ValidationError,
+            match="Invalid or expired verification code",
     ):
         OTPVerificationGuard("login", phone_number).verify("123456")
 
@@ -48,25 +58,9 @@ def test_redis_cache_aliases_keep_catalog_and_security_state_separate():
 
 def test_redis_security_throttles_enforce_normalized_phone_and_ip_keys():
     factory = APIRequestFactory()
-    first = factory.post(
-        "/otp/",
-        {"phone_number": " 09123456789 "},
-        format="json",
-        REMOTE_ADDR="198.51.100.10",
-    )
-    same_phone_other_ip = factory.post(
-        "/otp/",
-        {"phone_number": "09123456789"},
-        format="json",
-        REMOTE_ADDR="198.51.100.11",
-    )
-    other_phone_same_ip = factory.post(
-        "/otp/",
-        {"phone_number": "09123456788"},
-        format="json",
-        REMOTE_ADDR="198.51.100.10",
-    )
-
+    first = make_request(factory, " 09123456789 ", "198.51.100.10")
+    same_phone_other_ip = make_request(factory, "09123456789", "198.51.100.11")
+    other_phone_same_ip = make_request(factory, "09123456788", "198.51.100.10")
     assert OTPPhoneNumberRateThrottle().allow_request(first, None) is True
     assert OTPPhoneNumberRateThrottle().allow_request(same_phone_other_ip, None) is False
     assert OTPIPRateThrottle().allow_request(first, None) is True
