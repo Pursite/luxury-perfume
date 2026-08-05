@@ -15,18 +15,24 @@ User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`. Ex
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
 | `POST /users/signup/` | Public; signup throttle | `username`, `password` | 201; `user.username` and `tokens.refresh`/`tokens.access` |
-| `POST /users/signup/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
-| `POST /users/signup/verify-otp/` | Public; OTP verification throttle | `phone_number`, `otp` | 201; message and tokens |
+| `POST /users/signup/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
+| `POST /users/signup/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 201; message and tokens |
 | `POST /users/login/userpass/` | Public; password-login throttle | `username`, `password` | 200; message and tokens |
-| `POST /users/login/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
-| `POST /users/login/verify-otp/` | Public; OTP verification throttle | `phone_number`, `otp` | 200; message and tokens |
+| `POST /users/token/refresh/` | Public | `refresh` | 200; rotated `access` and `refresh` tokens |
+| `POST /users/login/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
+| `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
 | `POST /users/profile/complete/` | Authenticated | `username`, `password`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
 | `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `first_name`, `last_name`, `password` | 200; message and serialized user in `data` |
 | `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
-| `POST /users/password-reset/send-otp/` | Public; OTP request throttle | `phone_number` | 200; message and `expires_in` |
-| `POST /users/password-reset/verify-and-reset/` | Public; OTP verification throttle | `phone_number`, `otp`, `password` | 200; message and tokens |
+| `POST /users/password-reset/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
+| `POST /users/password-reset/verify-and-reset/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp`, `password` | 200; message and tokens |
 
-All user endpoint paths in this section are relative to `/api/v1/users/`. `phone_number` must match `09` followed by nine digits, such as `09123456789`. OTPs must be six characters. Detailed security behavior is in [authentication.md](authentication.md).
+All user endpoint paths in this section are relative to `/api/v1/users/`.
+`phone_number` must match ASCII `09[0-9]{9}`, such as `09123456789`; Unicode
+digits and alternate formats are rejected. OTPs are exactly six ASCII digits.
+Refresh responses rotate the submitted refresh token and blacklist its prior
+value. Password changes invalidate older access and refresh tokens. Detailed
+security behavior is in [authentication.md](authentication.md).
 
 The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
 
@@ -86,8 +92,8 @@ The server checks declared MIME type, decoded image format, MIME/content consist
 - `200 OK` — successful reads, login, profile, logout, and password-reset operations.
 - `201 Created` — direct signup, OTP signup verification, product creation, and image upload.
 - `204 No Content` — product or product-image deletion.
-- `400 Bad Request` — serializer validation or generic identity/OTP errors.
-- `401 Unauthorized` — missing/invalid JWT credentials on a protected endpoint, or failed username/password authentication.
+- `400 Bad Request` — serializer validation, generic identity/OTP errors, or a logout refresh that is not owned by the requester.
+- `401 Unauthorized` — missing, invalid, or stale JWT credentials on a protected endpoint; failed username/password authentication; or invalid/replayed refresh tokens.
 - `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation.
 - `404 Not Found` — unknown or non-visible product/image.
 - `429 Too Many Requests` — a configured throttle, temporary OTP lock, password-login lock, or active verification lease.

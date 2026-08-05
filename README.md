@@ -5,7 +5,7 @@ A Django REST Framework backend for a wine shop. It currently provides user auth
 ## Implemented features
 
 - Username/password signup and login; phone/OTP signup and login; password reset by OTP.
-- JWT access and refresh tokens, refresh rotation and blacklisting, and logout token blacklisting.
+- JWT access and refresh tokens, an explicit refresh endpoint with rotation and blacklisting, password-change session revocation, and owner-bound logout.
 - Profile completion and updates, including addresses.
 - Public product list and detail endpoints, product search, filtering, ordering, pagination, and Redis-backed anonymous-response caching.
 - Staff-only product and image mutations, content-aware JPEG/PNG/WebP validation, category-cycle protection, and data-integrity constraints.
@@ -90,14 +90,19 @@ The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 ```bash
 python -m pip install --requirement requirements/requirements-test.txt
 venv/bin/python -m pytest
+venv/bin/python -W error -m pytest
+venv/bin/python -m ruff check apps config tests
+venv/bin/python -m bandit -q -r apps config -x 'apps/**/tests/**,config/tests/**'
 venv/bin/python manage.py check --settings=config.settings.test
 venv/bin/python manage.py makemigrations --check --dry-run \
   --settings=config.settings.test
 ```
 
 The default suite uses SQLite and LocMem, excludes tests marked `integration`,
-measures production branch coverage, and enforces an 85% minimum. To run the
-marked PostgreSQL/Redis checks with isolated loopback-only services:
+measures production branch coverage, enforces an 85% minimum, and treats
+warnings as errors in CI. Ruff checks Python lint rules and Bandit checks the
+production source for common static-security issues. To run the marked
+PostgreSQL/Redis checks with isolated loopback-only services:
 
 ```bash
 docker compose -f docker/docker-compose.integration.yml up -d --wait
@@ -111,8 +116,10 @@ docker compose -f docker/docker-compose.integration.yml down
 
 Override the dedicated `INTEGRATION_DB_*`,
 `INTEGRATION_CACHE_REDIS_URL`, and `INTEGRATION_SECURITY_REDIS_URL`
-environment variables when using existing test services. Never point
-integration tests at production databases or Redis databases.
+environment variables when using existing test services. The integration suite
+covers case-insensitive identity constraints and concurrent signup, Redis
+OTP-consumption races, and security-throttle keys. Never point integration
+tests at production databases or Redis databases.
 
 ## Documentation
 

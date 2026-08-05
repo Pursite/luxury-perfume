@@ -57,7 +57,7 @@ class LoginOtpService:
         phone_number = CustomUser.normalize_phone_number(phone_number)
         user_exists = UserSelector.check_user_exists_by_phone(phone_number)
         if not user_exists:
-            AppLogger.log_security(msg=f"Login OTP requested for non-existent phone: {phone_number}")
+            AppLogger.log_security(msg="Login OTP requested for an unknown phone.")
             return cls._request_response()
 
         otp_code = cls._generate_otp_code()
@@ -65,7 +65,7 @@ class LoginOtpService:
 
         send_otp_sms_task.delay(phone_number, otp_code)
 
-        AppLogger.log_activity(msg=f"Login OTP token generated and queued via Celery", status="INFO")
+        AppLogger.log_activity(msg="Login OTP token generated and queued via Celery", status="INFO")
 
         return cls._request_response()
 

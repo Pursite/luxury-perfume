@@ -70,6 +70,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
     },
     {
         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
@@ -106,7 +107,15 @@ REST_FRAMEWORK = {
         "anon": env("AUTH_ANON_THROTTLE_RATE", default="100/day"),
         "user": env("AUTH_USER_THROTTLE_RATE", default="1000/day"),
         "otp": env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
+        "otp_ip": env(
+            "OTP_REQUEST_IP_THROTTLE_RATE",
+            default=env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
+        ),
         "otp_verify": env("OTP_VERIFY_THROTTLE_RATE", default="10/m"),
+        "otp_verify_ip": env(
+            "OTP_VERIFY_IP_THROTTLE_RATE",
+            default=env("OTP_VERIFY_THROTTLE_RATE", default="10/m"),
+        ),
         "signup": env("SIGNUP_THROTTLE_RATE", default="5/hour"),
         "login": env("PASSWORD_LOGIN_THROTTLE_RATE", default="10/m"),
     },
@@ -199,6 +208,9 @@ def redis_cache(location, *, ignore_exceptions=False):
     }
 
 
+JWT_STATE_REVOCATION_ENABLED = True
+
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=env.int("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", default=20)
@@ -208,6 +220,8 @@ SIMPLE_JWT = {
     ),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    # This activates Simple JWT password-state revocation; it is not a credential.
+    "CHECK_REVOKE_TOKEN": JWT_STATE_REVOCATION_ENABLED,
     "UPDATE_LAST_LOGIN": True,
     "ALGORITHM": "HS256",
     "SIGNING_KEY": env("JWT_SIGNING_KEY"),

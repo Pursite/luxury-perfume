@@ -72,6 +72,27 @@ class TestSignupOTPAPI:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "phone_number" in response.data
 
+    @pytest.mark.parametrize("phone_number", ["۰۹۱۲۳۴۵۶۷۸۹", "0912345678۹"])
+    def test_signup_otp_request_rejects_non_ascii_phone_digits(self, api_client, phone_number):
+        response = api_client.post(
+            self.send_otp_url,
+            {"phone_number": phone_number},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "phone_number" in response.data
+
+    def test_signup_otp_verification_rejects_non_ascii_otp_digits(self, api_client):
+        response = api_client.post(
+            self.verify_otp_url,
+            {"phone_number": "09123456789", "otp": "۱۲۳۴۵۶"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "otp" in response.data
+
     def test_signup_otp_request_is_throttled_by_phone(
         self,
         api_client,
@@ -91,6 +112,26 @@ class TestSignupOTPAPI:
             self.send_otp_url,
             {"phone_number": phone_number},
             format="json",
+        )
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_signup_otp_request_is_also_throttled_by_client_ip(self, api_client, mocker):
+        mocker.patch(
+            "apps.users.services.signup_otp_service.send_otp_sms_task.delay"
+        )
+        first_response = api_client.post(
+            self.send_otp_url,
+            {"phone_number": "09121112233"},
+            format="json",
+            REMOTE_ADDR="198.51.100.10",
+        )
+        second_response = api_client.post(
+            self.send_otp_url,
+            {"phone_number": "09121112234"},
+            format="json",
+            REMOTE_ADDR="198.51.100.10",
         )
 
         assert first_response.status_code == status.HTTP_200_OK
@@ -175,4 +216,3 @@ class TestSignupOTPAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(response.data["otp"]) == "Invalid or expired verification code."
-

@@ -2,44 +2,37 @@
 
 ## Implemented controls
 
-DRF defaults to `IsAuthenticated`; user-authentication endpoints explicitly use `AllowAny`. Product list/detail reads explicitly permit anonymous access, while product and product-image mutations require an authenticated staff user.
+DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users.
 
-Passwords use Django's password hash API. OTP-created accounts receive unusable passwords. Simple JWT accepts Bearer access tokens and enables refresh-token rotation and blacklist-after-rotation; logout blacklists the supplied refresh token. A previously issued access token remains valid until expiry.
+Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. The accompanying migration refuses to proceed if legacy case conflicts exist, preserving records for private operator remediation.
 
-Username/password failures use one generic error for unknown users, bad or unusable passwords, inactive accounts, and ambiguous case-conflicting legacy usernames. Username lookup and availability checking are case-insensitive, while stored casing is retained.
+Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
+
+Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.
 
 ## Throttling and security cache
 
-DRF throttles anonymous and authenticated requests globally, plus dedicated `otp`, `otp_verify`, `signup`, and `login` scopes. OTP request/verification throttles are keyed by submitted phone number when present; signup and password-login throttles use the DRF anonymous identifier.
+The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, and two OTP dimensions. Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`.
 
-The `security` Redis cache alias stores OTP codes, purpose-specific failed-attempt counters, temporary locks, verification leases, and username/IP-scoped password-login failure state. It does not ignore cache errors: authentication-sensitive operations fail closed with a 503 response when this state cannot be safely accessed. The ordinary `default` cache is separate and configured to tolerate cache errors for non-security catalogue caching.
+OTP throttles, codes, failed-attempt counters, temporary locks, verification leases, and password-login guard state use only the `security` cache alias. It does not ignore errors: security-cache failures return 503 instead of allowing an unprotected request. The ordinary `default` cache is separate and may tolerate failures for catalogue caching. Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can reach loopback Gunicorn; do not trust forwarded client IP headers in another topology without changing that setting.
 
-OTP codes expire after `OTP_EXPIRY_SECONDS`; their state is isolated by the `signup`, `login`, and `password-reset` namespaces. Invalid verification attempts are tracked until expiry, reaching `OTP_VERIFICATION_MAX_ATTEMPTS` creates an `OTP_VERIFICATION_LOCK_SECONDS` temporary lock, and a successful verification removes the code and related state. OTP comparison uses `secrets.compare_digest`.
-
-A five-second cache lease is acquired before OTP verification. It reduces concurrent-replay risk and returns 429 when another verification is in progress. It is not a fully atomic Redis transaction.
-
-Password-login failures are scoped to normalized username plus client IP. `PASSWORD_LOGIN_MAX_ATTEMPTS` failures set a `PASSWORD_LOGIN_LOCK_SECONDS` temporary lock; a successful login clears only the matching scope.
+Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits. Invalid alternate digit sets or formatting are rejected before application logic. OTP state remains namespaced by `signup`, `login`, and `password-reset`. `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and `OTP_VERIFICATION_LOCK_SECONDS` control expiry and the separate per-phone verification lock. Verification compares with `secrets.compare_digest` and uses an atomic Redis lease so only one concurrent consumer succeeds. The multi-key sequence is not a Redis transaction.
 
 ## Data and upload integrity
 
-The custom user model requires active users to have a username or phone number; this is checked by model validation, its manager, and a database check constraint. Product discounts must be lower than regular prices, and a conditional unique constraint allows only one primary image per product. Category validation prevents a category becoming its own ancestor during normal model saves.
-
-Product uploads are staff-only and use multipart parsers. JPEG, PNG, and WebP are the only allowed MIME/content pairs. The validator limits files to 5 MB and images to 6000 × 6000 pixels, decodes and verifies image content with Pillow, rejects corrupt and decompression-bomb inputs, and normalizes generated filenames.
+The custom user model requires active users to have a username or phone number. Product discounts must be lower than regular price, and a conditional unique constraint allows one primary image per product. Decimal validation uses `Decimal` bounds, avoiding float coercion warnings. Category saves reject cycles. Product uploads are staff-only and restrict MIME/content pairs, file size, dimensions, corruption, decompression bombs, and generated filenames.
 
 ## Configuration, logging, and transport
 
-Django loads the root `.env` file with `django-environ`, and Docker Compose uses that same ignored file for interpolation and injects it into the `web` and `celery` services. Copy the appropriate tracked example to `.env`; examples contain only non-production values or placeholders, never production credentials. Production requires a dedicated `JWT_SIGNING_KEY`, separate from `SECRET_KEY`, as well as host/origin, PostgreSQL, Redis, Celery, and HTTPS configuration. Docker Compose development uses the internal `db` and `redis` service names and disables HTTPS redirect, HSTS, and secure cookies; optional direct-host processes should temporarily override those container hostnames in their shell.
+Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Logging helpers record authenticated user IDs where available; callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, or sensitive internal errors. Authentication services log generic outcomes only. The intentionally unchanged SMS placeholder has a legacy phone-number log line, so protect and retain those logs as PII until the explicitly out-of-scope task is replaced; it is not a provider integration.
 
-The project writes rotating system, activity, and security log files in `logs/`. Logging helpers do not add passwords, OTP values, JWTs, or credentials themselves, but callers must keep sensitive values out of log messages. Current OTP-related services log some phone numbers, so protect log access and retention as operational data. Do not expose internal exception details in API responses.
+## Verification and limitations
 
-## Current limitations
+CI runs pytest with warnings as errors, Ruff, Bandit, Django checks, and migration-drift checks. The marked PostgreSQL/Redis suite covers persistent case-fold constraints, concurrent signup, Redis throttle keys, and concurrent OTP consumption.
 
-- OTP delivery is only a Celery task placeholder; an SMS provider is not implemented.
-- OTP values are stored as cache values rather than password hashes; Redis access must be tightly restricted.
-- The verification lease reduces concurrency risk but does not make verification a fully atomic Redis operation.
-- The repository has no documented automated security scanning or managed
-  object storage. Production deployments are manual GitHub Actions runs gated
-  by the `production` environment and a pre-verified VPS SSH host key; see
-  [deployment.md](deployment.md).
+- OTP delivery remains a Celery placeholder; no SMS provider is implemented.
+- OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
+- Redis leases serialize consumption but do not make all verification keys one atomic transaction.
+- The repository does not yet provide managed object storage or automated dependency-vulnerability monitoring.
 
-Review security-sensitive changes for permissions, authentication, input validation, secret handling, cache-failure behavior, logging, uploads, concurrency, and database integrity. Report suspected vulnerabilities privately to the repository maintainer; do not include exploit details or real secrets in public issues.
+Review security-sensitive changes for authorization, authentication, input validation, secret handling, cache failure, logging, uploads, concurrency, and database integrity. Report suspected vulnerabilities privately to the repository maintainer.

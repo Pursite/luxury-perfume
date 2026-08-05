@@ -24,6 +24,10 @@ CACHES = {
     "default": redis_cache(env("CACHE_REDIS_URL"), ignore_exceptions=True),  # noqa: F405
     "security": redis_cache(env("SECURITY_REDIS_URL")),  # noqa: F405
 }
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,  # noqa: F405
+    "NUM_PROXIES": env.int("DRF_NUM_PROXIES", default=1),  # noqa: F405
+}
 CELERY_BROKER_URL = env("CELERY_BROKER_URL")  # noqa: F405
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")  # noqa: F405
 

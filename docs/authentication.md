@@ -2,105 +2,112 @@
 
 ## Overview
 
-The API supports username/password and phone/OTP authentication through Simple JWT. Successful signup or login returns an access token and refresh token. Protected requests use:
+The API supports username/password and phone/OTP authentication through Simple
+JWT. Successful signup or login returns an access token and refresh token.
+Protected requests use `Authorization: Bearer <access-token>`. All paths below
+are relative to `/api/v1/users/`.
 
-```http
-Authorization: Bearer <access-token>
-```
+## Identities and passwords
 
-All user endpoint paths in this document are relative to `/api/v1/users/`.
+An active user needs a non-empty username or phone number. Usernames and email
+addresses are trimmed, retain their display casing, and are unique
+case-insensitively at the database layer. The migration
+`users.0005_customuser_case_insensitive_identities` stops safely before schema
+changes if legacy case-conflicting usernames or emails exist; it neither
+changes nor reports identity values. An operator must resolve those records
+privately and rerun the migration.
 
-## Identity and passwords
+Phone input is trimmed and must be exactly `09[0-9]{9}`: eleven ASCII digits
+beginning with `09`, for example `09123456789`. Unicode digits, international
+forms, and alternate formatting are rejected rather than translated.
 
-The custom user model permits username-only, phone-only, or combined identities. An active user must have at least one non-empty username or phone number; model validation, the custom manager, and a database check constraint enforce that rule.
+Every password entry point—direct signup, profile completion, profile update,
+and password reset—uses the same configured Django policy: a 12-character
+minimum plus similarity, common-password, and numeric-password validation.
+The API also has a 128-character request-size cap for password fields.
+Passwords are never logged. OTP-created accounts have an unusable password
+until profile completion sets one; superusers require a password.
 
-Usernames are trimmed, preserve their stored casing, and are looked up case-insensitively. A case-conflicting legacy lookup fails instead of selecting an arbitrary account. Phone numbers are trimmed and must match `^09\d{9}$`: eleven digits beginning with `09`, for example `09123456789`. International forms are not converted or accepted by the serializers.
+## JWT lifecycle, refresh, and logout
 
-Passwords use Django's password-hashing API. OTP-created accounts are created with an unusable password, so they cannot use username/password login until a usable password is set (for example during profile completion). Superusers require a password.
+Access tokens last 20 minutes and refresh tokens 30 days by default, controlled
+by `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` and `JWT_REFRESH_TOKEN_LIFETIME_DAYS`.
 
-## JWT lifecycle and logout
+`POST token/refresh/` accepts `{"refresh": "<refresh-token>"}` and returns
+`{"access": "...", "refresh": "..."}`. Refresh rotation and blacklist-after-
+rotation are enabled: clients must replace the old refresh token after each
+successful response; replaying it is rejected.
 
-The configured defaults are a 20-minute access token and a 30-day refresh token, controlled by `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` and `JWT_REFRESH_TOKEN_LIFETIME_DAYS`.
+Tokens carry Simple JWT's password-hash revocation claim. A password change
+(profile completion/update or OTP reset) locks the user record, blacklists all
+unexpired outstanding refresh tokens, and invalidates access tokens minted from
+the old password. The refresh endpoint validates that claim while holding the
+same user-row lock, so it cannot race a password change into a usable session.
+After an authenticated profile password update, sign in again to receive new
+tokens; password reset already returns newly minted tokens. This intentionally
+invalidates JWTs issued before this hardening deployment because they lack the
+revocation claim.
 
-Refresh-token rotation and `BLACKLIST_AFTER_ROTATION` are enabled. After a successful refresh, the client must replace the stored refresh token; the old token is blacklisted. `POST logout/` blacklists the submitted refresh token. Access tokens already issued remain valid until their normal expiry.
+`POST logout/` requires an access token and a `refresh` body field. It only
+blacklists a valid refresh token whose `user_id` claim belongs to the
+authenticated user. Invalid, expired, blacklisted, stale, or another user's
+refresh token returns the existing generic 400 validation response.
 
-## Public username/password endpoints
+## Username/password endpoints
 
-### Signup
+`POST signup/` accepts a 5–150 character ASCII-letter/digit/underscore
+username and a password. It returns `201` with the minimal username and a
+token pair. Case-conflicting and concurrent signup attempts return the existing
+generic 400 response.
 
-`POST signup/` accepts a username and password. The username is 5–150 ASCII letters, digits, or underscores; the password is 12–128 characters and is checked by Django's password validators.
-
-```json
-{
-  "username": "armin",
-  "password": "a-long-unique-password"
-}
-```
-
-On `201 Created`, the response is:
-
-```json
-{
-  "user": {"username": "armin"},
-  "tokens": {"refresh": "<refresh-token>", "access": "<access-token>"}
-}
-```
-
-The endpoint is public and has the `signup` anonymous-IP throttle. Duplicate/competing identity creation is returned as a generic 400 error.
-
-### Login
-
-`POST login/userpass/` accepts `username` and `password` and returns `200 OK` with a message and `tokens` object:
-
-```json
-{
-  "username": "armin",
-  "password": "a-long-unique-password"
-}
-```
-
-```json
-{
-  "message": "successfully logged in.",
-  "tokens": {"refresh": "<refresh-token>", "access": "<access-token>"}
-}
-```
-
-Username lookup is case-insensitive and authentication failures use the same generic error for an absent user, unusable/wrong password, inactive user, or ambiguous legacy case conflict. A security-cache guard scopes failed attempts and temporary locks by normalized username plus client IP. A successful login clears only that pair's guard state. The endpoint also has the `login` anonymous-IP throttle.
+`POST login/userpass/` accepts `username` and `password`, returning `200` with
+a message and a token pair. Lookups are case-insensitive and all absent,
+inactive, unusable-password, and incorrect-password cases return the same 401
+error. Absent and legacy-ambiguous username paths perform a dummy password hash
+before returning, reducing practical timing enumeration. A separate security
+cache guard limits failed attempts by normalized username and trusted client
+IP; the endpoint also has the `login` anonymous-IP throttle.
 
 ## Phone/OTP flows
 
-Each OTP flow requires `phone_number`; verification also requires an exactly six-character `otp`. The verification serializer does not require the OTP characters to be numeric, although generated codes are six digits.
+Each OTP flow requires canonical `phone_number`; verification also requires an
+exactly six-character ASCII-digit `otp`.
 
 ```text
-Request OTP → store code in the security cache → queue Celery task → verify code → consume code
+Request OTP -> security cache -> placeholder Celery task -> verify -> consume
 ```
 
-The Celery task is required to process queued OTP delivery, but its current implementation is a placeholder and does not call an SMS provider.
+The Celery task remains a placeholder and does not call an SMS provider.
 
-### Signup
+- `POST signup/send-otp/` and `POST signup/verify-otp/` create a phone-only
+  account after successful verification.
+- `POST login/send-otp/` and `POST login/verify-otp/` issue tokens for an
+  active matching user. Unknown-phone request responses remain generic.
+- `POST password-reset/send-otp/` always returns the same request response.
+  `POST password-reset/verify-and-reset/` verifies the OTP, applies the shared
+  password policy, revokes prior sessions, and returns a new token pair.
 
-- `POST signup/send-otp/` is public, takes `{"phone_number": "09123456789"}`, and returns `200 OK` with `{"message": "Verification code sent successfully.", "expires_in": 120}` using the configured expiry value. Existing-phone requests receive the same response.
-- `POST signup/verify-otp/` is public, takes `phone_number` and `otp`, and returns `201 Created` with `{"message": "signup confirmed.", "tokens": {...}}`. It creates a phone-only account with an unusable password.
+Each request and verification endpoint applies two independent limits from the
+fail-closed `security` cache: one keyed by normalized phone and one by client
+IP. `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE` retain the
+phone-limit settings; `OTP_REQUEST_IP_THROTTLE_RATE` and
+`OTP_VERIFY_IP_THROTTLE_RATE` configure IP limits. A cache outage returns 503,
+not an unthrottled request. Production trusts one host-managed proxy via
+`DRF_NUM_PROXIES=1`; do not expose Gunicorn directly or increase this value
+without matching trusted proxy topology.
 
-### Login
-
-- `POST login/send-otp/` is public and returns `200 OK` with `{"message": "otp code successfully sent.", "expires_in": 120}`. It returns that same response for a nonexistent phone number, without creating/storing a code.
-- `POST login/verify-otp/` is public and returns `200 OK` with the standard login message and `tokens` object for an active matching user.
-
-### Password reset
-
-- `POST password-reset/send-otp/` is public and returns `200 OK` with `{"message": "password reset otp code successfully sent.", "expires_in": 120}` regardless of account existence.
-- `POST password-reset/verify-and-reset/` is public, accepts `phone_number`, `otp`, and `password`, then returns `200 OK` with `{"message": "password changed successfully.", "tokens": {...}}` for an active matching user. Its password is 6–18 characters and must contain an ASCII letter, digit, and one of `!@#$%^&*()`.
-
-OTP state is namespaced by `signup`, `login`, or `password-reset`, so a code cannot cross purposes. `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and `OTP_VERIFICATION_LOCK_SECONDS` control expiry, failed-attempt threshold, and lock duration. Invalid attempts increment a per-purpose/phone counter; reaching the threshold temporarily locks verification. A valid verification removes the code, attempts, and lock state, preventing ordinary replay.
-
-Verification acquires a five-second cache lease before reading and consuming the code. This reduces concurrent replay risk; it is not a fully atomic Redis transaction. Security-cache failures fail closed with `503 Service Unavailable`; invalid/expired/reused codes return a generic validation error, and locks or verification throttling return `429 Too Many Requests`.
+OTP state is separated by `signup`, `login`, and `password-reset` purposes.
+`OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and
+`OTP_VERIFICATION_LOCK_SECONDS` govern expiry and the additional per-phone
+verification lock. Verification uses a short security-cache lease and
+constant-time comparison; Redis provides atomic lease acquisition, but the
+multi-key verification sequence is not a Redis transaction.
 
 ## Profile behavior
 
-Profile completion and updates require JWT authentication. They are informational and do not block login, token issuance, or token refresh.
-
-`POST profile/complete/` requires `username`, `password`, `email`, `first_name`, `last_name`, and an `address` object with `title` and `full_address` (optional `postal_code`). It sets a usable password, updates the supplied profile fields, creates the address, and returns `200 OK` with the serialized user under `data`.
-
-`PATCH profile/update/` accepts any supplied subset of `username`, `first_name`, `last_name`, and `password`; it does not accept email or addresses. The response is `200 OK` with the updated serialized user under `data`. User output fields are `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`.
+Profile completion and update require JWT authentication but do not otherwise
+block login or refresh. Completion sets username, email, name, password, and a
+first address. Update accepts any subset of `username`, `first_name`,
+`last_name`, and `password`; it does not accept email or addresses. Responses
+keep the existing `data` user representation. A password-bearing completion or
+update has the session-revocation behavior described above.

@@ -2,6 +2,8 @@ import pytest
 from django.core.cache import caches
 from django.urls import reverse
 from rest_framework import status
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.users.services.pass_reset_service import PasswordResetService
 from apps.users.tests.factories import UserFactory
@@ -31,11 +33,13 @@ class TestPasswordResetAPI:
             self.send_reset_otp_url,
             {"phone_number": existing_phone},
             format="json",
+            REMOTE_ADDR="198.51.100.10",
         )
         unknown_response = api_client.post(
             self.send_reset_otp_url,
             {"phone_number": unknown_phone},
             format="json",
+            REMOTE_ADDR="198.51.100.11",
         )
 
         assert existing_response.status_code == status.HTTP_200_OK
@@ -74,6 +78,7 @@ class TestPasswordResetAPI:
         user = UserFactory(phone_number=phone_number)
         user.set_password("OldStrongPass123!")
         user.save(update_fields=["password"])
+        prior_refresh = RefreshToken.for_user(user)
         mocker.patch.object(
             PasswordResetService,
             "_generate_otp_code",
@@ -109,6 +114,7 @@ class TestPasswordResetAPI:
         assert set(first_response.data["tokens"]) == {"access", "refresh"}
         user.refresh_from_db()
         assert user.check_password("NewStrongPass1!")
+        assert BlacklistedToken.objects.filter(token__jti=prior_refresh["jti"]).exists()
         assert replay_response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(replay_response.data["otp"]) == (
             "Invalid or expired verification code."
@@ -165,17 +171,13 @@ class TestPasswordResetAPI:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "phone_number" in response.data
 
-    @pytest.mark.parametrize(
-        "password",
-        ["weak", "VeryLongStrongPass123!@"],
-    )
-    def test_password_reset_rejects_invalid_password(self, api_client, password):
+    def test_password_reset_rejects_password_that_violates_the_shared_policy(self, api_client):
         response = api_client.post(
             self.verify_and_reset_url,
             {
                 "phone_number": "09123456789",
                 "otp": "123456",
-                "password": password,
+                "password": "weak",
             },
             format="json",
         )
@@ -216,4 +218,3 @@ class TestPasswordResetAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(response.data["otp"]) == "Invalid or expired verification code."
-

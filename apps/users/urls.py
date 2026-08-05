@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .jwt import PasswordRevocationTokenRefreshView
 
 app_name = 'apps.users'
 
@@ -10,6 +11,7 @@ urlpatterns = [
     path('login/send-otp/', views.SendOtpLoginAPIView.as_view(), name='login_send_otp'),
     path('login/verify-otp/', views.LoginWithOTPCodeAPIView.as_view(), name='verify_login_otp'),
     path('login/userpass/', views.LoginWithUserPassAPIView.as_view(), name='login_password'),
+    path('token/refresh/', PasswordRevocationTokenRefreshView.as_view(), name='token_refresh'),
     path('profile/complete/', views.CompleteProfileAPIView.as_view(), name='complete_profile'),
     path('profile/update/', views.UserProfileUpdateAPIView.as_view(), name='update_profile'),
     path('logout/', views.LogoutAPIView.as_view(), name='logout'),

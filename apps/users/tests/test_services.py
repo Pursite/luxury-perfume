@@ -21,27 +21,6 @@ def test_phone_selectors_normalize_before_lookup():
     assert UserSelector.get_user_by_phone("09120000000") is None
 
 
-def test_password_authentication_fails_generically_for_case_variant_duplicates():
-    first = CustomUser.objects.create_user(
-        username="LegacyUser",
-        password="StrongPass123!",
-    )
-    second = CustomUser.objects.create_user(
-        username="legacyuser",
-        password="OtherStrongPass123!",
-    )
-
-    assert first.pk != second.pk
-    with pytest.raises(
-        AuthenticationFailed,
-        match="Username or password is incorrect",
-    ):
-        UserSelector.authenticate_by_username_password(
-            "LEGACYUSER",
-            "StrongPass123!",
-        )
-
-
 def test_password_authentication_does_not_disclose_inactive_account_state():
     user = UserFactory(username="inactive_customer", is_active=False)
     user.set_password("CorrectHorseBatteryStaple42!")

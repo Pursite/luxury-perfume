@@ -1,6 +1,6 @@
 import pytest
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 
 from apps.users.models import CustomUser
@@ -42,6 +42,11 @@ class TestCustomUserManager:
         with pytest.raises(DjangoValidationError, match="Phone number must be entered"):
             CustomUser.objects.create_user(phone_number="not-a-phone-number")
 
+    @pytest.mark.parametrize("phone_number", ["۰۹۱۲۳۴۵۶۷۸۹", "0912345678۹"])
+    def test_phone_numbers_reject_non_ascii_digits(self, phone_number):
+        with pytest.raises(DjangoValidationError, match="Phone number must be entered"):
+            CustomUser.objects.create_user(phone_number=phone_number)
+
     def test_create_user_runs_model_validation_for_invalid_model_fields(self):
         with pytest.raises(DjangoValidationError, match="Enter a valid email address"):
             CustomUser.objects.create_user(
@@ -74,6 +79,31 @@ class TestCustomUserManager:
             )
 
 
+@pytest.mark.django_db
+def test_case_insensitive_username_and_email_constraints_are_enforced_by_database():
+    CustomUser.objects.create(
+        username="CaseSensitiveUser",
+        email="CaseSensitive@example.com",
+        password="!",
+    )
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            CustomUser.objects.create(
+                username="casesensitiveuser",
+                email="other@example.com",
+                password="!",
+            )
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            CustomUser.objects.create(
+                username="other_user",
+                email="casesensitive@example.com",
+                password="!",
+            )
+
+
 @pytest.mark.django_db(transaction=True)
 def test_identity_constraint_migration_deactivates_legacy_active_identityless_users():
     old_target = [("users", "0003_alter_customuser_phone_number")]
@@ -96,3 +126,34 @@ def test_identity_constraint_migration_deactivates_legacy_active_identityless_us
     MigratedCustomUser = new_apps.get_model("users", "CustomUser")
 
     assert MigratedCustomUser.objects.get(pk=user.pk).is_active is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_case_insensitive_identity_migration_refuses_legacy_conflicts_without_rewriting_them():
+    old_target = [("users", "0004_customuser_users_active_user_requires_identity")]
+    new_target = [("users", "0005_customuser_case_insensitive_identities")]
+    executor = MigrationExecutor(connection)
+    executor.migrate(old_target)
+    old_apps = executor.loader.project_state(old_target).apps
+    LegacyCustomUser = old_apps.get_model("users", "CustomUser")
+    first = LegacyCustomUser.objects.create(
+        username="LegacyUser",
+        email="legacy-one@example.com",
+        password="!",
+        is_active=True,
+    )
+    second = LegacyCustomUser.objects.create(
+        username="legacyuser",
+        email="legacy-two@example.com",
+        password="!",
+        is_active=True,
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="case-insensitive identity conflicts"):
+            executor.migrate(new_target)
+
+        assert LegacyCustomUser.objects.filter(pk__in=[first.pk, second.pk]).count() == 2
+    finally:
+        LegacyCustomUser.objects.filter(pk__in=[first.pk, second.pk]).delete()
+        executor.migrate(new_target)

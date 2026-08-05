@@ -1,7 +1,11 @@
-from django.db import models
+import re
+
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
+from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 from apps.lib.basemodel import BaseModel
 
 
@@ -39,8 +43,9 @@ class CustomUserManager(BaseUserManager):
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
+    phone_number_pattern = re.compile(r"^09[0-9]{9}$")
     phone_regex = RegexValidator(
-        regex=r'^09\d{9}$',
+        regex=r"^09[0-9]{9}$",
         message="Phone number must be entered in the format: '0912345678'."
     )
     phone_number = models.CharField(
@@ -51,9 +56,9 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
         blank=True,
     )
 
-    username = models.CharField(max_length=150, unique=True, null=True, blank=True)
+    username = models.CharField(max_length=150, null=True, blank=True)
 
-    email = models.EmailField(unique=True, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
     first_name = models.CharField(max_length=50, blank=True)
     last_name = models.CharField(max_length=50, blank=True)
 
@@ -75,6 +80,16 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
                 ),
                 name="users_active_user_requires_identity",
             ),
+            models.UniqueConstraint(
+                Lower("username"),
+                condition=Q(username__isnull=False) & ~Q(username=""),
+                name="users_unique_username_casefold",
+            ),
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=Q(email__isnull=False) & ~Q(email=""),
+                name="users_unique_email_casefold",
+            ),
         ]
 
     @staticmethod
@@ -93,9 +108,21 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
         value = value.strip()
         return value or None
 
+    @staticmethod
+    def normalize_email(value):
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @classmethod
+    def is_valid_phone_number(cls, value):
+        return isinstance(value, str) and bool(cls.phone_number_pattern.fullmatch(value))
+
     def normalize_identities(self):
         self.username = self.normalize_username(self.username)
         self.phone_number = self.normalize_phone_number(self.phone_number)
+        self.email = self.normalize_email(self.email)
 
     @property
     def has_identity(self):

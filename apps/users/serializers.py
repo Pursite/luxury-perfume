@@ -1,15 +1,10 @@
-import re
 from rest_framework import serializers
 from django.contrib.auth import password_validation
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import RegexValidator
 from .models import CustomUser, Address
 from .selectors import UserSelector
 
-phone_regex = RegexValidator(
-    regex=r'^09\d{9}$',
-    message="Phone number must be entered in the format: '0912345678'."
-)
+from django.core.validators import RegexValidator
 
 username_regex = RegexValidator(
     regex=r'^[a-zA-Z0-9_]+$',
@@ -17,34 +12,38 @@ username_regex = RegexValidator(
 )
 
 
-def validate_password_complexity(value):
-    if not re.search(r'[A-Za-z]', value):
-        raise serializers.ValidationError("Password must contain at least one english letter.,")
-
-    if not re.search(r'\d', value):
-        raise serializers.ValidationError("Password must contain at least one digit.")
-
-    if not re.search(r'[!@#$%^&*()]', value):
-        raise serializers.ValidationError("password must contain at one of these characters -!@#$%^&*()-.")
-
-    return value
+PASSWORD_MAX_LENGTH = 128
 
 
-class PhoneInputSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(
-        validators=[phone_regex],
-        max_length=11
-    )
+def validate_password_policy(password, user):
+    """Apply the project's single Django password policy to request input."""
+    try:
+        password_validation.validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError({"password": list(exc.messages)}) from exc
 
 
-class VerifyOTPInputSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(
-        validators=[phone_regex],
-        max_length=11
-    )
+class NormalizedPhoneNumberSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(max_length=11, trim_whitespace=False)
+
+    def validate_phone_number(self, value):
+        value = CustomUser.normalize_phone_number(value)
+        if not CustomUser.is_valid_phone_number(value):
+            raise serializers.ValidationError(
+                "Phone number must be entered in the format: '0912345678'."
+            )
+        return value
+
+
+class PhoneInputSerializer(NormalizedPhoneNumberSerializer):
+    pass
+
+
+class VerifyOTPInputSerializer(NormalizedPhoneNumberSerializer):
     otp = serializers.CharField(
         max_length=6,
         min_length=6,
+        validators=[RegexValidator(r"^[0-9]{6}$", "OTP must contain six ASCII digits.")],
         error_messages={
             'min_length': 'confirmation code must be at least 6 digits.',
             'max_length': 'confirmation code must be no more than 6 digits.'
@@ -101,13 +100,8 @@ class CompleteProfileInputSerializer(serializers.Serializer):
     )
     password = serializers.CharField(
         write_only=True,
-        validators=[validate_password_complexity],
-        min_length=6,
-        max_length=18,
-        error_messages={
-            'min_length': 'password must be at least 6 characters.',
-            'max_length': 'password can`t be more than 18 characters.'
-        }
+        trim_whitespace=False,
+        max_length=PASSWORD_MAX_LENGTH,
     )
     email = serializers.EmailField(
         error_messages={'invalid': 'invalid email address.'}
@@ -126,9 +120,23 @@ class CompleteProfileInputSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         user = self.context['request'].user
+        value = CustomUser.normalize_email(value)
         if UserSelector.is_email_taken(email=value, exclude_user_id=user.pk):
             raise serializers.ValidationError("this email is already taken.")
         return value
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        candidate = CustomUser(
+            pk=user.pk,
+            phone_number=user.phone_number,
+            username=attrs["username"],
+            email=attrs["email"],
+            first_name=attrs["first_name"],
+            last_name=attrs["last_name"],
+        )
+        validate_password_policy(attrs["password"], candidate)
+        return attrs
 
 
 class UserOutputSerializer(serializers.ModelSerializer):
@@ -165,13 +173,8 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
     password = serializers.CharField(
         write_only=True,
         required=False,
-        validators=[validate_password_complexity],
-        min_length=6,
-        max_length=18,
-        error_messages={
-            'min_length': 'password must be at least 6 characters.',
-            'max_length': 'password cant`t be more than 18 characters.'
-        }
+        trim_whitespace=False,
+        max_length=PASSWORD_MAX_LENGTH,
     )
 
     def validate_username(self, value):
@@ -181,25 +184,41 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
             raise serializers.ValidationError("this username is already taken.")
         return value
 
+    def validate(self, attrs):
+        password = attrs.get("password")
+        if password is None:
+            return attrs
+        user = self.context["request"].user
+        candidate = CustomUser(
+            pk=user.pk,
+            phone_number=user.phone_number,
+            username=attrs.get("username", user.username),
+            email=user.email,
+            first_name=attrs.get("first_name", user.first_name),
+            last_name=attrs.get("last_name", user.last_name),
+        )
+        validate_password_policy(password, candidate)
+        return attrs
 
-class PasswordResetVerifyInputSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(
-        validators=[phone_regex],
-        max_length=11,
-        error_messages={'required': 'phone number is required.'}
-    )
+
+class PasswordResetVerifyInputSerializer(NormalizedPhoneNumberSerializer):
     otp = serializers.CharField(
         max_length=6,
         min_length=6,
+        validators=[RegexValidator(r"^[0-9]{6}$", "OTP must contain six ASCII digits.")],
         error_messages={'required': 'otp is required.'}
     )
     password = serializers.CharField(
         write_only=True,
-        validators=[validate_password_complexity],
-        min_length=6,
-        max_length=18,
+        trim_whitespace=False,
+        max_length=PASSWORD_MAX_LENGTH,
         error_messages={'required': 'enter new password.'}
     )
+
+    def validate(self, attrs):
+        user = UserSelector.get_user_by_phone(attrs["phone_number"])
+        validate_password_policy(attrs["password"], user)
+        return attrs
 
 
 class UserSignupInputSerializer(serializers.Serializer):
@@ -213,8 +232,7 @@ class UserSignupInputSerializer(serializers.Serializer):
     password = serializers.CharField(
         write_only=True,
         trim_whitespace=False,
-        min_length=12,
-        max_length=128,
+        max_length=PASSWORD_MAX_LENGTH,
         style={"input_type": "password"},
     )
 
@@ -230,13 +248,7 @@ class UserSignupInputSerializer(serializers.Serializer):
             })
 
         candidate_user = CustomUser(username=attrs["username"])
-        try:
-            password_validation.validate_password(
-                attrs["password"],
-                user=candidate_user,
-            )
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError({"password": list(exc.messages)}) from exc
+        validate_password_policy(attrs["password"], candidate_user)
         return attrs
 
 

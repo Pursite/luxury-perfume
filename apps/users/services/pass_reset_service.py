@@ -7,6 +7,7 @@ from apps.lib.security_cache import OTPVerificationGuard
 from apps.users.models import CustomUser
 from apps.users.selectors import UserSelector
 from apps.users.tasks import send_otp_sms_task
+from apps.users.jwt import revoke_user_refresh_tokens
 
 
 class PasswordResetService:
@@ -30,7 +31,7 @@ class PasswordResetService:
         phone_number = CustomUser.normalize_phone_number(phone_number)
         user_exists = UserSelector.check_user_exists_by_phone(phone_number)
         if not user_exists:
-            AppLogger.log_security(msg=f"Password reset requested for non-existent phone: {phone_number}")
+            AppLogger.log_security(msg="Password reset requested for an unknown phone.")
             return cls._request_response()
 
         otp_code = cls._generate_otp_code()
@@ -57,12 +58,15 @@ class PasswordResetService:
         phone_number = CustomUser.normalize_phone_number(phone_number)
         cls._guard(phone_number).verify(submitted_otp)
 
-        user = UserSelector.get_user_by_phone(phone_number)
-        if not user or not user.is_active:
-            raise ValidationError(cls.generic_otp_error)
-
         with transaction.atomic():
+            user = CustomUser.objects.select_for_update().filter(
+                phone_number=phone_number,
+                is_active=True,
+            ).first()
+            if not user:
+                raise ValidationError(cls.generic_otp_error)
             user.set_password(new_password)
+            revoke_user_refresh_tokens(user)
             user.save()
 
         tokens = UserSelector.generate_tokens_for_user(user)

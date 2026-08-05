@@ -39,7 +39,7 @@ class SendOTPService:
 
         send_otp_sms_task.delay(phone_number, otp_code)
 
-        AppLogger.log_activity(msg=f"OTP token generated and queued via Celery for signup", status="INFO")
+        AppLogger.log_activity(msg="OTP token generated and queued via Celery for signup", status="INFO")
 
         return cls._request_response()
 
@@ -67,7 +67,7 @@ class SendOTPService:
 
         tokens = UserSelector.generate_tokens_for_user(user)
 
-        AppLogger.log_activity(msg=f"User registered successfully via OTP", user=user, status="INFO")
+        AppLogger.log_activity(msg="User registered successfully via OTP", user=user, status="INFO")
 
         return {
             "message": "signup confirmed.",

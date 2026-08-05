@@ -103,7 +103,7 @@ class Product(BaseModel):
     abv = models.DecimalField(
         max_digits=4,
         decimal_places=1,
-        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        validators=[MinValueValidator(Decimal("0.0")), MaxValueValidator(Decimal("100.0"))],
         help_text="Alcohol By Volume (%) - درصد الکل مثلاً 5.0 یا 40.0",
     )
     volume_ml = models.PositiveIntegerField(
