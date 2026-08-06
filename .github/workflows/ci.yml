@@ -114,3 +114,59 @@ jobs:
         run: >-
           python manage.py makemigrations --check --dry-run
           --settings=config.settings.integration
+
+  image:
+    name: Application image
+    needs: [default-tests, integration-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate production Compose configuration
+        env:
+          APP_IMAGE: ghcr.io/pursite/wine-shop:compose-validation
+        run: >-
+          docker compose --env-file docker/env/.env.production.example
+          -f docker/docker-compose.yml
+          -f docker/docker-compose.prod.yml
+          config -q
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: image_metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/pursite/wine-shop
+          tags: |
+            type=raw,value=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: final
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.image_metadata.outputs.tags }}
+          labels: ${{ steps.image_metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
