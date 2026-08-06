@@ -125,10 +125,12 @@ tests at production databases or Redis databases.
 
 The existing SQLite/LocMem and PostgreSQL/Redis jobs run for every pull
 request and push. After both succeed, the required `Application image` check
-validates the production Compose merge and builds the final application image.
-Pull requests verify the image without publishing it. Successful pushes to
-`main` publish exactly one image tag,
-`ghcr.io/pursite/wine-shop:<commit SHA>`, with OCI source and revision labels.
+copies the safe production template to the ignored root `.env`, validates the
+production Compose merge, and builds the final application image without
+registry access. Pull requests and pushes stop there. On successful pushes to
+`main`, the separate `Publish application image` job verifies that the SHA tag
+does not already exist, then publishes exactly
+`ghcr.io/pursite/wine-shop:<commit SHA>` with OCI source and revision labels.
 
 Production deploys the same image for Django and Celery, pinned to its resolved
 content digest. The image contains application code and dependencies only;

@@ -30,21 +30,29 @@ def test_application_images_are_built_only_for_development():
     ) == 2
 
 
-def test_ci_application_image_job_is_dependent_and_cached():
+def test_ci_application_image_job_is_read_only_and_publish_is_immutable():
     workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()
 
     assert "name: Application image" in workflow
     assert "needs: [default-tests, integration-tests]" in workflow
+    assert "cp docker/env/.env.production.example .env" in workflow
+    assert "docker compose --env-file .env" in workflow
     assert "contents: read" in workflow
-    assert "packages: write" in workflow
-    assert "docker/login-action@v3" in workflow
     assert "docker/build-push-action@v6" in workflow
     assert "cache-from: type=gha" in workflow
     assert "cache-to: type=gha,mode=max" in workflow
+    assert "push: false" in workflow
+
+    assert "name: Publish application image" in workflow
+    assert "needs: image" in workflow
+    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
+    assert "group: ghcr-publish-${{ github.sha }}" in workflow
+    assert "packages: write" in workflow
+    assert "docker/login-action@v3" in workflow
+    assert "docker buildx imagetools inspect \"$IMAGE_TAG\"" in workflow
     assert "org.opencontainers.image.source" in workflow
     assert "org.opencontainers.image.revision" in workflow
     assert "type=raw,value=${{ github.sha }}" in workflow
-    assert "github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
 
 
 def test_cd_pulls_digest_pinned_image_with_ephemeral_credentials():
@@ -84,3 +92,5 @@ def test_ghcr_delivery_documentation_covers_security_boundaries():
     assert "--no-build" in deployment_guide
     assert "intentionally not implemented" in deployment_guide
     assert "reverse migrations" in deployment_guide
+    assert "Publish application image" in readme
+    assert "Publish application image" in deployment_guide

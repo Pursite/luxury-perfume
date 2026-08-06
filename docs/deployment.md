@@ -140,10 +140,13 @@ those with publicly reachable database or cache endpoints for this layout.
 ## Manual GitHub Actions deployment
 
 `.github/workflows/cd.yml` is deliberately manual-only. The required
-`Application image` CI check must first finish successfully for a push to
-`main`; it publishes `ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy
-production** from that reviewed `main` commit for a normal release. Its empty
-**Commit SHA** input defaults to that workflow run's `github.sha`.
+`Application image` CI check first copies the safe production template to the
+ignored root `.env`, validates the production Compose merge, and builds without
+registry write permission. For a push to `main`, its dependent `Publish
+application image` job then checks that the SHA tag does not already exist and
+publishes `ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production**
+from that reviewed `main` commit for a normal release. Its empty **Commit SHA**
+input defaults to that workflow run's `github.sha`.
 
 To deploy or roll back application code to an earlier published release, enter
 its full, lowercase 40-character commit SHA. The workflow rejects all other
@@ -186,9 +189,9 @@ VPS.
 
 For the first deployment, complete the production preparation, create the
 protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for its
-`Application image` check, then dispatch **Deploy production** from that
-commit. Normal deployments follow the same process; no application image is
-built on the VPS.
+`Application image` and `Publish application image` checks, then dispatch
+**Deploy production** from that commit. Normal deployments follow the same
+process; no application image is built on the VPS.
 
 Within `/srv/wine-shop`, the workflow rejects a dirty checkout, fetches and
 checks out the exact source commit, pulls the matching image, validates the
