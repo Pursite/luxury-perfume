@@ -9,13 +9,16 @@ No Nginx, certificate, or Certbot container is used or required.
 
 ## Compose files
 
-- `docker/docker-compose.yml` is the shared service definition. It has no
-  source-code mounts and publishes no service ports. Its fixed project name is
-  `wine-shop`, preserving the existing production container and volume names.
-- `docker/docker-compose.dev.yml` adds local source mounts and PostgreSQL/Redis
-  ports for development.
-- `docker/docker-compose.prod.yml` binds Django to `127.0.0.1:8000` and mounts
-  the host asset directories. PostgreSQL and Redis remain internal to Docker.
+- `docker/docker-compose.yml` is the shared runtime service definition. It has
+  no source-code mounts, application build configuration, or published service
+  ports. Its fixed project name is `wine-shop`, preserving the existing
+  production container and volume names.
+- `docker/docker-compose.dev.yml` owns the local application build
+  configuration, source mounts, and PostgreSQL/Redis ports for development.
+- `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
+  Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
+  PostgreSQL and Redis remain internal to Docker with their existing named
+  volumes.
 
 Always pass the base file first, followed by the intended override.
 
@@ -73,10 +76,12 @@ chmod 600 .env
 Edit `.env` and replace every `replace-with-*` value and example domain with
 deployment-specific values. Keep `DB_HOST=db`
 and the Redis service hostnames unchanged for this Compose layout. Then validate
-the selected production configuration:
+the selected production configuration with a non-secret image reference. The
+deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
+it to `.env`.
 
 ```bash
-docker compose \
+APP_IMAGE=ghcr.io/pursite/wine-shop:compose-validation docker compose \
   --env-file .env \
   -f docker/docker-compose.yml \
   -f docker/docker-compose.prod.yml \
@@ -115,9 +120,9 @@ sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media -type d \
   -m d:u::rwx,d:u:www-data:rx,d:g::r-x,d:m::r-x,d:o::--- {} +
 ```
 
-These commands are safe to repeat after restoring files from backup. Do not
-use `chmod 777`: Django uploads, `collectstatic`, and Celery thumbnail tasks
-write as UID `10001`, while Nginx receives only read/traverse ACLs. After
+These commands are safe to repeat when host asset permissions need repair. Do
+not use `chmod 777`: Django uploads, `collectstatic`, and Celery thumbnail
+tasks write as UID `10001`, while Nginx receives only read/traverse ACLs. After
 running `collectstatic`, verify that the Nginx worker can traverse both mounts,
 read a static file, and cannot write media:
 
@@ -134,14 +139,25 @@ those with publicly reachable database or cache endpoints for this layout.
 
 ## Manual GitHub Actions deployment
 
-`.github/workflows/cd.yml` is deliberately manual-only. Run **Deploy
-production** with `workflow_dispatch` from the reviewed branch or tag to deploy
-that workflow run's exact commit. The job uses GitHub's `production`
-environment and serializes deployments, so configure that environment with
-the required reviewers and branch/tag restrictions before its first use.
+`.github/workflows/cd.yml` is deliberately manual-only. The required
+`Application image` CI check first copies the safe production template to the
+ignored root `.env`, validates the production Compose merge, and builds without
+registry write permission. For a push to `main`, its dependent `Publish
+application image` job then checks that the SHA tag does not already exist and
+publishes `ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production**
+from that reviewed `main` commit for a normal release. Its empty **Commit SHA**
+input defaults to that workflow run's `github.sha`.
 
-Add these environment secrets to `production`; do not add them as repository
-secrets:
+To deploy or roll back application code to an earlier published release, enter
+its full, lowercase 40-character commit SHA. The workflow rejects all other
+values and fails safely if the corresponding GHCR image was never published.
+It checks out that exact source revision on the VPS and deploys the matching
+image by its resolved content digest, not by the mutable tag alone.
+
+The job uses GitHub's `production` environment and serializes deployments, so
+configure that environment with required reviewers and branch restrictions
+before its first use. Add these environment secrets to `production`; do not
+add them as repository secrets:
 
 - `VPS_HOST`: the VPS hostname or address.
 - `VPS_PORT`: the SSH port; leave it unset to use `22`.
@@ -152,6 +168,10 @@ secrets:
 - `VPS_KNOWN_HOSTS`: the exact, pre-verified SSH host-key entry for the VPS.
   Obtain and verify the server fingerprint through a trusted channel before
   saving it; the workflow never uses `ssh-keyscan` or disables host checking.
+- `GHCR_READ_TOKEN`: a classic GitHub personal access token with only
+  `read:packages`, owned by an account that can read
+  `ghcr.io/pursite/wine-shop`. This is not an application setting and must not
+  be written to the VPS `.env`.
 
 The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
 for example with a read-only deploy key stored on the VPS. The workflow does
@@ -160,40 +180,55 @@ the checkout has tracked or untracked source changes; ignored state such as
 the private `.env`, static files, media, logs, and Compose volumes is left
 untouched.
 
-Within `/srv/wine-shop`, the workflow fetches and checks out the exact commit,
-validates the merged production Compose configuration, builds `web` and
-`celery`, starts the existing `db` and `redis` services without recreating
-them, waits for them, runs migrations and `collectstatic`, and force-recreates
-only `web` and `celery`.
-It then calls the local readiness endpoint with the same trusted-proxy header
-that host Nginx sends. It never runs `docker compose down`, removes volumes,
-prunes Docker resources, uses `git clean`, or modifies Nginx, VPN services,
-database data, media, static files, or the server's `.env`.
+For every deployment, the GitHub runner sends that token only through the SSH
+standard-input stream. The VPS creates a temporary `DOCKER_CONFIG`, authenticates
+with `docker login --password-stdin`, pulls the SHA-tagged image, resolves its
+digest, then removes the temporary credentials with a trap before Compose is
+called. Do not run `docker login` manually or persist GHCR credentials on the
+VPS.
 
-The workflow intentionally does not create backups or reverse migrations.
-Follow the backup procedure below before any release containing a migration;
-if deployment fails after migrations, use the reviewed rollback guidance
-rather than an automatic database rollback.
+For the first deployment, complete the production preparation, create the
+protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for its
+`Application image` and `Publish application image` checks, then dispatch
+**Deploy production** from that commit. Normal deployments follow the same
+process; no application image is built on the VPS.
 
-## Build, migrations, static files, and startup
+Within `/srv/wine-shop`, the workflow rejects a dirty checkout, fetches and
+checks out the exact source commit, pulls the matching image, validates the
+merged production Compose configuration, and starts the existing `db` and
+`redis` services without recreating them. After those dependencies are healthy,
+it runs `python manage.py check --deploy` with the production settings and VPS
+runtime environment, then runs forward migrations and `collectstatic`. Finally
+it force-recreates only `web` and `celery` with `--no-build`, then calls the
+local readiness endpoint with the same trusted-proxy header that host Nginx
+sends. It never runs `docker compose down`, removes volumes, prunes Docker
+resources, uses `git clean`, or modifies Nginx, VPN services, database data,
+media, static files, or the server's `.env`.
 
-Build the already validated production configuration:
+## Published images, migrations, static files, and startup
+
+Production never builds application images with Compose. CD exports a
+digest-pinned `APP_IMAGE` only for its deployment process, then uses
+`--no-build` for every Compose `up`. Neither migrations nor static collection
+runs automatically when a web container starts.
+
+For an emergency, operator-reviewed manual operation, use an image digest from
+an already published release and keep it out of `.env`:
 
 ```bash
 cd /srv/wine-shop
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build
+export APP_IMAGE=ghcr.io/pursite/wine-shop@sha256:<published-image-digest>
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build db redis
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py migrate --noinput
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py collectstatic --noinput
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build --no-deps --force-recreate web celery
 ```
 
-Start only dependencies, then apply reviewed migrations and collect static
-files explicitly. Neither action runs automatically when the web container
-starts.
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d db redis
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm web python manage.py migrate
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm web python manage.py collectstatic --noinput
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
-```
+Obtain the image using the same ephemeral-token procedure as CD. Do not
+configure a persistent `docker login` on the VPS, and do not place the token
+or `APP_IMAGE` in `.env`.
 
 The case-insensitive identity migration is a release gate: it first checks for
 legacy usernames or emails that collide after case-folding. If it aborts, it
@@ -333,40 +368,29 @@ readiness. Docker Compose records an unhealthy result but does not
 automatically restart a container that remains running and unhealthy; monitor
 container health and restart or replace unhealthy containers operationally.
 
-## Release, rollback, and backups
+## Release and rollback limits
 
-Before every migration, make a tested PostgreSQL backup and copy media to
-separate storage. Docker named volumes and files on the same VPS are not a
-backup. Never run `docker compose down -v` on production: it removes the
-PostgreSQL and Redis volumes.
+Before deploying a release with migrations, confirm the production `.env` has a
+dedicated JWT signing key with at least 32 random bytes,
+`DRF_NUM_PROXIES=1` for the documented Nginx topology, and explicit phone/IP
+OTP throttle rates. CD runs `python manage.py check --deploy` before it
+replaces web or Celery, but application readiness does not establish a data
+recovery strategy.
 
-Before deploying this release, confirm the production `.env` has a dedicated
-JWT signing key with at least 32 random bytes, `DRF_NUM_PROXIES=1` for the
-documented Nginx topology, and explicit phone/IP OTP throttle rates. After
-starting the updated containers, run `python manage.py check --deploy` inside
-the web image before accepting traffic.
+Database/media backup and restore automation is intentionally not implemented
+in this repository yet. Design, operate, protect, and regularly test those
+procedures separately before relying on production migrations. Docker volumes
+and files on the same VPS are not a backup; never run `docker compose down -v`
+on production because it removes PostgreSQL and Redis volumes.
 
-For example, write a database dump outside the checkout and archive media:
-
-```bash
-sudo install -d -m 0700 /srv/wine-shop-backups
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec -T db \
-  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  > /srv/wine-shop-backups/wine-shop-$(date +%F).sql
-sudo tar -C /srv/wine-shop -czf /srv/wine-shop-backups/media-$(date +%F).tar.gz media
-```
-
-Store backup copies off the VPS, test restoration on a non-production system,
-and protect backup files as carefully as the database credentials. Redis is
-persisted for restart resilience but is not a replacement for a database or
-media backup.
-
-For a code-only rollback, deploy the previously tested Git revision or image,
-run `collectstatic --noinput` from that revision, and recreate the application
-containers with the same production Compose command. Do not automatically
-reverse database migrations: verify reversibility, data loss, and compatibility
-with the older application version first. If a release includes a destructive
-or irreversible migration, restore the tested database backup instead.
+For a code-only rollback, dispatch **Deploy production** with an already
+published, previously tested full commit SHA. The workflow checks out that
+revision, pulls its matching image, runs `collectstatic`, and recreates the
+application containers without rebuilding. It never automatically reverses
+database migrations. A rollback is therefore safe only when the older code is
+compatible with the current database schema and data. Assess reversibility,
+data loss, and operational recovery manually; reverse migrations and restore
+logic are intentionally not implemented by this workflow.
 
 Useful operational checks:
 

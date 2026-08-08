@@ -114,3 +114,99 @@ jobs:
         run: >-
           python manage.py makemigrations --check --dry-run
           --settings=config.settings.integration
+
+  image:
+    name: Application image
+    needs: [default-tests, integration-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare production Compose environment
+        run: cp docker/env/.env.production.example .env
+
+      - name: Validate production Compose configuration
+        env:
+          APP_IMAGE: ghcr.io/pursite/wine-shop:compose-validation
+        run: >-
+          docker compose --env-file .env
+          -f docker/docker-compose.yml
+          -f docker/docker-compose.prod.yml
+          config -q
+
+      - name: Build application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: final
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    name: Publish application image
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ghcr-publish-${{ github.sha }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reject an existing application image tag
+        env:
+          IMAGE_TAG: ghcr.io/pursite/wine-shop:${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing application image tag." >&2
+            exit 1
+          fi
+
+      - name: Generate image metadata
+        id: image_metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/pursite/wine-shop
+          tags: |
+            type=raw,value=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: final
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.image_metadata.outputs.tags }}
+          labels: ${{ steps.image_metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

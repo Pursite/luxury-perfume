@@ -33,10 +33,6 @@ services:
       start_period: 5s
 
   web:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: final
     env_file:
       - ../.env
     restart: unless-stopped
@@ -63,10 +59,6 @@ services:
       start_period: 20s
 
   celery:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: final
     env_file:
       - ../.env
     restart: unless-stopped

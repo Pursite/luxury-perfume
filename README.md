@@ -121,6 +121,24 @@ covers case-insensitive identity constraints and concurrent signup, Redis
 OTP-consumption races, and security-throttle keys. Never point integration
 tests at production databases or Redis databases.
 
+## CI and production images
+
+The existing SQLite/LocMem and PostgreSQL/Redis jobs run for every pull
+request and push. After both succeed, the required `Application image` check
+copies the safe production template to the ignored root `.env`, validates the
+production Compose merge, and builds the final application image without
+registry access. Pull requests and pushes stop there. On successful pushes to
+`main`, the separate `Publish application image` job verifies that the SHA tag
+does not already exist, then publishes exactly
+`ghcr.io/pursite/wine-shop:<commit SHA>` with OCI source and revision labels.
+
+Production deploys the same image for Django and Celery, pinned to its resolved
+content digest. The image contains application code and dependencies only;
+the VPS keeps the production `.env`, PostgreSQL data, Redis data, static files,
+and media at runtime. See [deployment.md](docs/deployment.md) for the required
+protected GHCR pull token, first deployment, normal deployment, and the
+limitations of code-only rollback.
+
 ## Documentation
 
 | Document | Contents |

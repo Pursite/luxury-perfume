@@ -1,5 +1,6 @@
 services:
   web:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
     command:
       - gunicorn
       - config.wsgi:application
@@ -29,6 +30,7 @@ services:
         target: /app/media
 
   celery:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
     command:
       - celery
       - -A

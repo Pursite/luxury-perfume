@@ -2,6 +2,11 @@ name: Deploy production
 
 on:
   workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA for an already published application image
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +27,8 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+      GHCR_USERNAME: ${{ github.repository_owner }}
 
     steps:
       - name: Validate deployment configuration
@@ -32,6 +39,7 @@ jobs:
           : "${VPS_USER:?Configure the production VPS_USER environment secret.}"
           : "${VPS_SSH_PRIVATE_KEY:?Configure the production VPS_SSH_PRIVATE_KEY environment secret.}"
           : "${VPS_KNOWN_HOSTS:?Configure the production VPS_KNOWN_HOSTS environment secret.}"
+          : "${GHCR_READ_TOKEN:?Configure the production GHCR_READ_TOKEN environment secret.}"
           VPS_PORT="${VPS_PORT:-22}"
           [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]] || {
             echo "VPS_PORT must be a valid TCP port." >&2
@@ -43,6 +51,10 @@ jobs:
           }
           [[ "$VPS_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
             echo "VPS_USER contains unsupported characters." >&2
+            exit 1
+          }
+          [[ "$GHCR_USERNAME" =~ ^[A-Za-z0-9-]+$ ]] || {
+            echo "GHCR_USERNAME contains unsupported characters." >&2
             exit 1
           }
           echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
@@ -63,7 +75,7 @@ jobs:
       - name: Deploy selected commit
         shell: bash
         env:
-          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_SHA: ${{ inputs.commit_sha || github.sha }}
           SSH_DIRECTORY: ${{ steps.ssh.outputs.directory }}
         run: |
           set -Eeuo pipefail
@@ -74,15 +86,9 @@ jobs:
 
           trap 'rm -f "$SSH_DIRECTORY/id_ed25519" "$SSH_DIRECTORY/known_hosts"; rmdir "$SSH_DIRECTORY"' EXIT
 
-          ssh \
-            -i "$SSH_DIRECTORY/id_ed25519" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$SSH_DIRECTORY/known_hosts" \
-            -p "$VPS_PORT" \
-            "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_SHA=$DEPLOY_SHA bash -se" <<'REMOTE_SCRIPT'
+          {
+            printf '%s\0' "$GHCR_READ_TOKEN"
+            cat <<'REMOTE_SCRIPT'
           set -Eeuo pipefail
 
           project_directory=/srv/wine-shop
@@ -99,10 +105,29 @@ jobs:
           git cat-file -e "$DEPLOY_SHA^{commit}"
           git checkout --detach "$DEPLOY_SHA"
 
+          image_tag="ghcr.io/pursite/wine-shop:${DEPLOY_SHA}"
+          docker_config_directory="$(mktemp -d)"
+          cleanup_registry_auth() {
+            unset GHCR_READ_TOKEN
+            rm -rf -- "$docker_config_directory"
+          }
+          trap cleanup_registry_auth EXIT
+
+          printf '%s' "$GHCR_READ_TOKEN" | DOCKER_CONFIG="$docker_config_directory" \
+            docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null
+          DOCKER_CONFIG="$docker_config_directory" docker pull "$image_tag"
+          APP_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_tag")"
+          [[ "$APP_IMAGE" =~ ^ghcr\.io/pursite/wine-shop@sha256:[0-9a-f]{64}$ ]] || {
+            echo "The pulled application image did not resolve to the expected digest." >&2
+            exit 1
+          }
+          export APP_IMAGE
+          cleanup_registry_auth
+          trap - EXIT
+
           compose=(docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml)
           "${compose[@]}" config -q
-          "${compose[@]}" build web celery
-          "${compose[@]}" up -d --no-recreate db redis
+          "${compose[@]}" up -d --no-build --no-recreate db redis
 
           dependencies_ready=false
           for attempt in {1..12}; do
@@ -118,9 +143,10 @@ jobs:
             exit 1
           fi
 
+          "${compose[@]}" run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
           "${compose[@]}" run --rm --no-deps web python manage.py migrate --noinput
           "${compose[@]}" run --rm --no-deps web python manage.py collectstatic --noinput
-          "${compose[@]}" up -d --no-deps --force-recreate web celery
+          "${compose[@]}" up -d --no-build --no-deps --force-recreate web celery
 
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 5 \
@@ -133,3 +159,12 @@ jobs:
           echo "The application did not pass its readiness check in time." >&2
           exit 1
           REMOTE_SCRIPT
+          } | ssh \
+            -i "$SSH_DIRECTORY/id_ed25519" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$SSH_DIRECTORY/known_hosts" \
+            -p "$VPS_PORT" \
+            "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_SHA=$DEPLOY_SHA GHCR_USERNAME=$GHCR_USERNAME bash -c 'IFS= read -r -d \"\" GHCR_READ_TOKEN; export GHCR_READ_TOKEN; source /dev/stdin'"
