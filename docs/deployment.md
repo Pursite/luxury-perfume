@@ -14,7 +14,7 @@ No Nginx, certificate, or Certbot container is used or required.
   ports. Its fixed project name is `wine-shop`, preserving the existing
   production container and volume names.
 - `docker/docker-compose.dev.yml` owns the local application build
-  configuration, source mounts, and PostgreSQL/Redis ports for development.
+  configuration, source mounts, and the loopback Django port for development.
 - `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
   Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
   PostgreSQL and Redis remain internal to Docker with their existing named
@@ -44,11 +44,9 @@ docker compose \
   up --build
 ```
 
-Django is available at `http://localhost:8000`; PostgreSQL and Redis are also
-published locally using `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` from
-`.env`.
-The Django port is configurable with `DJANGO_HOST_PORT`. All three host
-bindings are fixed to `127.0.0.1` in the development override and are not
+Django is available at `http://localhost:8000`; PostgreSQL and Redis remain
+internal during development and have no host-port mappings. The Django port is
+configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
 
@@ -144,9 +142,10 @@ those with publicly reachable database or cache endpoints for this layout.
 ignored root `.env`, validates the production Compose merge, and builds without
 registry write permission. For a push to `main`, its dependent `Publish
 application image` job then checks that the SHA tag does not already exist and
-publishes `ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production**
-from that reviewed `main` commit for a normal release. Its empty **Commit SHA**
-input defaults to that workflow run's `github.sha`.
+promotes that archived build artifact without rebuilding it to
+`ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production** from that
+reviewed `main` commit for a normal release. Its empty **Commit SHA** input
+defaults to that workflow run's `github.sha`.
 
 To deploy or roll back application code to an earlier published release, enter
 its full, lowercase 40-character commit SHA. The workflow rejects all other

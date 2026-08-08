@@ -30,29 +30,55 @@ def test_application_images_are_built_only_for_development():
     ) == 2
 
 
+def test_development_dependencies_remain_internal_without_host_port_settings():
+    compose_config = (REPOSITORY_ROOT / "docker" / "docker-compose.yml").read_text()
+    development_compose_config = (
+        REPOSITORY_ROOT / "docker" / "docker-compose.dev.yml"
+    ).read_text()
+    development_environment = (
+        REPOSITORY_ROOT / "docker" / "env" / ".env.development.example"
+    ).read_text()
+    deployment_guide = (REPOSITORY_ROOT / "docs" / "deployment.md").read_text()
+    readme = (REPOSITORY_ROOT / "README.md").read_text()
+
+    assert "POSTGRES_HOST_PORT" not in development_environment
+    assert "REDIS_HOST_PORT" not in development_environment
+    assert "  db:\n" in compose_config
+    assert "  redis:\n" in compose_config
+    assert "  db:\n" not in development_compose_config
+    assert "  redis:\n" not in development_compose_config
+    assert "PostgreSQL and Redis remain\ninternal during development" in deployment_guide
+    assert "ports published by the development stack" not in readme
+
+
 def test_ci_application_image_job_is_read_only_and_publish_is_immutable():
     workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    application_image_job, publish_job = workflow.split("\n  publish:\n", maxsplit=1)
 
-    assert "name: Application image" in workflow
-    assert "needs: [default-tests, integration-tests]" in workflow
-    assert "cp docker/env/.env.production.example .env" in workflow
-    assert "docker compose --env-file .env" in workflow
-    assert "contents: read" in workflow
-    assert "docker/build-push-action@v6" in workflow
-    assert "cache-from: type=gha" in workflow
-    assert "cache-to: type=gha,mode=max" in workflow
-    assert "push: false" in workflow
+    assert "name: Application image" in application_image_job
+    assert "needs: [default-tests, integration-tests]" in application_image_job
+    assert "cp docker/env/.env.production.example .env" in application_image_job
+    assert "docker compose --env-file .env" in application_image_job
+    assert "packages: write" not in application_image_job
+    assert application_image_job.count("docker/build-push-action@v6") == 1
+    assert "cache-from: type=gha" in application_image_job
+    assert "cache-to: type=gha,mode=max" in application_image_job
+    assert "push: false" in application_image_job
+    assert "outputs: type=docker,dest=/tmp/wine-shop-application.tar" in application_image_job
+    assert "actions/upload-artifact@v4" in application_image_job
 
-    assert "name: Publish application image" in workflow
-    assert "needs: image" in workflow
-    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
-    assert "group: ghcr-publish-${{ github.sha }}" in workflow
-    assert "packages: write" in workflow
-    assert "docker/login-action@v3" in workflow
-    assert "docker buildx imagetools inspect \"$IMAGE_TAG\"" in workflow
-    assert "org.opencontainers.image.source" in workflow
-    assert "org.opencontainers.image.revision" in workflow
-    assert "type=raw,value=${{ github.sha }}" in workflow
+    assert "name: Publish application image" in publish_job
+    assert "needs: image" in publish_job
+    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in publish_job
+    assert "group: ghcr-publish-${{ github.sha }}" in publish_job
+    assert "packages: write" in publish_job
+    assert "docker/login-action@v3" in publish_job
+    assert "docker buildx imagetools inspect \"$IMAGE_TAG\"" in publish_job
+    assert "actions/download-artifact@v4" in publish_job
+    assert "docker load --input /tmp/wine-shop-application.tar" in publish_job
+    assert "docker tag wine-shop:application \"$IMAGE_TAG\"" in publish_job
+    assert "docker push \"$IMAGE_TAG\"" in publish_job
+    assert "docker/build-push-action@v6" not in publish_job
 
 
 def test_cd_pulls_digest_pinned_image_with_ephemeral_credentials():

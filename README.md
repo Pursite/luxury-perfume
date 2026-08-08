@@ -53,8 +53,8 @@ docker compose \
 
 Inside Docker, Django and Celery reach PostgreSQL as `db` and Redis as `redis`.
 Do not replace those service names with `localhost` in `.env` when using
-Compose. The development override publishes the configured host ports only on
-`127.0.0.1`.
+Compose. The development override publishes only Django on `127.0.0.1`;
+PostgreSQL and Redis remain internal to Docker.
 
 `.env` is always local and ignored.
 `docker/env/.env.development.example` and
@@ -62,9 +62,8 @@ Compose. The development override publishes the configured host ports only on
 real secrets in an example file or commit a populated runtime environment file.
 
 Direct-host execution is optional. Install the Python dependencies and run
-PostgreSQL and Redis on the host (or use the ports published by the development
-stack), then override only the container-specific addresses in the current
-shell:
+PostgreSQL and Redis on the host, then override only the container-specific
+addresses in the current shell:
 
 ```bash
 export DB_HOST=localhost
@@ -80,8 +79,8 @@ venv/bin/python manage.py runserver
 
 Django automatically loads the root `.env` file. The shell overrides above
 change only container-specific addresses for this optional host workflow.
-Adjust `DB_PORT` and the Redis URL ports too if the published host ports differ
-from their defaults.
+Adjust `DB_PORT` and the Redis URL ports if the host services use non-default
+ports.
 
 The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
 
@@ -129,8 +128,9 @@ copies the safe production template to the ignored root `.env`, validates the
 production Compose merge, and builds the final application image without
 registry access. Pull requests and pushes stop there. On successful pushes to
 `main`, the separate `Publish application image` job verifies that the SHA tag
-does not already exist, then publishes exactly
-`ghcr.io/pursite/wine-shop:<commit SHA>` with OCI source and revision labels.
+does not already exist, then promotes the archived build artifact—without a
+second Docker build—to exactly `ghcr.io/pursite/wine-shop:<commit SHA>` with
+OCI source and revision labels.
 
 Production deploys the same image for Django and Celery, pinned to its resolved
 content digest. The image contains application code and dependencies only;
