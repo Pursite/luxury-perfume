@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -120,3 +121,31 @@ def test_ghcr_delivery_documentation_covers_security_boundaries():
     assert "reverse migrations" in deployment_guide
     assert "Publish application image" in readme
     assert "Publish application image" in deployment_guide
+
+
+def test_production_logging_uses_docker_rotation_and_no_application_log_files():
+    settings = (REPOSITORY_ROOT / "config" / "settings" / "base.py").read_text()
+    dockerfile = (REPOSITORY_ROOT / "docker" / "Dockerfile").read_text()
+    gunicorn_config = (REPOSITORY_ROOT / "docker" / "gunicorn.conf.py").read_text()
+    production_compose = yaml.safe_load(
+        (REPOSITORY_ROOT / "docker" / "docker-compose.prod.yml").read_text()
+    )
+
+    assert "RotatingFileHandler" not in settings
+    assert "LOG_DIR" not in settings
+    assert '"apps.lib.logging.JsonFormatter"' in settings
+    assert '"apps.lib.middleware.RequestIDMiddleware"' in settings
+    assert "/app/logs" not in dockerfile
+    assert '"--config"' in dockerfile
+    assert '"docker/gunicorn.conf.py"' in dockerfile
+    assert 'accesslog = "-"' in gunicorn_config
+    assert 'errorlog = "-"' in gunicorn_config
+    assert "%(U)s" in gunicorn_config
+    assert "%(q)s" not in gunicorn_config
+
+    expected_log_config = {
+        "driver": "local",
+        "options": {"max-size": "10m", "max-file": "3"},
+    }
+    for service in ("db", "redis", "web", "celery"):
+        assert production_compose["services"][service]["logging"] == expected_log_config

@@ -9,7 +9,7 @@ def test_sms_task_reports_success_at_external_boundary(mocker):
     result = send_otp_sms_task.run("09123456789", "123456")
 
     assert result is True
-    activity_log.assert_called_once()
+    activity_log.assert_called_once_with(msg="otp_sms.queued", status="INFO")
 
 
 def test_sms_task_reports_and_propagates_provider_failure(mocker):
@@ -22,5 +22,7 @@ def test_sms_task_reports_and_propagates_provider_failure(mocker):
     with pytest.raises(RuntimeError, match="provider unavailable"):
         send_otp_sms_task.run("09123456789", "123456")
 
-    error_log.assert_called_once()
-
+    error_log.assert_called_once_with(
+        msg="otp_sms.delivery_failed",
+        include_traceback=True,
+    )

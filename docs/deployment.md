@@ -18,7 +18,8 @@ No Nginx, certificate, or Certbot container is used or required.
 - `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
   Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
   PostgreSQL and Redis remain internal to Docker with their existing named
-  volumes.
+  volumes. It also configures Docker's `local` log driver for all four services
+  with a 10 MiB maximum file size and three files per service.
 
 Always pass the base file first, followed by the intended override.
 
@@ -176,7 +177,7 @@ The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
 for example with a read-only deploy key stored on the VPS. The workflow does
 not copy source, write `.env`, or install host software. It refuses to run if
 the checkout has tracked or untracked source changes; ignored state such as
-the private `.env`, static files, media, logs, and Compose volumes is left
+the private `.env`, static files, media, and Compose volumes is left
 untouched.
 
 For every deployment, the GitHub runner sends that token only through the SSH
@@ -240,6 +241,39 @@ image defaults to Gunicorn on container port `8000`, while Compose overrides
 the command only for development Django and the Celery worker. Production
 publishes Gunicorn only as `127.0.0.1:8000` for the host proxy. PostgreSQL and
 Redis have no host port mappings in the production merge.
+
+## Production logs
+
+Application processes do not create log files in the image or persistent
+mounts. Django activity events are JSON on stdout; security and system events,
+including Django errors, are JSON on stderr. Gunicorn writes access logs to
+stdout and error logs to stderr. Its access records contain the response
+`X-Request-ID`, method, path without a query string, status, duration, response
+size, and process ID; they intentionally omit query strings, client IPs,
+referrers, and user agents.
+
+`RequestIDMiddleware` creates the opaque `X-Request-ID` server-side for every
+HTTP request. It is also the request's application-log correlation ID. OTP
+enqueue records contain a Celery `task_id`; the worker uses that task ID as the
+correlation ID while it runs the task. Do not send secrets, tokens, passwords,
+OTP values, phone numbers, email addresses, request bodies, cache keys, or
+sensitive exception text to any logger.
+
+The production Compose override applies Docker's `local` logging driver with
+`max-size=10m` and `max-file=3` to PostgreSQL, Redis, web, and Celery. Docker
+rotates and compresses these internal files; use Compose instead of reading
+the Docker data directory directly:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
+  logs --tail=100 web celery
+docker inspect -f '{{.HostConfig.LogConfig.Type}}' wine-shop-web-1
+```
+
+The rotation cap bounds local retention, so it is not an audit archive. This
+single-VPS deployment intentionally has no external log aggregation; collect
+or retain logs through a separately reviewed host process if operational or
+compliance requirements need longer retention.
 
 Static assets are written to `/srv/wine-shop/staticfiles` by `collectstatic`.
 Uploaded media is stored at `/srv/wine-shop/media`. Both directories are bind

@@ -10,9 +10,6 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / ".env")
 
-LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-
 SECRET_KEY = env("SECRET_KEY")
 DB_CONNECT_TIMEOUT_SECONDS = env.int("DB_CONNECT_TIMEOUT_SECONDS", default=3)
 REDIS_SOCKET_TIMEOUT_SECONDS = env.float("REDIS_SOCKET_TIMEOUT_SECONDS", default=2)
@@ -34,6 +31,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "apps.lib.middleware.RequestIDMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -130,61 +128,53 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "default": {
-            "format": "[{asctime}] {levelname} {name} - {message}",
-            "style": "{",
-        },
+        "json": {"()": "apps.lib.logging.JsonFormatter"},
+    },
+    "filters": {
+        "request_context": {"()": "apps.lib.logging.RequestContextFilter"},
     },
     "handlers": {
-        "console": {
+        "activity_stdout": {
             "class": "logging.StreamHandler",
-            "formatter": "default",
+            "stream": "ext://sys.stdout",
+            "formatter": "json",
+            "filters": ["request_context"],
         },
-        "system_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": LOG_DIR / "system.log",
-            "maxBytes": 1024 * 1024 * 5,
-            "backupCount": 3,
-            "formatter": "default",
-        },
-        "activity_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": LOG_DIR / "activity.log",
-            "maxBytes": 1024 * 1024 * 5,
-            "backupCount": 3,
-            "formatter": "default",
-        },
-        "security_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": LOG_DIR / "security.log",
-            "maxBytes": 1024 * 1024 * 5,
-            "backupCount": 5,
-            "formatter": "default",
+        "system_stderr": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "json",
+            "filters": ["request_context"],
         },
     },
     "loggers": {
         "django": {
-            "handlers": ["system_file", "console"],
+            "handlers": ["system_stderr"],
             "level": "ERROR",
-            "propagate": True,
+            "propagate": False,
         },
         "django.security": {
-            "handlers": ["security_file"],
+            "handlers": ["system_stderr"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.server": {
+            "handlers": ["system_stderr"],
             "level": "WARNING",
             "propagate": False,
         },
         "system": {
-            "handlers": ["system_file", "console"],
+            "handlers": ["system_stderr"],
             "level": "ERROR",
             "propagate": False,
         },
         "security": {
-            "handlers": ["security_file", "console"],
+            "handlers": ["system_stderr"],
             "level": "WARNING",
             "propagate": False,
         },
         "activity": {
-            "handlers": ["activity_file", "console"],
+            "handlers": ["activity_stdout"],
             "level": "INFO",
             "propagate": False,
         },

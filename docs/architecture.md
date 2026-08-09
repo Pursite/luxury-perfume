@@ -80,7 +80,20 @@ JWT authentication is the DRF default. The custom refresh serializer validates S
 
 `config.settings.base` loads the root `.env` file with `django-environ`. Docker Compose also uses that file for interpolation and injects it into the `web` and `celery` services. Copy either tracked environment-specific example to `.env` to select the Django settings module. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, and transport-hardening values.
 
-Settings configure system, activity, and security loggers with rotating files beneath `logs/`. Logging helpers record messages plus an authenticated user ID when available. They must not receive passwords, OTP codes, JWTs, credentials, phone numbers, or sensitive internal errors.
+Settings configure JSON logging for container output rather than application
+log files. Activity events use stdout; security and system events, plus Django
+errors, use stderr. The logger category remains `activity`, `security`, or
+`system`, so operational filtering does not depend on a filename.
+
+`RequestIDMiddleware` generates an opaque ID for every HTTP request, returns
+it as `X-Request-ID`, and scopes it to structured application logs as both
+`request_id` and `correlation_id`. OTP enqueue events also record the Celery
+`task_id`; while executing that task, the worker uses the task ID as its
+correlation ID. Records contain only an allowlisted set of fields: timestamp,
+level, logger/category, event, IDs, authenticated user ID, a safe route path,
+and exception type. They never serialize request bodies, headers, query
+strings, exception messages, passwords, OTP codes, JWTs, credentials, phone
+numbers, or other sensitive PII.
 
 ## Testing
 

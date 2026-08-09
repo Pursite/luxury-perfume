@@ -8,8 +8,8 @@ class RedisCacheService:
     def get(key):
         try:
             return cache.get(key)
-        except Exception as e:
-            AppLogger.log_system_error(f"Redis GET Error for key {key}: {str(e)}")
+        except Exception:
+            AppLogger.log_system_error(msg="cache.get.failed")
             return None
 
     @staticmethod
@@ -19,8 +19,8 @@ class RedisCacheService:
         try:
             cache.set(key, value, timeout)
             return True
-        except Exception as e:
-            AppLogger.log_system_error(f"Redis SET Error for key {key}: {str(e)}")
+        except Exception:
+            AppLogger.log_system_error(msg="cache.set.failed")
             return False
 
     @staticmethod
@@ -28,8 +28,8 @@ class RedisCacheService:
         try:
             cache.add(key, 0, timeout=timeout)
             return cache.incr(key)
-        except Exception as e:
-            AppLogger.log_system_error(f"Redis INCR Error for key {key}: {str(e)}")
+        except Exception:
+            AppLogger.log_system_error(msg="cache.incr.failed")
             return None
 
     @staticmethod
@@ -37,8 +37,8 @@ class RedisCacheService:
         try:
             cache.delete(key)
             return True
-        except Exception as e:
-            AppLogger.log_system_error(f"Redis DELETE Error for key {key}: {str(e)}")
+        except Exception:
+            AppLogger.log_system_error(msg="cache.delete.failed")
             return False
 
     @staticmethod
@@ -46,6 +46,6 @@ class RedisCacheService:
         try:
             cache.clear()
             return True
-        except Exception as e:
-            AppLogger.log_system_error(f"Redis CLEAR Error: {str(e)}")
+        except Exception:
+            AppLogger.log_system_error(msg="cache.clear.failed")
             return False

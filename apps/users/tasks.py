@@ -1,4 +1,5 @@
 from apps.lib.loggers import AppLogger
+from apps.lib.tasks import CorrelatedTask
 from celery import shared_task
 
 
@@ -8,14 +9,18 @@ from celery import shared_task
     retry_backoff=True,
     retry_jitter=True,
     max_retries=3,
+    base=CorrelatedTask,
 )
 def send_otp_sms_task(self, phone_number, otp_code):
     try:
         # TODO: Replace this placeholder with the production SMS provider client.
         # sending sms ...
-        AppLogger.log_activity(msg=f"SMS queued successfully for {phone_number}", status="INFO")
+        AppLogger.log_activity(msg="otp_sms.queued", status="INFO")
         return True
 
-    except Exception as e:
-        AppLogger.log_system_error(f"Failed to send SMS to {phone_number}: {str(e)}", include_traceback=True)
+    except Exception:
+        AppLogger.log_system_error(
+            msg="otp_sms.delivery_failed",
+            include_traceback=True,
+        )
         raise

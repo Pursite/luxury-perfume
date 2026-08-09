@@ -84,7 +84,7 @@ def _delete_files(storage: Any, image_names: Iterable[str]) -> None:
             storage.delete(image_name)
         except Exception:
             AppLogger.log_system_error(
-                msg=f"Failed to delete product image from storage: {image_name}",
+                msg="product_image.storage_delete_failed",
                 include_traceback=True,
             )
 
@@ -95,6 +95,6 @@ def _enqueue_thumbnail(product_image_id: int) -> None:
         generate_product_image_thumbnail.delay(product_image_id)
     except Exception:
         AppLogger.log_system_error(
-            msg=f"Failed to queue thumbnail for product image {product_image_id}",
+            msg="product_image.thumbnail_enqueue_failed",
             include_traceback=True,
         )
