@@ -37,9 +37,13 @@ class PasswordResetService:
         otp_code = cls._generate_otp_code()
         cls._guard(phone_number).store_code(otp_code)
 
-        send_otp_sms_task.delay(phone_number, otp_code)
+        task = send_otp_sms_task.delay(phone_number, otp_code)
 
-        AppLogger.log_activity(msg="Password reset OTP generated and queued via Celery", status="INFO")
+        AppLogger.log_activity(
+            msg="Password reset OTP generated and queued via Celery",
+            status="INFO",
+            task_id=task.id,
+        )
 
         return cls._request_response()
 

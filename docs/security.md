@@ -24,7 +24,7 @@ The custom user model requires active users to have a username or phone number. 
 
 ## Configuration, logging, and transport
 
-Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Logging helpers record authenticated user IDs where available; callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, or sensitive internal errors. Authentication services log generic outcomes only. The intentionally unchanged SMS placeholder has a legacy phone-number log line, so protect and retain those logs as PII until the explicitly out-of-scope task is replaced; it is not a provider integration.
+Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Structured logs use allowlisted fields and redact common secret/PII patterns. Callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, email addresses, cache keys, or sensitive internal errors. Authentication and SMS-placeholder events use fixed generic names; system errors record an exception type, never an exception message or traceback.
 
 ## Verification and limitations
 

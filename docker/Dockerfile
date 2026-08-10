@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /install /usr/local
 COPY --chown=app:app . /app
 
-RUN mkdir -p /app/staticfiles /app/media /app/logs \
+RUN mkdir -p /app/staticfiles /app/media \
     && chown -R app:app /app
 
 ENV PATH=/usr/local/bin:$PATH
@@ -40,4 +40,4 @@ EXPOSE 8000
 
 USER app
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60"]
+CMD ["gunicorn", "--config", "docker/gunicorn.conf.py", "config.wsgi:application"]

@@ -3,19 +3,13 @@ services:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     command:
       - gunicorn
-      - config.wsgi:application
-      - --bind
-      - 0.0.0.0:8000
-      - --worker-class
-      - gthread
+      - --config
+      - docker/gunicorn.conf.py
       - --workers
       - "1"
       - --threads
       - "1"
-      - --timeout
-      - "60"
-      - --keep-alive
-      - "5"
+      - config.wsgi:application
 
     ports:
       - "127.0.0.1:8000:8000"
@@ -28,6 +22,12 @@ services:
       - type: bind
         source: /srv/wine-shop/media
         target: /app/media
+
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   celery:
     image: ${APP_IMAGE:?APP_IMAGE is required}
@@ -43,3 +43,23 @@ services:
       - type: bind
         source: /srv/wine-shop/media
         target: /app/media
+
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -6,6 +6,7 @@ from django.core.files.base import ContentFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from apps.lib.loggers import AppLogger
+from apps.lib.tasks import CorrelatedTask
 from apps.products.models import ProductImage
 
 
@@ -17,6 +18,7 @@ THUMBNAIL_SIZE = (600, 600)
     retry_backoff=True,
     retry_jitter=True,
     max_retries=3,
+    base=CorrelatedTask,
 )
 def generate_product_image_thumbnail(product_image_id: int) -> None:
     """Generate a WebP thumbnail without delaying an image-upload response."""
@@ -52,14 +54,11 @@ def generate_product_image_thumbnail(product_image_id: int) -> None:
                 product_image.thumbnail.storage.delete(generated_thumbnail_name)
             except Exception:
                 AppLogger.log_system_error(
-                    msg=(
-                        "Failed to clean up thumbnail after generation failure "
-                        f"for product image {product_image_id}"
-                    ),
+                    msg="product_image.thumbnail_cleanup_failed",
                     include_traceback=True,
                 )
         AppLogger.log_system_error(
-            msg=f"Thumbnail generation failed for product image {product_image_id}",
+            msg="product_image.thumbnail_generation_failed",
             include_traceback=True,
         )
         raise

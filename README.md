@@ -29,6 +29,21 @@ Requests are coordinated by views, validated and represented by serializers, the
 
 For the complete design, see [architecture.md](docs/architecture.md).
 
+## Production logging
+
+Application logs are JSON records written to container output: activity events
+go to stdout, while security and system errors go to stderr. Every HTTP
+response includes a server-generated `X-Request-ID`; the same value is present
+as `request_id` and `correlation_id` in logs produced while that request is
+handled. Queued OTP task activity records include `task_id`, and the worker
+uses that task ID as its correlation ID.
+
+The production Compose override uses Docker's `local` driver with a 10 MiB
+maximum file size and three files per service. Use `docker compose logs` to
+inspect them; do not read Docker's internal log files. Log events deliberately
+exclude request bodies, query strings, client IPs, phone numbers, OTPs,
+passwords, JWTs, credentials, and exception messages.
+
 ## Development setup
 
 Docker Compose is the supported default development workflow. Copy the complete
