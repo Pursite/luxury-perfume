@@ -64,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh_directory="$RUNNER_TEMP/wine-shop-deploy-ssh"
+          ssh_directory="$RUNNER_TEMP/luxury-perfume-deploy-ssh"
           install -d -m 700 "$ssh_directory"
           printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$ssh_directory/id_ed25519"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_directory/known_hosts"
@@ -105,7 +105,7 @@ jobs:
           git cat-file -e "$DEPLOY_SHA^{commit}"
           git checkout --detach "$DEPLOY_SHA"
 
-          image_tag="ghcr.io/pursite/wine-shop:${DEPLOY_SHA}"
+          image_tag="ghcr.io/pursite/luxury-perfume:${DEPLOY_SHA}"
           docker_config_directory="$(mktemp -d)"
           cleanup_registry_auth() {
             unset GHCR_READ_TOKEN
@@ -117,7 +117,7 @@ jobs:
             docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null
           DOCKER_CONFIG="$docker_config_directory" docker pull "$image_tag"
           APP_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_tag")"
-          [[ "$APP_IMAGE" =~ ^ghcr\.io/pursite/wine-shop@sha256:[0-9a-f]{64}$ ]] || {
+          [[ "$APP_IMAGE" =~ ^ghcr\.io/pursite/luxury-perfume@sha256:[0-9a-f]{64}$ ]] || {
             echo "The pulled application image did not resolve to the expected digest." >&2
             exit 1
           }

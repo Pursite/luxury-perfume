@@ -12,7 +12,7 @@ from apps.products.cache import (
     invalidate_product_api_cache,
     product_list_cache_key,
 )
-from apps.products.tests.factories import ProductFactory
+from apps.products.tests.factories import FragranceNoteFactory, ProductFactory
 
 
 @pytest.mark.django_db
@@ -80,3 +80,24 @@ def test_cache_invalidation_runs_after_commit_but_not_after_rollback():
 
     assert get_catalog_cache_version() == initial_version + 1
 
+
+@pytest.mark.django_db(transaction=True)
+def test_fragrance_note_relation_changes_invalidate_catalog_cache():
+    product = ProductFactory()
+    note = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    initial_version = get_catalog_cache_version()
+
+    product.top_notes.add(note)
+
+    assert get_catalog_cache_version() == initial_version + 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fragrance_note_rename_invalidates_catalog_cache():
+    note = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    initial_version = get_catalog_cache_version()
+
+    note.name = "Calabrian Bergamot"
+    note.save(update_fields=["name", "updated_at"])
+
+    assert get_catalog_cache_version() == initial_version + 1

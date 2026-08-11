@@ -1,6 +1,6 @@
 import factory
 from factory.django import DjangoModelFactory, ImageField
-from apps.products.models import Category, Brand, Product, ProductImage
+from apps.products.models import Brand, Category, FragranceNote, Product, ProductImage
 
 
 class CategoryFactory(DjangoModelFactory):
@@ -19,7 +19,15 @@ class BrandFactory(DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Brand {n}")
     slug = factory.Sequence(lambda n: f"brand-{n}")
     country = "France"
-    description = "Premium wine brand"
+    description = "Independent luxury fragrance house"
+
+
+class FragranceNoteFactory(DjangoModelFactory):
+    class Meta:
+        model = FragranceNote
+
+    name = factory.Sequence(lambda n: f"Fragrance Note {n}")
+    slug = factory.Sequence(lambda n: f"fragrance-note-{n}")
 
 
 class ProductFactory(DjangoModelFactory):
@@ -28,18 +36,21 @@ class ProductFactory(DjangoModelFactory):
 
     category = factory.SubFactory(CategoryFactory)
     brand = factory.SubFactory(BrandFactory)
-    name = factory.Sequence(lambda n: f"Wine Product {n}")
-    slug = factory.Sequence(lambda n: f"wine-product-{n}")
+    name = factory.Sequence(lambda n: f"Fragrance Product {n}")
+    slug = factory.Sequence(lambda n: f"fragrance-product-{n}")
     sku = factory.Sequence(lambda n: f"SKU-{n:05d}")
-    description = "A fine vintage wine with rich fruit aromas."
+    description = "A refined floral fragrance with a warm musk dry-down."
     price = 100.00
     discount_price = 80.00
     stock = 50
-    abv = 13.5
-    volume_ml = 750
+    concentration = Product.Concentration.EAU_DE_PARFUM
+    volume_ml = 100
     country_of_origin = "France"
-    vintage_year = 2020
-    taste_notes = "Fruity, oaky, smooth finish"
+    target_audience = Product.TargetAudience.UNISEX
+    fragrance_family = Product.FragranceFamily.FLORAL
+    introduction_year = 2020
+    suitable_season = Product.SuitableSeason.ALL_SEASONS
+    suitable_usage_time = Product.SuitableUsageTime.DAY_AND_NIGHT
     is_active = True
     is_featured = False
 

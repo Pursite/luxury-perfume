@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Preserve `default-tests` and `integration-tests`; the dependent required check is exactly `Application image`.
-- Publish exactly `ghcr.io/pursite/wine-shop:${{ github.sha }}` only for successful `main` pushes and publish no PR tag.
+- Publish exactly `ghcr.io/pursite/luxury-perfume:${{ github.sha }}` only for successful `main` pushes and publish no PR tag.
 - Apply `org.opencontainers.image.source` and `org.opencontainers.image.revision` labels.
 - Production `web` and `celery` each use `image: ${APP_IMAGE:?APP_IMAGE is required}`; dependency images and volumes remain unchanged.
 - The VPS `.env` is runtime-only. Never write an image reference, token, or secret to it.
@@ -51,7 +51,7 @@ Run `venv/bin/python -m pytest config/tests/test_deployment_compose.py -q`.
 
 Run `docker compose --env-file docker/env/.env.development.example -f docker/docker-compose.yml -f docker/docker-compose.dev.yml config -q`.
 
-Run `APP_IMAGE=ghcr.io/pursite/wine-shop:compose-validation docker compose --env-file docker/env/.env.production.example -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q`.
+Run `APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose --env-file docker/env/.env.production.example -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q`.
 
 - [ ] **Step 5: Commit**
 
@@ -77,7 +77,7 @@ Run `venv/bin/python -m pytest config/tests/test_deployment_compose.py -q`. It m
 
 - [ ] **Step 3: Implement the CI job**
 
-Append job ID `image`, name it `Application image`, set `needs: [default-tests, integration-tests]`, and grant only `contents: read` / `packages: write`. Set up Buildx; validate the production merge using `APP_IMAGE=ghcr.io/pursite/wine-shop:compose-validation`; authenticate with `${{ secrets.GITHUB_TOKEN }}` only on a main push; use metadata/build actions to build final stage, tag one raw `${{ github.sha }}` tag, label source/revision, cache with GHA, and conditionally push only on main.
+Append job ID `image`, name it `Application image`, set `needs: [default-tests, integration-tests]`, and grant only `contents: read` / `packages: write`. Set up Buildx; validate the production merge using `APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation`; authenticate with `${{ secrets.GITHUB_TOKEN }}` only on a main push; use metadata/build actions to build final stage, tag one raw `${{ github.sha }}` tag, label source/revision, cache with GHA, and conditionally push only on main.
 
 - [ ] **Step 4: Verify green**
 
@@ -96,8 +96,8 @@ Commit CI and test changes with message `ci: publish verified application image 
 - Modify: `config/tests/test_deployment_compose.py`
 
 **Interfaces:**
-- Consumes: matching `ghcr.io/pursite/wine-shop:<commit SHA>` image and `GHCR_READ_TOKEN` environment secret.
-- Produces: remote `APP_IMAGE=ghcr.io/pursite/wine-shop@sha256:<64 lowercase hex>` without retained credentials.
+- Consumes: matching `ghcr.io/pursite/luxury-perfume:<commit SHA>` image and `GHCR_READ_TOKEN` environment secret.
+- Produces: remote `APP_IMAGE=ghcr.io/pursite/luxury-perfume@sha256:<64 lowercase hex>` without retained credentials.
 
 - [ ] **Step 1: Write failing CD contract assertions**
 
@@ -173,7 +173,7 @@ Run `venv/bin/python -W error -m pytest`, `venv/bin/python -m ruff check apps co
 
 - [ ] **Step 3: Run Docker checks**
 
-Run the development Compose merge, production Compose merge with non-secret placeholder `APP_IMAGE`, and `docker build --file docker/Dockerfile --target final --tag wine-shop:ghcr-validation .`; expect exit zero. If Docker is unavailable, report the exact blocking output without claiming these checks passed.
+Run the development Compose merge, production Compose merge with non-secret placeholder `APP_IMAGE`, and `docker build --file docker/Dockerfile --target final --tag luxury-perfume:ghcr-validation .`; expect exit zero. If Docker is unavailable, report the exact blocking output without claiming these checks passed.
 
 - [ ] **Step 4: Verify workflow parsing and contract tests**
 

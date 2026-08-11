@@ -38,6 +38,26 @@ def test_postgresql_reports_named_product_constraints():
         == "product_discount_lower_than_price"
     )
 
+    invalid_volume = ProductFactory.build(volume_ml=0)
+    with pytest.raises(IntegrityError) as volume_error:
+        with transaction.atomic():
+            invalid_volume.save(force_insert=True)
+
+    assert (
+        volume_error.value.__cause__.diag.constraint_name
+        == "product_positive_volume_ml"
+    )
+
+    invalid_year = ProductFactory.build(introduction_year=1699)
+    with pytest.raises(IntegrityError) as year_error:
+        with transaction.atomic():
+            invalid_year.save(force_insert=True)
+
+    assert (
+        year_error.value.__cause__.diag.constraint_name
+        == "product_introduction_year_not_before_1700"
+    )
+
     product = ProductFactory()
     ProductImageFactory(product=product, is_primary=True)
     with pytest.raises(IntegrityError) as primary_error:

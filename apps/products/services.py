@@ -8,10 +8,27 @@ from apps.products.models import Product, ProductImage
 from apps.products.tasks import generate_product_image_thumbnail
 
 
+FRAGRANCE_NOTE_FIELDS = ("top_notes", "middle_notes", "base_notes")
+
+
+def _split_fragrance_notes(validated_data: dict[str, Any]):
+    scalar_data = dict(validated_data)
+    fragrance_notes = {
+        field: scalar_data.pop(field)
+        for field in FRAGRANCE_NOTE_FIELDS
+        if field in scalar_data
+    }
+    return scalar_data, fragrance_notes
+
+
 @transaction.atomic
 def create_product_service(*, validated_data: dict[str, Any]) -> Product:
     """Create a product from data already validated by the input serializer."""
-    return Product.objects.create(**validated_data)
+    scalar_data, fragrance_notes = _split_fragrance_notes(validated_data)
+    product = Product.objects.create(**scalar_data)
+    for field, notes in fragrance_notes.items():
+        getattr(product, field).set(notes)
+    return product
 
 
 @transaction.atomic
@@ -19,9 +36,12 @@ def update_product_service(
     *, product: Product, validated_data: dict[str, Any]
 ) -> Product:
     """Update a product in one transaction from serializer-validated data."""
-    for field, value in validated_data.items():
+    scalar_data, fragrance_notes = _split_fragrance_notes(validated_data)
+    for field, value in scalar_data.items():
         setattr(product, field, value)
     product.save()
+    for field, notes in fragrance_notes.items():
+        getattr(product, field).set(notes)
     return product
 
 

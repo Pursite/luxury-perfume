@@ -6,8 +6,8 @@ from .test import *  # noqa: F403
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("INTEGRATION_DB_NAME", default="wine_shop_test"),  # noqa: F405
-        "USER": env("INTEGRATION_DB_USER", default="wine_shop_test"),  # noqa: F405
+        "NAME": env("INTEGRATION_DB_NAME", default="luxury_perfume_test"),  # noqa: F405
+        "USER": env("INTEGRATION_DB_USER", default="luxury_perfume_test"),  # noqa: F405
         "PASSWORD": env(  # noqa: F405
             "INTEGRATION_DB_PASSWORD",
             default="",

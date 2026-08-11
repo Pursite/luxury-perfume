@@ -26,6 +26,8 @@ def get_public_products_queryset(*, request, view) -> QuerySet[Product]:
 
     queryset = filterset.qs
     queryset = SearchFilter().filter_queryset(request, queryset, view)
+    if request.query_params.get("search"):
+        queryset = queryset.distinct()
     return OrderingFilter().filter_queryset(request, queryset, view)
 
 
@@ -33,7 +35,12 @@ def get_product_by_uuid(
     *, product_uuid: UUID | str, include_inactive: bool = False
 ) -> Product:
     """Fetch a product by its public UUID, with relations needed for detail output."""
-    queryset = Product.objects.select_related("category", "brand").prefetch_related("images")
+    queryset = Product.objects.select_related("category", "brand").prefetch_related(
+        "images",
+        "top_notes",
+        "middle_notes",
+        "base_notes",
+    )
     if not include_inactive:
         queryset = queryset.filter(is_active=True)
     return get_object_or_404(queryset, uuid=product_uuid)

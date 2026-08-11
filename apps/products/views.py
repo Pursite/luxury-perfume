@@ -45,11 +45,20 @@ class ProductListCreateAPIView(APIView):
         "name",
         "sku",
         "description",
-        "taste_notes",
         "brand__name",
         "category__name",
+        "top_notes__name",
+        "middle_notes__name",
+        "base_notes__name",
     )
-    ordering_fields = ("price", "created_at", "abv", "stock", "name", "volume_ml")
+    ordering_fields = (
+        "price",
+        "created_at",
+        "introduction_year",
+        "stock",
+        "name",
+        "volume_ml",
+    )
     ordering = ("-created_at",)
 
     def get_permissions(self):

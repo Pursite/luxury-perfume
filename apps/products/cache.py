@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from apps.lib.cache import RedisCacheService
 
 
-CACHE_VERSION_KEY = "products:catalog:version"
+CACHE_VERSION_KEY = "products:fragrance-catalog:version"
 CACHE_VERSION_TIMEOUT = 7 * 24 * 60 * 60
 PRODUCT_LIST_CACHE_TTL = 60
 PRODUCT_DETAIL_CACHE_TTL = 5 * 60

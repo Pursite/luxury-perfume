@@ -5,14 +5,71 @@ from django.db import transaction
 from apps.products.models import Product, ProductImage
 from apps.products.services import (
     _enqueue_thumbnail,
+    create_product_service,
     delete_product_image_service,
     delete_product_service,
     update_product_service,
 )
-from apps.products.tests.factories import ProductFactory, ProductImageFactory
+from apps.products.tests.factories import (
+    BrandFactory,
+    CategoryFactory,
+    FragranceNoteFactory,
+    ProductFactory,
+    ProductImageFactory,
+)
 
 
 pytestmark = pytest.mark.django_db
+
+
+def test_product_create_sets_fragrance_note_layers_atomically():
+    category = CategoryFactory()
+    brand = BrandFactory()
+    bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    jasmine = FragranceNoteFactory(name="Jasmine", slug="jasmine")
+    musk = FragranceNoteFactory(name="Musk", slug="musk")
+
+    product = create_product_service(
+        validated_data={
+            "category": category,
+            "brand": brand,
+            "name": "Aurora Eau de Parfum",
+            "slug": "aurora-eau-de-parfum",
+            "sku": "AUR-SERVICE-001",
+            "description": "A luminous floral fragrance.",
+            "price": "150.00",
+            "discount_price": "120.00",
+            "stock": 10,
+            "concentration": "eau_de_parfum",
+            "target_audience": "unisex",
+            "fragrance_family": "floral",
+            "volume_ml": 100,
+            "top_notes": [bergamot],
+            "middle_notes": [jasmine],
+            "base_notes": [musk],
+        }
+    )
+
+    assert list(product.top_notes.all()) == [bergamot]
+    assert list(product.middle_notes.all()) == [jasmine]
+    assert list(product.base_notes.all()) == [musk]
+
+
+def test_product_update_preserves_omitted_notes_and_clears_explicit_empty_layer():
+    product = ProductFactory()
+    bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    jasmine = FragranceNoteFactory(name="Jasmine", slug="jasmine")
+    product.top_notes.add(bergamot)
+    product.middle_notes.add(jasmine)
+
+    update_product_service(
+        product=product,
+        validated_data={"name": "Updated fragrance", "top_notes": []},
+    )
+
+    assert product.name == "Updated fragrance"
+    assert list(product.top_notes.all()) == []
+    assert list(product.middle_notes.all()) == [jasmine]
 
 
 def test_product_update_rolls_back_when_save_fails_after_database_write(mocker):
@@ -118,4 +175,3 @@ def test_thumbnail_enqueue_failure_does_not_reverse_committed_upload(mocker):
 
     delay.assert_called_once_with(123)
     error_log.assert_called_once()
-

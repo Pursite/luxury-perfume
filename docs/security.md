@@ -20,7 +20,15 @@ Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits. I
 
 ## Data and upload integrity
 
-The custom user model requires active users to have a username or phone number. Product discounts must be lower than regular price, and a conditional unique constraint allows one primary image per product. Decimal validation uses `Decimal` bounds, avoiding float coercion warnings. Category saves reject cycles. Product uploads are staff-only and restrict MIME/content pairs, file size, dimensions, corruption, decompression bombs, and generated filenames.
+The custom user model requires active users to have a username or phone
+number. Product discounts must be lower than regular price, fragrance volume
+must be positive, introduction years cannot predate 1700, and optional
+8–14-digit barcodes are unique. Application validation also rejects future
+introduction years. A conditional unique constraint allows one primary image
+per product. Decimal validation uses `Decimal` bounds, avoiding float coercion
+warnings. Category saves reject cycles. Product uploads are staff-only and
+restrict MIME/content pairs, file size, dimensions, corruption, decompression
+bombs, and generated filenames.
 
 ## Configuration, logging, and transport
 

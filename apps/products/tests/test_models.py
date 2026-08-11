@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -5,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import BigAutoField
 
-from apps.products.models import Category, Product, ProductImage
+from apps.products.models import Category, FragranceNote, Product, ProductImage
 from apps.products.tests.factories import ProductFactory, ProductImageFactory
 
 
@@ -18,6 +19,30 @@ def test_product_uses_integer_internal_key_and_public_uuid():
     assert isinstance(Product._meta.pk, BigAutoField)
     assert isinstance(product.id, int)
     assert product.uuid
+
+
+def test_product_schema_uses_fragrance_fields_instead_of_alcohol_fields():
+    field_names = {field.name for field in Product._meta.get_fields()}
+
+    assert {
+        "concentration",
+        "target_audience",
+        "fragrance_family",
+        "introduction_year",
+        "suitable_season",
+        "suitable_usage_time",
+        "top_notes",
+        "middle_notes",
+        "base_notes",
+        "barcode",
+    } <= field_names
+    assert {
+        "abv",
+        "ibu",
+        "vintage_year",
+        "taste_notes",
+        "serving_temp",
+    }.isdisjoint(field_names)
 
 
 def test_category_rejects_self_and_indirect_cycles():
@@ -54,6 +79,26 @@ def test_product_model_validation_rejects_non_lower_discount():
     ]
 
 
+@pytest.mark.parametrize(
+    ("overrides", "invalid_field"),
+    [
+        ({"volume_ml": 0}, "volume_ml"),
+        ({"introduction_year": 1699}, "introduction_year"),
+        ({"introduction_year": date.today().year + 1}, "introduction_year"),
+        ({"barcode": "ABC-12345"}, "barcode"),
+        ({"barcode": "۱۲۳۴۵۶۷۸"}, "barcode"),
+        ({"concentration": "invalid-concentration"}, "concentration"),
+    ],
+)
+def test_product_model_rejects_invalid_fragrance_metadata(overrides, invalid_field):
+    product = ProductFactory.build(**overrides)
+
+    with pytest.raises(ValidationError) as exc_info:
+        product.full_clean()
+
+    assert invalid_field in exc_info.value.message_dict
+
+
 def test_database_rejects_non_lower_discount():
     product = ProductFactory.build(
         price=Decimal("100.00"),
@@ -64,6 +109,47 @@ def test_database_rejects_non_lower_discount():
         product.save(force_insert=True)
 
     assert not Product.objects.filter(sku=product.sku).exists()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "constraint_name"),
+    [
+        ({"volume_ml": 0}, "product_positive_volume_ml"),
+        ({"introduction_year": 1699}, "product_introduction_year_not_before_1700"),
+    ],
+)
+def test_database_rejects_invalid_bounded_fragrance_metadata(
+    overrides,
+    constraint_name,
+):
+    product = ProductFactory.build(**overrides)
+
+    with pytest.raises(IntegrityError) as exc_info, transaction.atomic():
+        product.save(force_insert=True)
+
+    assert constraint_name in str(exc_info.value)
+
+
+def test_database_rejects_duplicate_nonempty_barcode():
+    ProductFactory(barcode="12345678")
+    duplicate = ProductFactory.build(barcode="12345678")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        duplicate.save(force_insert=True)
+
+
+def test_fragrance_note_can_be_reused_across_product_layers():
+    product = ProductFactory()
+    note = FragranceNote.objects.create(
+        name="Bergamot",
+        slug="bergamot",
+    )
+
+    product.top_notes.add(note)
+    product.middle_notes.add(note)
+
+    assert list(product.top_notes.all()) == [note]
+    assert list(product.middle_notes.all()) == [note]
 
 
 def test_database_allows_only_one_primary_image_per_product():
@@ -79,4 +165,3 @@ def test_database_allows_only_one_primary_image_per_product():
             flat=True,
         )
     ) == [first.pk]
-

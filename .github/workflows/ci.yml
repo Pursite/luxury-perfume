@@ -54,13 +54,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: wine_shop_test
-          POSTGRES_USER: wine_shop_test
+          POSTGRES_DB: luxury_perfume_test
+          POSTGRES_USER: luxury_perfume_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U wine_shop_test -d wine_shop_test"
+          --health-cmd "pg_isready -U luxury_perfume_test -d luxury_perfume_test"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 20
@@ -76,8 +76,8 @@ jobs:
 
     env:
       DJANGO_SETTINGS_MODULE: config.settings.integration
-      INTEGRATION_DB_NAME: wine_shop_test
-      INTEGRATION_DB_USER: wine_shop_test
+      INTEGRATION_DB_NAME: luxury_perfume_test
+      INTEGRATION_DB_USER: luxury_perfume_test
       INTEGRATION_DB_HOST: 127.0.0.1
       INTEGRATION_DB_PORT: "5432"
       INTEGRATION_CACHE_REDIS_URL: redis://127.0.0.1:6379/14
@@ -135,7 +135,7 @@ jobs:
 
       - name: Validate production Compose configuration
         env:
-          APP_IMAGE: ghcr.io/pursite/wine-shop:compose-validation
+          APP_IMAGE: ghcr.io/pursite/luxury-perfume:compose-validation
         run: >-
           docker compose --env-file .env
           -f docker/docker-compose.yml
@@ -148,20 +148,20 @@ jobs:
           context: .
           file: docker/Dockerfile
           target: final
-          tags: wine-shop:application
+          tags: luxury-perfume:application
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           push: false
-          outputs: type=docker,dest=/tmp/wine-shop-application.tar
+          outputs: type=docker,dest=/tmp/luxury-perfume-application.tar
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Upload application image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: application-image-${{ github.sha }}
-          path: /tmp/wine-shop-application.tar
+          name: luxury-perfume-image-${{ github.sha }}
+          path: /tmp/luxury-perfume-application.tar
           if-no-files-found: error
           retention-days: 1
 
@@ -190,7 +190,7 @@ jobs:
 
       - name: Reject an existing application image tag
         env:
-          IMAGE_TAG: ghcr.io/pursite/wine-shop:${{ github.sha }}
+          IMAGE_TAG: ghcr.io/pursite/luxury-perfume:${{ github.sha }}
         run: |
           if docker buildx imagetools inspect "$IMAGE_TAG" >/dev/null 2>&1; then
             echo "Refusing to overwrite existing application image tag." >&2
@@ -200,13 +200,13 @@ jobs:
       - name: Download application image artifact
         uses: actions/download-artifact@v4
         with:
-          name: application-image-${{ github.sha }}
+          name: luxury-perfume-image-${{ github.sha }}
           path: /tmp
 
       - name: Load and publish application image artifact
         env:
-          IMAGE_TAG: ghcr.io/pursite/wine-shop:${{ github.sha }}
+          IMAGE_TAG: ghcr.io/pursite/luxury-perfume:${{ github.sha }}
         run: |
-          docker load --input /tmp/wine-shop-application.tar
-          docker tag wine-shop:application "$IMAGE_TAG"
+          docker load --input /tmp/luxury-perfume-application.tar
+          docker tag luxury-perfume:application "$IMAGE_TAG"
           docker push "$IMAGE_TAG"

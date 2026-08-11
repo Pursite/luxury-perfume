@@ -4,7 +4,7 @@ from apps.lib.image_validation import (
     RestrictedImageField,
     ValidatedCatalogueImageSerializer,
 )
-from apps.products.models import Brand, Category, Product, ProductImage
+from apps.products.models import Brand, Category, FragranceNote, Product, ProductImage
 
 
 class CategorySummarySerializer(serializers.ModelSerializer):
@@ -21,6 +21,14 @@ class BrandSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
         fields = ("uuid", "name", "slug", "country")
+
+
+class FragranceNoteSummarySerializer(serializers.ModelSerializer):
+    uuid = serializers.UUIDField(source="id", read_only=True)
+
+    class Meta:
+        model = FragranceNote
+        fields = ("uuid", "name", "slug")
 
 
 class ProductImageOutputSerializer(serializers.ModelSerializer):
@@ -71,7 +79,12 @@ class ProductListOutputSerializer(serializers.ModelSerializer):
             "discount_price",
             "final_price",
             "stock",
-            "abv",
+            "concentration",
+            "target_audience",
+            "fragrance_family",
+            "introduction_year",
+            "suitable_season",
+            "suitable_usage_time",
             "volume_ml",
             "category",
             "brand",
@@ -94,6 +107,9 @@ class ProductDetailOutputSerializer(serializers.ModelSerializer):
     category = CategorySummarySerializer(read_only=True)
     brand = BrandSummarySerializer(read_only=True)
     images = ProductImageOutputSerializer(many=True, read_only=True)
+    top_notes = FragranceNoteSummarySerializer(many=True, read_only=True)
+    middle_notes = FragranceNoteSummarySerializer(many=True, read_only=True)
+    base_notes = FragranceNoteSummarySerializer(many=True, read_only=True)
     final_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
@@ -108,13 +124,18 @@ class ProductDetailOutputSerializer(serializers.ModelSerializer):
             "discount_price",
             "final_price",
             "stock",
-            "abv",
+            "concentration",
+            "target_audience",
+            "fragrance_family",
+            "introduction_year",
+            "suitable_season",
+            "suitable_usage_time",
             "volume_ml",
             "country_of_origin",
-            "vintage_year",
-            "ibu",
-            "taste_notes",
-            "serving_temp",
+            "barcode",
+            "top_notes",
+            "middle_notes",
+            "base_notes",
             "is_active",
             "is_featured",
             "category",
@@ -135,6 +156,21 @@ class ProductWriteInputSerializer(serializers.ModelSerializer):
         allow_null=True,
         required=False,
     )
+    top_notes = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=FragranceNote.objects.all(),
+        required=False,
+    )
+    middle_notes = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=FragranceNote.objects.all(),
+        required=False,
+    )
+    base_notes = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=FragranceNote.objects.all(),
+        required=False,
+    )
 
     class Meta:
         model = Product
@@ -148,16 +184,24 @@ class ProductWriteInputSerializer(serializers.ModelSerializer):
             "price",
             "discount_price",
             "stock",
-            "abv",
+            "concentration",
+            "target_audience",
+            "fragrance_family",
+            "introduction_year",
+            "suitable_season",
+            "suitable_usage_time",
             "volume_ml",
             "country_of_origin",
-            "vintage_year",
-            "ibu",
-            "taste_notes",
-            "serving_temp",
+            "barcode",
+            "top_notes",
+            "middle_notes",
+            "base_notes",
             "is_active",
             "is_featured",
         )
+
+    def validate_barcode(self, value):
+        return value or None
 
     def validate(self, attrs):
         price = attrs.get("price", getattr(self.instance, "price", None))

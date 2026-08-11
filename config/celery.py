@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(BASE_DIR / ".env")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 
-app = Celery("wine_shop")
+app = Celery("luxury_perfume")
 
 app.config_from_object("django.conf:settings", namespace="CELERY")
 

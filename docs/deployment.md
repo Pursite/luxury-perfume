@@ -11,10 +11,12 @@ No Nginx, certificate, or Certbot container is used or required.
 
 - `docker/docker-compose.yml` is the shared runtime service definition. It has
   no source-code mounts, application build configuration, or published service
-  ports. Its fixed project name is `wine-shop`, preserving the existing
-  production container and volume names.
+  ports. Its fixed project name is `wine-shop`, retained solely as a legacy
+  operational identifier so existing production container and volume names
+  remain attached.
 - `docker/docker-compose.dev.yml` owns the local application build
-  configuration, source mounts, and the loopback Django port for development.
+  configuration, source mounts, the `luxury-perfume` development project name,
+  and the loopback Django port for development.
 - `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
   Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
   PostgreSQL and Redis remain internal to Docker with their existing named
@@ -29,7 +31,7 @@ Create a local environment file from the tracked example. It contains only
 development credentials and Docker service hostnames.
 
 ```bash
-cd /path/to/wine-shop
+cd /path/to/luxury-perfume
 cp docker/env/.env.development.example .env
 
 docker compose \
@@ -51,6 +53,13 @@ configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
 
+The renamed development project uses new local named volumes. Docker does not
+rename an existing development database automatically. If an older local
+volume contains data you need, keep using its matching ignored `.env` values
+until you migrate it deliberately; recreate local volumes only when their data
+is known to be disposable. This does not affect the retained production
+project name or volumes.
+
 Docker containers resolve PostgreSQL as `db` and Redis as `redis`; `localhost`
 inside a container refers to that same container. Optional direct-host Django
 or Celery processes therefore need temporary shell overrides for `DB_HOST` and
@@ -59,8 +68,19 @@ inventory.
 
 ## Production preparation
 
-The production checkout and persistent host data paths below are fixed by this
-deployment guide:
+The public project and image name is `luxury-perfume`, but the production
+checkout remains `/srv/wine-shop`. Together with Compose project name
+`wine-shop`, this is an intentional compatibility boundary for existing VPS
+installations: the physical volumes are normally
+`wine-shop_postgres_data` and `wine-shop_redis_data`, and the bind-mounted
+static/media paths live below `/srv/wine-shop`. Renaming either identifier
+without a coordinated maintenance migration can start an empty parallel
+database stack or detach application assets. No automated path or volume
+migration is included. Do not remove volumes or run the old and new database
+containers against one physical volume concurrently.
+
+The production checkout and persistent host paths are therefore fixed as
+follows, including for a new installation using this deployment contract:
 
 ```bash
 sudo mkdir -p /srv/wine-shop
@@ -80,7 +100,7 @@ deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
 it to `.env`.
 
 ```bash
-APP_IMAGE=ghcr.io/pursite/wine-shop:compose-validation docker compose \
+APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose \
   --env-file .env \
   -f docker/docker-compose.yml \
   -f docker/docker-compose.prod.yml \
@@ -136,6 +156,24 @@ Keep `.env` private and out of source control. The production sample sets
 `DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
 those with publicly reachable database or cache endpoints for this layout.
 
+## Repository and package transition
+
+The GitHub repository should be named `Pursite/luxury-perfume`. Renaming the
+repository requires GitHub administrator access and is not performed by the
+application or deployment workflow. After an administrator completes that
+rename, update both development and VPS checkout remotes:
+
+```bash
+git remote set-url origin git@github.com:Pursite/luxury-perfume.git
+```
+
+The GHCR package also changes to `ghcr.io/pursite/luxury-perfume`; images from
+the former package are not copied automatically. Before the first deployment
+of this version, publish the selected commit to the new package and verify that
+the protected `GHCR_READ_TOKEN` account can read it. Keep the legacy Compose
+project and VPS path described above unless a separately reviewed, downtime
+based storage migration is prepared.
+
 ## Manual GitHub Actions deployment
 
 `.github/workflows/cd.yml` is deliberately manual-only. The required
@@ -144,7 +182,7 @@ ignored root `.env`, validates the production Compose merge, and builds without
 registry write permission. For a push to `main`, its dependent `Publish
 application image` job then checks that the SHA tag does not already exist and
 promotes that archived build artifact without rebuilding it to
-`ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production** from that
+`ghcr.io/pursite/luxury-perfume:<commit SHA>`. Run **Deploy production** from that
 reviewed `main` commit for a normal release. Its empty **Commit SHA** input
 defaults to that workflow run's `github.sha`.
 
@@ -170,7 +208,7 @@ add them as repository secrets:
   saving it; the workflow never uses `ssh-keyscan` or disables host checking.
 - `GHCR_READ_TOKEN`: a classic GitHub personal access token with only
   `read:packages`, owned by an account that can read
-  `ghcr.io/pursite/wine-shop`. This is not an application setting and must not
+  `ghcr.io/pursite/luxury-perfume`. This is not an application setting and must not
   be written to the VPS `.env`.
 
 The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
@@ -217,7 +255,7 @@ an already published release and keep it out of `.env`:
 
 ```bash
 cd /srv/wine-shop
-export APP_IMAGE=ghcr.io/pursite/wine-shop@sha256:<published-image-digest>
+export APP_IMAGE=ghcr.io/pursite/luxury-perfume@sha256:<published-image-digest>
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build db redis
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
@@ -235,6 +273,17 @@ legacy usernames or emails that collide after case-folding. If it aborts, it
 does not rewrite records or disclose their values. Stop the release, resolve
 the conflicts privately with a reviewed data procedure, then retry the same
 migration. Do not bypass it with manual constraint creation.
+
+The fragrance-domain migration preserves generic product, category, brand,
+pricing, stock, volume, country, visibility, and image data. It removes the
+incompatible legacy domain columns without attempting to reinterpret their
+values, adds neutral `unspecified` classifications to existing products, and
+adds the reusable note relations. The positive-volume constraint is a release
+gate for existing generic data: if a stored volume is zero, PostgreSQL aborts
+the migration instead of rewriting it. Remediate such rows with an
+operator-reviewed data procedure and rerun the forward migration. The new,
+initially null introduction year is separately protected by a lower-bound
+database constraint and a current-year application validator.
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
 image defaults to Gunicorn on container port `8000`, while Compose overrides
@@ -424,6 +473,15 @@ database migrations. A rollback is therefore safe only when the older code is
 compatible with the current database schema and data. Assess reversibility,
 data loss, and operational recovery manually; reverse migrations and restore
 logic are intentionally not implemented by this workflow.
+
+In particular, application images from before the fragrance-domain migration
+expect columns that the forward migration removes and are not valid code-only
+rollback targets afterward. They also reside under the former GHCR package,
+not the new package path accepted by CD. Roll back only to a published
+`luxury-perfume` image whose code is compatible with the applied schema; any
+older recovery requires a separately designed database restore or schema
+procedure. Database/media backup and restore automation remains intentionally
+unimplemented.
 
 Useful operational checks:
 

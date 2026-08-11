@@ -1,13 +1,18 @@
-# Wine Shop API
+# Luxury Perfume API
 
-A Django REST Framework backend for a wine shop. It currently provides user authentication and profile management plus a public product catalogue with staff-only mutations.
+A Django REST Framework backend for Luxury Perfume, a perfume, cologne, and
+body-splash store. It provides user authentication and profile management plus
+a public fragrance catalogue with staff-only mutations.
 
 ## Implemented features
 
 - Username/password signup and login; phone/OTP signup and login; password reset by OTP.
 - JWT access and refresh tokens, an explicit refresh endpoint with rotation and blacklisting, password-change session revocation, and owner-bound logout.
 - Profile completion and updates, including addresses.
-- Public product list and detail endpoints, product search, filtering, ordering, pagination, and Redis-backed anonymous-response caching.
+- Public product list and detail endpoints with fragrance concentration,
+  audience, family, season, usage time, introduction year, and normalized
+  top/heart/base notes; plus search, filtering, ordering, pagination, and
+  Redis-backed anonymous-response caching.
 - Staff-only product and image mutations, content-aware JPEG/PNG/WebP validation, category-cycle protection, and data-integrity constraints.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
@@ -75,6 +80,10 @@ PostgreSQL and Redis remain internal to Docker.
 `docker/env/.env.development.example` and
 `docker/env/.env.production.example` are safe, tracked templates. Never put
 real secrets in an example file or commit a populated runtime environment file.
+The `luxury-perfume` development Compose project initializes database
+credentials only when its local volume is first created. Do not replace an
+existing local `.env` with renamed database values unless that volume is
+disposable or you have migrated it deliberately.
 
 Direct-host execution is optional. Install the Python dependencies and run
 PostgreSQL and Redis on the host, then override only the container-specific
@@ -144,7 +153,7 @@ production Compose merge, and builds the final application image without
 registry access. Pull requests and pushes stop there. On successful pushes to
 `main`, the separate `Publish application image` job verifies that the SHA tag
 does not already exist, then promotes the archived build artifact—without a
-second Docker build—to exactly `ghcr.io/pursite/wine-shop:<commit SHA>` with
+second Docker build—to exactly `ghcr.io/pursite/luxury-perfume:<commit SHA>` with
 OCI source and revision labels.
 
 Production deploys the same image for Django and Celery, pinned to its resolved
@@ -169,10 +178,12 @@ Update the relevant document whenever routes, configuration, authentication beha
 
 ## Project status and roadmap
 
-The users, authentication, profiles, products, categories, brands, and product-image domains are implemented. The project remains under active development.
+The users, authentication, profiles, fragrance products, categories, brands,
+reusable fragrance notes, and product-image domains are implemented. The
+project remains under active development.
 
-Planned, not implemented: inventory, cart, orders, payments, shipping, reviews,
-object-storage integration, and an SMS-provider integration.
+Not implemented: a separate inventory system, cart, orders, payments,
+shipping, reviews, object-storage integration, or an SMS-provider integration.
 
 The repository includes a Docker Compose deployment layout for development and
 a single VPS, plus a manual GitHub Actions production deployment workflow; see
