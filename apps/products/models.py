@@ -97,7 +97,6 @@ class Product(BaseModel):
         EAU_DE_PARFUM = "eau_de_parfum", "Eau de Parfum"
         EAU_DE_TOILETTE = "eau_de_toilette", "Eau de Toilette"
         EAU_DE_COLOGNE = "eau_de_cologne", "Eau de Cologne"
-        BODY_SPLASH = "body_splash", "Body Splash"
 
     class TargetAudience(models.TextChoices):
         UNSPECIFIED = "unspecified", "Unspecified"
@@ -211,20 +210,11 @@ class Product(BaseModel):
         choices=SuitableUsageTime.choices,
         default=SuitableUsageTime.UNSPECIFIED,
     )
-    top_notes = models.ManyToManyField(
+    fragrance_notes = models.ManyToManyField(
         FragranceNote,
         blank=True,
-        related_name="top_note_products",
-    )
-    middle_notes = models.ManyToManyField(
-        FragranceNote,
-        blank=True,
-        related_name="middle_note_products",
-    )
-    base_notes = models.ManyToManyField(
-        FragranceNote,
-        blank=True,
-        related_name="base_note_products",
+        related_name="products",
+        through="ProductFragranceNote",
     )
     barcode = models.CharField(
         max_length=14,
@@ -280,6 +270,61 @@ class Product(BaseModel):
     @property
     def final_price(self):
         return self.discount_price if self.discount_price is not None else self.price
+
+
+class ProductFragranceNote(models.Model):
+    """An explicitly ordered fragrance note within one product pyramid layer."""
+
+    class Layer(models.TextChoices):
+        TOP = "top", "Top"
+        MIDDLE = "middle", "Middle"
+        BASE = "base", "Base"
+
+    id = models.BigAutoField(primary_key=True)
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="fragrance_note_links",
+    )
+    fragrance_note = models.ForeignKey(
+        FragranceNote,
+        on_delete=models.CASCADE,
+        related_name="product_links",
+    )
+    layer = models.CharField(max_length=6, choices=Layer.choices)
+    position = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        help_text="1-based order within this product and layer.",
+    )
+
+    class Meta:
+        verbose_name = "Product Fragrance Note"
+        verbose_name_plural = "Product Fragrance Notes"
+        ordering = ["layer", "position", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "layer", "fragrance_note"],
+                name="unique_product_note_per_layer",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "layer", "position"],
+                name="unique_product_note_position",
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name="product_note_position_gte_1",
+            ),
+            models.CheckConstraint(
+                condition=Q(layer__in=("top", "middle", "base")),
+                name="product_note_valid_layer",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.product.name}: {self.get_layer_display()} "
+            f"#{self.position} {self.fragrance_note.name}"
+        )
 
 
 class ProductImage(BaseModel):

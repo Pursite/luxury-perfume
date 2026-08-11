@@ -1,12 +1,41 @@
 from django.contrib import admin
+from django.db.models import Case, IntegerField, Value, When
 
-from apps.products.models import Brand, Category, FragranceNote, Product, ProductImage
+from apps.products.models import (
+    Brand,
+    Category,
+    FragranceNote,
+    Product,
+    ProductFragranceNote,
+    ProductImage,
+)
 
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
     fields = ("image", "is_primary", "display_order")
+
+
+class ProductFragranceNoteInline(admin.TabularInline):
+    model = ProductFragranceNote
+    extra = 1
+    fields = ("layer", "fragrance_note", "position")
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                layer_order=Case(
+                    When(layer=ProductFragranceNote.Layer.TOP, then=Value(0)),
+                    When(layer=ProductFragranceNote.Layer.MIDDLE, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("layer_order", "position", "id")
+        )
 
 
 @admin.register(Category)
@@ -62,14 +91,11 @@ class ProductAdmin(admin.ModelAdmin):
         "name",
         "sku",
         "description",
-        "top_notes__name",
-        "middle_notes__name",
-        "base_notes__name",
+        "fragrance_note_links__fragrance_note__name",
     )
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = ("uuid",)
-    filter_horizontal = ("top_notes", "middle_notes", "base_notes")
-    inlines = [ProductImageInline]
+    inlines = [ProductFragranceNoteInline, ProductImageInline]
 
     fieldsets = (
         (
@@ -98,9 +124,6 @@ class ProductAdmin(admin.ModelAdmin):
                     "introduction_year",
                     "suitable_season",
                     "suitable_usage_time",
-                    "top_notes",
-                    "middle_notes",
-                    "base_notes",
                     "volume_ml",
                     "country_of_origin",
                 ),

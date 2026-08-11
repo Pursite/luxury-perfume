@@ -89,6 +89,7 @@ def test_product_write_serializer_accepts_reusable_fragrance_notes(product_paylo
         ("introduction_year", date.today().year + 1),
         ("barcode", "contains-letters"),
         ("concentration", "invalid-concentration"),
+        ("concentration", "body_splash"),
         ("target_audience", "invalid-audience"),
         ("fragrance_family", "invalid-family"),
         ("top_notes", ["00000000-0000-0000-0000-000000000000"]),
@@ -105,6 +106,22 @@ def test_product_write_serializer_rejects_invalid_fragrance_metadata(
 
     assert serializer.is_valid() is False
     assert field in serializer.errors
+
+
+@pytest.mark.django_db
+def test_product_write_serializer_rejects_duplicate_notes_within_a_layer(
+    product_payload,
+):
+    bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    serializer = ProductWriteInputSerializer(
+        data={
+            **product_payload,
+            "top_notes": [str(bergamot.id), str(bergamot.id)],
+        },
+    )
+
+    assert serializer.is_valid() is False
+    assert "top_notes" in serializer.errors
 
 
 @pytest.mark.django_db

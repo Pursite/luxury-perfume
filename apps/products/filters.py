@@ -1,5 +1,4 @@
 from django_filters import rest_framework as filters
-from django.db.models import Q
 
 from apps.products.models import Product
 
@@ -33,7 +32,5 @@ class ProductFilter(filters.FilterSet):
 
     def filter_note(self, queryset, _name, value):
         return queryset.filter(
-            Q(top_notes__id=value)
-            | Q(middle_notes__id=value)
-            | Q(base_notes__id=value)
+            fragrance_note_links__fragrance_note_id=value
         ).distinct()

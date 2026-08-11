@@ -59,13 +59,17 @@ Owns the custom user and address models, user serializers and views, selectors, 
 
 Owns fragrance products, categories, brands, reusable fragrance notes, and
 product images. A product stores bounded concentration, target audience,
-fragrance family, season, and usage-time values, while three many-to-many
-relations reuse normalized notes for its top, middle/heart, and base layers.
+fragrance family, season, and usage-time values. Product types such as perfume
+and Body Splash use the existing category hierarchy. One explicit
+`ProductFragranceNote` through model reuses normalized notes for top,
+middle/heart, and base layers while persisting a 1-based position.
 Public catalogue reads are filtered through selectors and can be cached.
 Product and image writes are staff-only at the API boundary. Product services
-update scalar and note relations in one transaction. Category hierarchy
-validation prevents cycles; image services schedule thumbnail generation
-after commit.
+lock concurrent product updates and replace submitted note layers in one
+transaction. Database uniqueness constraints prevent a duplicate note or
+duplicate position within a product layer, while check constraints enforce
+valid layers and positive positions. Category hierarchy validation prevents
+cycles; image services schedule thumbnail generation after commit.
 
 ### `apps.lib`
 
@@ -87,7 +91,10 @@ adding its functional unique constraints, so it stops without rewriting data
 if remediation is required. The fragrance-domain migration preserves generic
 product data, assigns neutral classification defaults to existing products,
 and deliberately does not reinterpret incompatible legacy description fields
-as fragrance notes.
+as fragrance notes. The ordered-note migration preserves existing note
+memberships in the alphabetical order the former API exposed, and the
+catalogue cache uses a new schema namespace so stale representations cannot be
+reused.
 
 Redis has two configured cache aliases with separate URLs:
 

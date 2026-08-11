@@ -25,10 +25,12 @@ number. Product discounts must be lower than regular price, fragrance volume
 must be positive, introduction years cannot predate 1700, and optional
 8–14-digit barcodes are unique. Application validation also rejects future
 introduction years. A conditional unique constraint allows one primary image
-per product. Decimal validation uses `Decimal` bounds, avoiding float coercion
-warnings. Category saves reject cycles. Product uploads are staff-only and
-restrict MIME/content pairs, file size, dimensions, corruption, decompression
-bombs, and generated filenames.
+per product. Ordered fragrance-note links enforce valid top/middle/base layers,
+positive positions, and uniqueness of both note and position within each
+product layer. Decimal validation uses `Decimal` bounds, avoiding float
+coercion warnings. Category saves reject cycles. Product uploads are
+staff-only and restrict MIME/content pairs, file size, dimensions, corruption,
+decompression bombs, and generated filenames.
 
 ## Configuration, logging, and transport
 

@@ -57,8 +57,12 @@ The `address` accepted by profile completion has `title`, `full_address`, and op
 nullable `barcode`, optional UUID arrays `top_notes`, `middle_notes`, and
 `base_notes`, `is_active`, and `is_featured`. `category`, `brand`, and note
 values use UUID primary keys; the category must be active and every referenced
-note must already exist. An omitted note layer is preserved on PATCH, while an
-explicit empty array clears it.
+note must already exist. Each note array is ordered: the first UUID receives
+position 1, and create/update responses return the exact submitted order. A
+note cannot be repeated within one layer, but the same note may appear in
+different layers. An omitted note layer is preserved on PATCH, while an
+explicit empty array clears it. Product types such as perfume, cologne, and
+Body Splash are represented by `Category`; they are not concentration values.
 
 `volume_ml` must be positive. `discount_price`, when provided, must be lower
 than `price`. `introduction_year` must be between 1700 and the current year.
@@ -75,14 +79,15 @@ Product-list output fields are `uuid`, `name`, `slug`, `sku`, `price`,
 `is_featured`, and `created_at`. Detail adds `description`,
 `country_of_origin`, `barcode`, `top_notes`, `middle_notes`, `base_notes`,
 `is_active`, `images`, and `updated_at`. Each note summary has `uuid`, `name`,
-and `slug`. Category summaries have `uuid`, `name`, and `slug`; brand
+and `slug`, and each layer array is in its persisted position order. Category
+summaries have `uuid`, `name`, and `slug`; brand
 summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 `is_primary`, and `display_order`.
 
 ### Fragrance choices
 
 - `concentration`: `unspecified`, `extrait_de_parfum`, `parfum`,
-  `eau_de_parfum`, `eau_de_toilette`, `eau_de_cologne`, or `body_splash`.
+  `eau_de_parfum`, `eau_de_toilette`, or `eau_de_cologne`.
 - `target_audience`: `unspecified`, `women`, `men`, `unisex`, or `kids`.
 - `fragrance_family`: `unspecified`, `amber`, `aromatic`, `aquatic`, `chypre`,
   `citrus`, `floral`, `fougere`, `fruity`, `gourmand`, `green`, `leather`,

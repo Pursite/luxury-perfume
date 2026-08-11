@@ -115,7 +115,7 @@ def test_cd_pulls_digest_pinned_image_with_ephemeral_credentials():
     assert '"${compose[@]}" build' not in workflow
 
 
-def test_public_identity_is_renamed_without_detaching_production_data():
+def test_operational_identity_uses_luxury_perfume_everywhere():
     shared_compose = yaml.safe_load(
         (REPOSITORY_ROOT / "docker" / "docker-compose.yml").read_text()
     )
@@ -128,7 +128,14 @@ def test_public_identity_is_renamed_without_detaching_production_data():
     development_environment = (
         REPOSITORY_ROOT / "docker" / "env" / ".env.development.example"
     ).read_text()
+    production_compose = yaml.safe_load(
+        (REPOSITORY_ROOT / "docker" / "docker-compose.prod.yml").read_text()
+    )
+    deployment_workflow = (
+        REPOSITORY_ROOT / ".github" / "workflows" / "cd.yml"
+    ).read_text()
 
+    assert shared_compose["name"] == "luxury-perfume"
     assert integration_compose["name"] == "luxury-perfume-integration"
     assert development_compose["name"] == "luxury-perfume"
     assert integration_compose["services"]["integration-db"]["environment"][
@@ -136,10 +143,17 @@ def test_public_identity_is_renamed_without_detaching_production_data():
     ] == "luxury_perfume_test"
     assert "DB_NAME=luxury_perfume" in development_environment
     assert "DB_USER=luxury_perfume" in development_environment
-
-    # These are deliberately retained operational identifiers for existing VPS data.
-    assert shared_compose["name"] == "wine-shop"
     assert set(shared_compose["volumes"]) == {"postgres_data", "redis_data"}
+    bind_sources = {
+        volume["source"]
+        for service in ("web", "celery")
+        for volume in production_compose["services"][service]["volumes"]
+    }
+    assert bind_sources == {
+        "/srv/luxury-perfume/staticfiles",
+        "/srv/luxury-perfume/media",
+    }
+    assert "project_directory=/srv/luxury-perfume" in deployment_workflow
 
 
 def test_ghcr_delivery_documentation_covers_security_boundaries():

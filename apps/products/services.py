@@ -4,21 +4,55 @@ from typing import Any
 from django.db import transaction
 
 from apps.lib.loggers import AppLogger
-from apps.products.models import Product, ProductImage
+from apps.products.models import FragranceNote, Product, ProductFragranceNote, ProductImage
 from apps.products.tasks import generate_product_image_thumbnail
 
 
-FRAGRANCE_NOTE_FIELDS = ("top_notes", "middle_notes", "base_notes")
+FRAGRANCE_NOTE_LAYERS = {
+    "top_notes": ProductFragranceNote.Layer.TOP,
+    "middle_notes": ProductFragranceNote.Layer.MIDDLE,
+    "base_notes": ProductFragranceNote.Layer.BASE,
+}
 
 
 def _split_fragrance_notes(validated_data: dict[str, Any]):
     scalar_data = dict(validated_data)
     fragrance_notes = {
         field: scalar_data.pop(field)
-        for field in FRAGRANCE_NOTE_FIELDS
+        for field in FRAGRANCE_NOTE_LAYERS
         if field in scalar_data
     }
     return scalar_data, fragrance_notes
+
+
+def _replace_fragrance_note_layer(
+    *,
+    product: Product,
+    layer: str,
+    notes: Iterable[FragranceNote],
+) -> None:
+    ProductFragranceNote.objects.filter(product=product, layer=layer).delete()
+    ProductFragranceNote.objects.bulk_create([
+        ProductFragranceNote(
+            product=product,
+            fragrance_note=note,
+            layer=layer,
+            position=position,
+        )
+        for position, note in enumerate(notes, start=1)
+    ])
+
+
+def _clear_fragrance_note_prefetch(product: Product) -> None:
+    for attribute in (
+        "_ordered_fragrance_note_links",
+        "_serialized_fragrance_note_links",
+    ):
+        if hasattr(product, attribute):
+            delattr(product, attribute)
+    prefetched_objects = getattr(product, "_prefetched_objects_cache", {})
+    prefetched_objects.pop("fragrance_note_links", None)
+    prefetched_objects.pop("fragrance_notes", None)
 
 
 @transaction.atomic
@@ -27,7 +61,12 @@ def create_product_service(*, validated_data: dict[str, Any]) -> Product:
     scalar_data, fragrance_notes = _split_fragrance_notes(validated_data)
     product = Product.objects.create(**scalar_data)
     for field, notes in fragrance_notes.items():
-        getattr(product, field).set(notes)
+        _replace_fragrance_note_layer(
+            product=product,
+            layer=FRAGRANCE_NOTE_LAYERS[field],
+            notes=notes,
+        )
+    _clear_fragrance_note_prefetch(product)
     return product
 
 
@@ -36,12 +75,19 @@ def update_product_service(
     *, product: Product, validated_data: dict[str, Any]
 ) -> Product:
     """Update a product in one transaction from serializer-validated data."""
+    locked_product = Product.objects.select_for_update().get(pk=product.pk)
     scalar_data, fragrance_notes = _split_fragrance_notes(validated_data)
     for field, value in scalar_data.items():
-        setattr(product, field, value)
-    product.save()
+        setattr(locked_product, field, value)
+    locked_product.save()
     for field, notes in fragrance_notes.items():
-        getattr(product, field).set(notes)
+        _replace_fragrance_note_layer(
+            product=locked_product,
+            layer=FRAGRANCE_NOTE_LAYERS[field],
+            notes=notes,
+        )
+    product.refresh_from_db()
+    _clear_fragrance_note_prefetch(product)
     return product
 
 

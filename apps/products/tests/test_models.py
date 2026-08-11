@@ -6,7 +6,13 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import BigAutoField
 
-from apps.products.models import Category, FragranceNote, Product, ProductImage
+from apps.products.models import (
+    Category,
+    FragranceNote,
+    Product,
+    ProductFragranceNote,
+    ProductImage,
+)
 from apps.products.tests.factories import ProductFactory, ProductImageFactory
 
 
@@ -31,9 +37,7 @@ def test_product_schema_uses_fragrance_fields_instead_of_alcohol_fields():
         "introduction_year",
         "suitable_season",
         "suitable_usage_time",
-        "top_notes",
-        "middle_notes",
-        "base_notes",
+        "fragrance_notes",
         "barcode",
     } <= field_names
     assert {
@@ -42,6 +46,9 @@ def test_product_schema_uses_fragrance_fields_instead_of_alcohol_fields():
         "vintage_year",
         "taste_notes",
         "serving_temp",
+        "top_notes",
+        "middle_notes",
+        "base_notes",
     }.isdisjoint(field_names)
 
 
@@ -99,6 +106,20 @@ def test_product_model_rejects_invalid_fragrance_metadata(overrides, invalid_fie
     assert invalid_field in exc_info.value.message_dict
 
 
+def test_body_splash_is_a_category_not_a_concentration():
+    category = Category.objects.create(name="Body Splash", slug="body-splash")
+    product = ProductFactory.build(
+        category=category,
+        brand=None,
+        concentration=Product.Concentration.UNSPECIFIED,
+    )
+
+    product.full_clean()
+
+    assert "body_splash" not in Product.Concentration.values
+    assert product.category == category
+
+
 def test_database_rejects_non_lower_discount():
     product = ProductFactory.build(
         price=Decimal("100.00"),
@@ -145,11 +166,78 @@ def test_fragrance_note_can_be_reused_across_product_layers():
         slug="bergamot",
     )
 
-    product.top_notes.add(note)
-    product.middle_notes.add(note)
+    ProductFragranceNote.objects.create(
+        product=product,
+        fragrance_note=note,
+        layer=ProductFragranceNote.Layer.TOP,
+        position=1,
+    )
+    ProductFragranceNote.objects.create(
+        product=product,
+        fragrance_note=note,
+        layer=ProductFragranceNote.Layer.MIDDLE,
+        position=1,
+    )
 
-    assert list(product.top_notes.all()) == [note]
-    assert list(product.middle_notes.all()) == [note]
+    assert list(product.fragrance_notes.distinct()) == [note]
+    assert product.fragrance_note_links.count() == 2
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        {"position": 2},
+        {"fragrance_note": "second"},
+    ],
+)
+def test_database_prevents_duplicate_note_or_position_within_layer(duplicate):
+    product = ProductFactory()
+    first_note = FragranceNote.objects.create(name="Bergamot", slug="bergamot")
+    second_note = FragranceNote.objects.create(name="Lemon", slug="lemon")
+    ProductFragranceNote.objects.create(
+        product=product,
+        fragrance_note=first_note,
+        layer=ProductFragranceNote.Layer.TOP,
+        position=1,
+    )
+    values = {
+        "product": product,
+        "fragrance_note": first_note,
+        "layer": ProductFragranceNote.Layer.TOP,
+        "position": 1,
+    }
+    values.update(duplicate)
+    if values["fragrance_note"] == "second":
+        values["fragrance_note"] = second_note
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ProductFragranceNote.objects.create(**values)
+
+
+def test_database_rejects_nonpositive_fragrance_note_position():
+    product = ProductFactory()
+    note = FragranceNote.objects.create(name="Bergamot", slug="bergamot")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ProductFragranceNote.objects.create(
+            product=product,
+            fragrance_note=note,
+            layer=ProductFragranceNote.Layer.BASE,
+            position=0,
+        )
+
+
+def test_database_rejects_unknown_fragrance_note_layer():
+    product = ProductFactory()
+    note = FragranceNote.objects.create(name="Bergamot", slug="bergamot")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ProductFragranceNote.objects.create(
+            product=product,
+            fragrance_note=note,
+            layer="opening",
+            position=1,
+        )
 
 
 def test_database_allows_only_one_primary_image_per_product():

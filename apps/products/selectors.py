@@ -1,12 +1,12 @@
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
 
 from apps.products.filters import ProductFilter
-from apps.products.models import Product, ProductImage
+from apps.products.models import Product, ProductFragranceNote, ProductImage
 
 
 def get_public_products_queryset(*, request, view) -> QuerySet[Product]:
@@ -37,9 +37,13 @@ def get_product_by_uuid(
     """Fetch a product by its public UUID, with relations needed for detail output."""
     queryset = Product.objects.select_related("category", "brand").prefetch_related(
         "images",
-        "top_notes",
-        "middle_notes",
-        "base_notes",
+        Prefetch(
+            "fragrance_note_links",
+            queryset=ProductFragranceNote.objects.select_related(
+                "fragrance_note"
+            ).order_by("layer", "position", "id"),
+            to_attr="_ordered_fragrance_note_links",
+        ),
     )
     if not include_inactive:
         queryset = queryset.filter(is_active=True)

@@ -91,7 +91,7 @@ jobs:
             cat <<'REMOTE_SCRIPT'
           set -Eeuo pipefail
 
-          project_directory=/srv/wine-shop
+          project_directory=/srv/luxury-perfume
           test -d "$project_directory/.git"
           cd "$project_directory"
           test -f .env

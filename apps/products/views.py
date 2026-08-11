@@ -47,9 +47,7 @@ class ProductListCreateAPIView(APIView):
         "description",
         "brand__name",
         "category__name",
-        "top_notes__name",
-        "middle_notes__name",
-        "base_notes__name",
+        "fragrance_note_links__fragrance_note__name",
     )
     ordering_fields = (
         "price",

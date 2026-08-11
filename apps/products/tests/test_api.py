@@ -6,7 +6,7 @@ from django.urls import reverse
 from PIL import Image
 from rest_framework import status
 
-from apps.products.models import Product, ProductImage
+from apps.products.models import Product, ProductFragranceNote, ProductImage
 from apps.products.tests.factories import (
     BrandFactory,
     CategoryFactory,
@@ -15,6 +15,15 @@ from apps.products.tests.factories import (
     ProductImageFactory,
 )
 from apps.users.tests.factories import UserFactory
+
+
+def _add_note(product, note, layer, position=1):
+    return ProductFragranceNote.objects.create(
+        product=product,
+        fragrance_note=note,
+        layer=layer,
+        position=position,
+    )
 
 
 @pytest.mark.django_db
@@ -123,9 +132,9 @@ class TestProductListCreateAPIView:
         cedar = FragranceNoteFactory(name="Cedar", slug="cedar")
         matching = ProductFactory(name="Aurora")
         other = ProductFactory(name="Nocturne")
-        matching.top_notes.add(bergamot)
-        matching.middle_notes.add(bergamot)
-        other.base_notes.add(cedar)
+        _add_note(matching, bergamot, ProductFragranceNote.Layer.TOP)
+        _add_note(matching, bergamot, ProductFragranceNote.Layer.MIDDLE)
+        _add_note(other, cedar, ProductFragranceNote.Layer.BASE)
 
         filtered = api_client.get(self.url, {"note": str(bergamot.id)})
         searched = api_client.get(self.url, {"search": "Bergamot"})
@@ -156,7 +165,11 @@ class TestProductListCreateAPIView:
         product_payload,
     ):
         bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
-        payload = {**product_payload, "top_notes": [str(bergamot.id)]}
+        lemon = FragranceNoteFactory(name="Lemon", slug="lemon")
+        payload = {
+            **product_payload,
+            "top_notes": [str(lemon.id), str(bergamot.id)],
+        }
         response = api_client.post(self.url, payload, format="json")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -165,7 +178,10 @@ class TestProductListCreateAPIView:
 
         assert response.status_code == status.HTTP_201_CREATED
         assert Product.objects.filter(uuid=response.data["uuid"]).exists()
-        assert response.data["top_notes"][0]["uuid"] == str(bergamot.id)
+        assert [item["uuid"] for item in response.data["top_notes"]] == [
+            str(lemon.id),
+            str(bergamot.id),
+        ]
         assert "id" not in response.data
 
     def test_create_rejects_invalid_discount_and_duplicate_sku(
@@ -196,11 +212,13 @@ class TestProductDetailAPIView:
     def test_detail_uses_uuid_and_hides_inactive_products(self, api_client):
         active = ProductFactory()
         bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+        lemon = FragranceNoteFactory(name="Lemon", slug="lemon")
         jasmine = FragranceNoteFactory(name="Jasmine", slug="jasmine")
         musk = FragranceNoteFactory(name="Musk", slug="musk")
-        active.top_notes.add(bergamot)
-        active.middle_notes.add(jasmine)
-        active.base_notes.add(musk)
+        _add_note(active, lemon, ProductFragranceNote.Layer.TOP, position=1)
+        _add_note(active, bergamot, ProductFragranceNote.Layer.TOP, position=2)
+        _add_note(active, jasmine, ProductFragranceNote.Layer.MIDDLE)
+        _add_note(active, musk, ProductFragranceNote.Layer.BASE)
         inactive = ProductFactory(is_active=False)
         active_url = reverse(
             "apps.products:product-detail",
@@ -217,7 +235,8 @@ class TestProductDetailAPIView:
         assert response.data["uuid"] == str(active.uuid)
         assert "id" not in response.data
         assert response.data["top_notes"] == [
-            {"uuid": str(bergamot.id), "name": "Bergamot", "slug": "bergamot"}
+            {"uuid": str(lemon.id), "name": "Lemon", "slug": "lemon"},
+            {"uuid": str(bergamot.id), "name": "Bergamot", "slug": "bergamot"},
         ]
         assert response.data["middle_notes"][0]["name"] == "Jasmine"
         assert response.data["base_notes"][0]["name"] == "Musk"
@@ -234,6 +253,7 @@ class TestProductDetailAPIView:
     def test_put_patch_and_delete_require_admin(self, api_client, admin_user, normal_user):
         product = ProductFactory(name="Original")
         jasmine = FragranceNoteFactory(name="Jasmine", slug="jasmine")
+        rose = FragranceNoteFactory(name="Rose", slug="rose")
         url = reverse(
             "apps.products:product-detail",
             kwargs={"product_uuid": product.uuid},
@@ -266,14 +286,28 @@ class TestProductDetailAPIView:
             "introduction_year": 2024,
             "suitable_season": "all_seasons",
             "suitable_usage_time": "day_and_night",
-            "middle_notes": [str(jasmine.id)],
+            "middle_notes": [str(rose.id), str(jasmine.id)],
             "is_active": True,
             "is_featured": False,
         }
         response = api_client.put(url, full_payload, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.data["name"] == "Replaced"
-        assert response.data["middle_notes"][0]["uuid"] == str(jasmine.id)
+        assert [item["uuid"] for item in response.data["middle_notes"]] == [
+            str(rose.id),
+            str(jasmine.id),
+        ]
+
+        response = api_client.patch(
+            url,
+            {"middle_notes": [str(jasmine.id), str(rose.id)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [item["uuid"] for item in response.data["middle_notes"]] == [
+            str(jasmine.id),
+            str(rose.id),
+        ]
 
         response = api_client.patch(url, {"middle_notes": []}, format="json")
         assert response.status_code == status.HTTP_200_OK
