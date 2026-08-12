@@ -126,7 +126,13 @@ A paginated response has this exact shape:
 }
 ```
 
-Anonymous product-list and detail responses use the default Redis cache when available. Cache behavior does not change visibility rules.
+Anonymous and authenticated non-staff product-list and detail requests share
+the same default Redis cache when available; the response contains no
+user-specific catalogue data, so cache keys never include a user identifier.
+Staff requests bypass that shared cache because staff may retrieve inactive
+product details. `Product.is_active` controls catalogue visibility for public
+and non-staff requests; it is unrelated to `User.is_active`, which controls
+account state. Cache behavior does not change visibility rules.
 
 ### Image upload
 

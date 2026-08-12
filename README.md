@@ -14,7 +14,8 @@ a public fragrance catalogue with staff-only mutations.
   top/heart/base notes whose submitted order is preserved; product types such
   as perfume and Body Splash remain categories. The catalogue also supports
   search, filtering, ordering, pagination, and Redis-backed anonymous-response
-  caching.
+  caching shared with authenticated non-staff users. Staff catalogue requests
+  bypass that shared cache.
 - Staff-only product and image mutations, content-aware JPEG/PNG/WebP validation, category-cycle protection, and data-integrity constraints.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).

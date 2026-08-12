@@ -17,8 +17,7 @@ class RedisCacheService:
         if timeout is None:
             timeout = settings.CACHE_TTL
         try:
-            cache.set(key, value, timeout)
-            return True
+            return bool(cache.set(key, value, timeout))
         except Exception:
             AppLogger.log_system_error(msg="cache.set.failed")
             return False

@@ -2,7 +2,7 @@
 
 ## Implemented controls
 
-DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users.
+DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users. Public and authenticated non-staff catalogue reads share a response cache because their output is identical; staff bypass it because they may inspect inactive products. `Product.is_active` is catalogue visibility only and does not alter `User.is_active` account-state behavior.
 
 Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. The accompanying migration refuses to proceed if legacy case conflicts exist, preserving records for private operator remediation.
 

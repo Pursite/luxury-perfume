@@ -66,7 +66,7 @@ class ProductListCreateAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         cache_key = None
-        if not request.user.is_authenticated:
+        if not request.user.is_staff:
             cache_key = product_list_cache_key(request)
             cached_data = RedisCacheService.get(cache_key)
             if cached_data is not None:
@@ -128,7 +128,7 @@ class ProductDetailAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         cache_key = None
-        if not request.user.is_authenticated:
+        if not request.user.is_staff:
             cache_key = product_detail_cache_key(
                 product_uuid=self.kwargs["product_uuid"]
             )

@@ -63,7 +63,11 @@ fragrance family, season, and usage-time values. Product types such as perfume
 and Body Splash use the existing category hierarchy. One explicit
 `ProductFragranceNote` through model reuses normalized notes for top,
 middle/heart, and base layers while persisting a 1-based position.
-Public catalogue reads are filtered through selectors and can be cached.
+Public catalogue reads are filtered through selectors and can be cached. The
+same versioned response cache serves anonymous and authenticated non-staff
+requests because their representations are identical; staff requests bypass it
+because they may retrieve inactive product details. Product visibility uses
+`Product.is_active`, independently of account-state `User.is_active`.
 Product and image writes are staff-only at the API boundary. Product services
 lock concurrent product updates and replace submitted note layers in one
 transaction. Database uniqueness constraints prevent a duplicate note or
@@ -98,7 +102,11 @@ reused.
 
 Redis has two configured cache aliases with separate URLs:
 
-- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. It is configured to ignore cache exceptions, so a cache failure can fall back to the database.
+- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. Its
+  versioned product list/detail responses are shared by anonymous and
+  authenticated non-staff users, while staff bypass the shared cache. It is
+  configured to ignore cache exceptions, so a cache failure can fall back to
+  the database.
 - `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, password-login guard state, and OTP phone/IP throttle histories. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
 
 JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
