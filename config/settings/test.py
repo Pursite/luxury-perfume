@@ -21,11 +21,11 @@ DATABASES = {
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "wine-shop-tests-default",
+        "LOCATION": "luxury-perfume-tests-default",
     },
     "security": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "wine-shop-tests-security",
+        "LOCATION": "luxury-perfume-tests-security",
     },
 }
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

@@ -11,10 +11,11 @@ No Nginx, certificate, or Certbot container is used or required.
 
 - `docker/docker-compose.yml` is the shared runtime service definition. It has
   no source-code mounts, application build configuration, or published service
-  ports. Its fixed project name is `wine-shop`, preserving the existing
-  production container and volume names.
+  ports. Its fixed project name is `luxury-perfume`, so production resources
+  use one consistent operational identity.
 - `docker/docker-compose.dev.yml` owns the local application build
-  configuration, source mounts, and the loopback Django port for development.
+  configuration, source mounts, the `luxury-perfume` development project name,
+  and the loopback Django port for development.
 - `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
   Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
   PostgreSQL and Redis remain internal to Docker with their existing named
@@ -29,7 +30,7 @@ Create a local environment file from the tracked example. It contains only
 development credentials and Docker service hostnames.
 
 ```bash
-cd /path/to/wine-shop
+cd /path/to/luxury-perfume
 cp docker/env/.env.development.example .env
 
 docker compose \
@@ -51,6 +52,11 @@ configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
 
+The development project uses named volumes. Docker does not rename or migrate
+volumes from a differently named Compose project. Recreate local volumes only
+when their data is known to be disposable; move valuable data with a separately
+reviewed database procedure.
+
 Docker containers resolve PostgreSQL as `db` and Redis as `redis`; `localhost`
 inside a container refers to that same container. Optional direct-host Django
 or Celery processes therefore need temporary shell overrides for `DB_HOST` and
@@ -59,14 +65,22 @@ inventory.
 
 ## Production preparation
 
-The production checkout and persistent host data paths below are fixed by this
-deployment guide:
+The production checkout is `/srv/luxury-perfume`, the Compose project is
+`luxury-perfume`, its physical volumes are normally
+`luxury-perfume_postgres_data` and `luxury-perfume_redis_data`, and static/media
+paths live below that checkout. This contract assumes a new deployment with no
+pre-rename production data. Docker does not move a differently named checkout,
+bind mount, or volume automatically. If such an installation exists, stop and
+design a reviewed downtime migration before using this workflow; never attach
+old and new PostgreSQL containers to one physical volume concurrently.
+
+Prepare the production checkout and persistent host paths as follows:
 
 ```bash
-sudo mkdir -p /srv/wine-shop
-sudo chown "$USER":"$USER" /srv/wine-shop
-git clone <repository-url> /srv/wine-shop
-cd /srv/wine-shop
+sudo mkdir -p /srv/luxury-perfume
+sudo chown "$USER":"$USER" /srv/luxury-perfume
+git clone <repository-url> /srv/luxury-perfume
+cd /srv/luxury-perfume
 
 cp docker/env/.env.production.example .env
 chmod 600 .env
@@ -80,7 +94,7 @@ deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
 it to `.env`.
 
 ```bash
-APP_IMAGE=ghcr.io/pursite/wine-shop:compose-validation docker compose \
+APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose \
   --env-file .env \
   -f docker/docker-compose.yml \
   -f docker/docker-compose.prod.yml \
@@ -98,23 +112,23 @@ sudo apt-get update
 sudo apt-get install --no-install-recommends acl
 
 sudo install -d -o 10001 -g 10001 -m 0750 \
-  /srv/wine-shop/staticfiles /srv/wine-shop/media
+  /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media
 sudo chown -R 10001:10001 \
-  /srv/wine-shop/staticfiles /srv/wine-shop/media
-sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+  /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media
+sudo find /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media \
   -type d -exec chmod 0750 {} +
-sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media \
+sudo find /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media \
   -type f -exec chmod 0640 {} +
 
 # Nginx may traverse the parent paths and read existing assets, but cannot
 # write application data.
-sudo setfacl -m u:www-data:--x /srv /srv/wine-shop
+sudo setfacl -m u:www-data:--x /srv /srv/luxury-perfume
 sudo setfacl -R -m u:www-data:rX \
-  /srv/wine-shop/staticfiles /srv/wine-shop/media
+  /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media
 
 # New files and directories inherit owner write access and Nginx
 # read/traverse access. File creation modes remove execute permission on files.
-sudo find /srv/wine-shop/staticfiles /srv/wine-shop/media -type d \
+sudo find /srv/luxury-perfume/staticfiles /srv/luxury-perfume/media -type d \
   -exec setfacl \
   -m d:u::rwx,d:u:www-data:rx,d:g::r-x,d:m::r-x,d:o::--- {} +
 ```
@@ -126,15 +140,31 @@ running `collectstatic`, verify that the Nginx worker can traverse both mounts,
 read a static file, and cannot write media:
 
 ```bash
-sudo -u www-data test -x /srv/wine-shop/staticfiles
-sudo -u www-data test -x /srv/wine-shop/media
-sudo -u www-data test -r /srv/wine-shop/staticfiles/admin/css/base.css
-sudo -u www-data test ! -w /srv/wine-shop/media
+sudo -u www-data test -x /srv/luxury-perfume/staticfiles
+sudo -u www-data test -x /srv/luxury-perfume/media
+sudo -u www-data test -r /srv/luxury-perfume/staticfiles/admin/css/base.css
+sudo -u www-data test ! -w /srv/luxury-perfume/media
 ```
 
 Keep `.env` private and out of source control. The production sample sets
 `DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
 those with publicly reachable database or cache endpoints for this layout.
+
+## Repository and package identity
+
+The intended GitHub repository is `Pursite/luxury-perfume`. Repository renaming
+requires GitHub administrator access and is not performed by the application
+or deployment workflow. If the GitHub-side rename has not been completed, an
+administrator must do it and then update development and VPS checkout remotes:
+
+```bash
+git remote set-url origin git@github.com:Pursite/luxury-perfume.git
+```
+
+The GHCR package is `ghcr.io/pursite/luxury-perfume`. Before the first
+deployment, publish the selected commit and verify that the protected
+`GHCR_READ_TOKEN` account can read it. The repository does not migrate images,
+VPS paths, or Docker volumes from a differently named installation.
 
 ## Manual GitHub Actions deployment
 
@@ -144,7 +174,7 @@ ignored root `.env`, validates the production Compose merge, and builds without
 registry write permission. For a push to `main`, its dependent `Publish
 application image` job then checks that the SHA tag does not already exist and
 promotes that archived build artifact without rebuilding it to
-`ghcr.io/pursite/wine-shop:<commit SHA>`. Run **Deploy production** from that
+`ghcr.io/pursite/luxury-perfume:<commit SHA>`. Run **Deploy production** from that
 reviewed `main` commit for a normal release. Its empty **Commit SHA** input
 defaults to that workflow run's `github.sha`.
 
@@ -161,7 +191,7 @@ add them as repository secrets:
 
 - `VPS_HOST`: the VPS hostname or address.
 - `VPS_PORT`: the SSH port; leave it unset to use `22`.
-- `VPS_USER`: the restricted VPS account that owns `/srv/wine-shop` and is
+- `VPS_USER`: the restricted VPS account that owns `/srv/luxury-perfume` and is
   allowed to use Docker Compose for this project.
 - `VPS_SSH_PRIVATE_KEY`: the Actions-to-VPS private key. It needs only the
   restricted account's SSH access.
@@ -170,7 +200,7 @@ add them as repository secrets:
   saving it; the workflow never uses `ssh-keyscan` or disables host checking.
 - `GHCR_READ_TOKEN`: a classic GitHub personal access token with only
   `read:packages`, owned by an account that can read
-  `ghcr.io/pursite/wine-shop`. This is not an application setting and must not
+  `ghcr.io/pursite/luxury-perfume`. This is not an application setting and must not
   be written to the VPS `.env`.
 
 The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
@@ -193,7 +223,7 @@ protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for its
 **Deploy production** from that commit. Normal deployments follow the same
 process; no application image is built on the VPS.
 
-Within `/srv/wine-shop`, the workflow rejects a dirty checkout, fetches and
+Within `/srv/luxury-perfume`, the workflow rejects a dirty checkout, fetches and
 checks out the exact source commit, pulls the matching image, validates the
 merged production Compose configuration, and starts the existing `db` and
 `redis` services without recreating them. After those dependencies are healthy,
@@ -216,8 +246,8 @@ For an emergency, operator-reviewed manual operation, use an image digest from
 an already published release and keep it out of `.env`:
 
 ```bash
-cd /srv/wine-shop
-export APP_IMAGE=ghcr.io/pursite/wine-shop@sha256:<published-image-digest>
+cd /srv/luxury-perfume
+export APP_IMAGE=ghcr.io/pursite/luxury-perfume@sha256:<published-image-digest>
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build db redis
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
@@ -235,6 +265,30 @@ legacy usernames or emails that collide after case-folding. If it aborts, it
 does not rewrite records or disclose their values. Stop the release, resolve
 the conflicts privately with a reviewed data procedure, then retry the same
 migration. Do not bypass it with manual constraint creation.
+
+The fragrance-domain migration preserves generic product, category, brand,
+pricing, stock, volume, country, visibility, and image data. It removes the
+incompatible legacy domain columns without attempting to reinterpret their
+values and adds neutral `unspecified` classifications to existing products.
+The ordered-note migration converts each former note-layer membership to a
+1-based position in note-name/UUID order, matching the former API's observable
+ordering. It normalizes any obsolete `body_splash` concentration to
+`unspecified` but does not invent or change a product category; staff must
+classify such a product with the existing Category model. Its database
+constraints reject duplicate notes, duplicate positions, invalid layers, and
+nonpositive positions. A new catalogue-cache namespace prevents pre-migration
+representations from being reused.
+
+The positive-volume constraint remains a release gate for existing generic
+data: if a stored volume is zero, PostgreSQL aborts the migration instead of
+rewriting it. Remediate such rows with an operator-reviewed data procedure and
+rerun the forward migration. The nullable introduction year is separately
+protected by a lower-bound database constraint and a current-year application
+validator. This deployment contract assumes no pre-refactor production
+containers are serving during the ordered-note migration. If an undisclosed
+older installation exists, use a reviewed maintenance window or a staged
+expand/contract release; applying the migration while old application
+containers still serve requests is not supported.
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
 image defaults to Gunicorn on container port `8000`, while Compose overrides
@@ -267,7 +321,7 @@ the Docker data directory directly:
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
   logs --tail=100 web celery
-docker inspect -f '{{.HostConfig.LogConfig.Type}}' wine-shop-web-1
+docker inspect -f '{{.HostConfig.LogConfig.Type}}' luxury-perfume-web-1
 ```
 
 The rotation cap bounds local retention, so it is not an audit archive. This
@@ -275,8 +329,8 @@ single-VPS deployment intentionally has no external log aggregation; collect
 or retain logs through a separately reviewed host process if operational or
 compliance requirements need longer retention.
 
-Static assets are written to `/srv/wine-shop/staticfiles` by `collectstatic`.
-Uploaded media is stored at `/srv/wine-shop/media`. Both directories are bind
+Static assets are written to `/srv/luxury-perfume/staticfiles` by `collectstatic`.
+Uploaded media is stored at `/srv/luxury-perfume/media`. Both directories are bind
 mounted into the application; Nginx reads them directly, so do not delete or
 replace them during routine deployments.
 
@@ -350,13 +404,13 @@ server {
     client_max_body_size 10m;
 
     location /static/ {
-        alias /srv/wine-shop/staticfiles/;
+        alias /srv/luxury-perfume/staticfiles/;
         access_log off;
         expires 7d;
     }
 
     location /media/ {
-        alias /srv/wine-shop/media/;
+        alias /srv/luxury-perfume/media/;
     }
 
     location / {
@@ -424,6 +478,14 @@ database migrations. A rollback is therefore safe only when the older code is
 compatible with the current database schema and data. Assess reversibility,
 data loss, and operational recovery manually; reverse migrations and restore
 logic are intentionally not implemented by this workflow.
+
+In particular, application images from before the fragrance-domain migration
+expect columns that the forward migration removes and are not valid code-only
+rollback targets afterward. Roll back only to a published `luxury-perfume`
+image whose code is compatible with the applied schema; any older recovery
+requires a separately designed database restore or schema procedure.
+Database/media backup and restore automation remains intentionally
+unimplemented.
 
 Useful operational checks:
 

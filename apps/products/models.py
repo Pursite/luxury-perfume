@@ -1,12 +1,18 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
 from django.db.models import F, Q
 
 from apps.lib.basemodel import BaseModel
+
+
+def validate_introduction_year(value: int) -> None:
+    if value > date.today().year:
+        raise ValidationError("Introduction year cannot be in the future.")
 
 
 class Category(BaseModel):
@@ -66,8 +72,71 @@ class Brand(BaseModel):
         return self.name
 
 
+class FragranceNote(BaseModel):
+    """A reusable fragrance note that can appear at any stage of a scent."""
+
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=120, unique=True)
+
+    class Meta:
+        verbose_name = "Fragrance Note"
+        verbose_name_plural = "Fragrance Notes"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Product(BaseModel):
     """A product with an internal integer key and a public UUID."""
+
+    class Concentration(models.TextChoices):
+        UNSPECIFIED = "unspecified", "Unspecified"
+        EXTRAIT_DE_PARFUM = "extrait_de_parfum", "Extrait de Parfum"
+        PARFUM = "parfum", "Parfum"
+        EAU_DE_PARFUM = "eau_de_parfum", "Eau de Parfum"
+        EAU_DE_TOILETTE = "eau_de_toilette", "Eau de Toilette"
+        EAU_DE_COLOGNE = "eau_de_cologne", "Eau de Cologne"
+
+    class TargetAudience(models.TextChoices):
+        UNSPECIFIED = "unspecified", "Unspecified"
+        WOMEN = "women", "Women"
+        MEN = "men", "Men"
+        UNISEX = "unisex", "Unisex"
+        KIDS = "kids", "Kids"
+
+    class FragranceFamily(models.TextChoices):
+        UNSPECIFIED = "unspecified", "Unspecified"
+        AMBER = "amber", "Amber"
+        AROMATIC = "aromatic", "Aromatic"
+        AQUATIC = "aquatic", "Aquatic"
+        CHYPRE = "chypre", "Chypre"
+        CITRUS = "citrus", "Citrus"
+        FLORAL = "floral", "Floral"
+        FOUGERE = "fougere", "Fougere"
+        FRUITY = "fruity", "Fruity"
+        GOURMAND = "gourmand", "Gourmand"
+        GREEN = "green", "Green"
+        LEATHER = "leather", "Leather"
+        MUSK = "musk", "Musk"
+        POWDERY = "powdery", "Powdery"
+        SPICY = "spicy", "Spicy"
+        WOODY = "woody", "Woody"
+        OTHER = "other", "Other"
+
+    class SuitableSeason(models.TextChoices):
+        UNSPECIFIED = "unspecified", "Unspecified"
+        SPRING = "spring", "Spring"
+        SUMMER = "summer", "Summer"
+        AUTUMN = "autumn", "Autumn"
+        WINTER = "winter", "Winter"
+        ALL_SEASONS = "all_seasons", "All seasons"
+
+    class SuitableUsageTime(models.TextChoices):
+        UNSPECIFIED = "unspecified", "Unspecified"
+        DAY = "day", "Day"
+        NIGHT = "night", "Night"
+        DAY_AND_NIGHT = "day_and_night", "Day and night"
 
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -100,38 +169,65 @@ class Product(BaseModel):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     stock = models.PositiveIntegerField(default=0)
-    abv = models.DecimalField(
-        max_digits=4,
-        decimal_places=1,
-        validators=[MinValueValidator(Decimal("0.0")), MaxValueValidator(Decimal("100.0"))],
-        help_text="Alcohol By Volume (%) - درصد الکل مثلاً 5.0 یا 40.0",
+    concentration = models.CharField(
+        max_length=32,
+        choices=Concentration.choices,
+        default=Concentration.UNSPECIFIED,
     )
     volume_ml = models.PositiveIntegerField(
-        help_text="حجم به میلی‌لیتر - مثلاً 330 یا 750"
+        validators=[MinValueValidator(1)],
+        help_text="Package volume in millilitres.",
     )
     country_of_origin = models.CharField(
         max_length=100,
         blank=True,
-        help_text="کشور سازنده - مثلاً آلمان، فرانسه",
+        help_text="Country where the product was made.",
     )
-    vintage_year = models.PositiveIntegerField(
+    target_audience = models.CharField(
+        max_length=16,
+        choices=TargetAudience.choices,
+        default=TargetAudience.UNSPECIFIED,
+    )
+    fragrance_family = models.CharField(
+        max_length=16,
+        choices=FragranceFamily.choices,
+        default=FragranceFamily.UNSPECIFIED,
+        help_text="Primary fragrance family or main accord.",
+    )
+    introduction_year = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
-        help_text="سال ساخت (مخصوص شراب یا ویسکی‌های خاص)",
+        validators=[MinValueValidator(1700), validate_introduction_year],
+        help_text="Year the fragrance was introduced.",
     )
-    ibu = models.PositiveIntegerField(
+    suitable_season = models.CharField(
+        max_length=16,
+        choices=SuitableSeason.choices,
+        default=SuitableSeason.UNSPECIFIED,
+    )
+    suitable_usage_time = models.CharField(
+        max_length=16,
+        choices=SuitableUsageTime.choices,
+        default=SuitableUsageTime.UNSPECIFIED,
+    )
+    fragrance_notes = models.ManyToManyField(
+        FragranceNote,
+        blank=True,
+        related_name="products",
+        through="ProductFragranceNote",
+    )
+    barcode = models.CharField(
+        max_length=14,
         null=True,
         blank=True,
-        help_text="شاخص تلخی International Bitterness Units (مخصوص آبجو)",
-    )
-    taste_notes = models.TextField(
-        blank=True,
-        help_text="طعم و نت‌های نوشیدنی (مثلاً میوه‌ای، تلخ، چوبی)",
-    )
-    serving_temp = models.CharField(
-        max_length=50,
-        blank=True,
-        help_text="دمای پیشنهادی سرو (مثلاً 4-7°C)",
+        unique=True,
+        validators=[
+            RegexValidator(
+                regex=r"^[0-9]{8,14}$",
+                message="Barcode must contain between 8 and 14 digits.",
+            ),
+        ],
+        help_text="Optional 8-14 digit retail barcode; distinct from the SKU.",
     )
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
@@ -145,6 +241,15 @@ class Product(BaseModel):
                 condition=Q(discount_price__isnull=True)
                 | Q(discount_price__lt=F("price")),
                 name="product_discount_lower_than_price",
+            ),
+            models.CheckConstraint(
+                condition=Q(volume_ml__gte=1),
+                name="product_positive_volume_ml",
+            ),
+            models.CheckConstraint(
+                condition=Q(introduction_year__isnull=True)
+                | Q(introduction_year__gte=1700),
+                name="product_introduction_year_not_before_1700",
             ),
         ]
 
@@ -165,6 +270,61 @@ class Product(BaseModel):
     @property
     def final_price(self):
         return self.discount_price if self.discount_price is not None else self.price
+
+
+class ProductFragranceNote(models.Model):
+    """An explicitly ordered fragrance note within one product pyramid layer."""
+
+    class Layer(models.TextChoices):
+        TOP = "top", "Top"
+        MIDDLE = "middle", "Middle"
+        BASE = "base", "Base"
+
+    id = models.BigAutoField(primary_key=True)
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="fragrance_note_links",
+    )
+    fragrance_note = models.ForeignKey(
+        FragranceNote,
+        on_delete=models.CASCADE,
+        related_name="product_links",
+    )
+    layer = models.CharField(max_length=6, choices=Layer.choices)
+    position = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        help_text="1-based order within this product and layer.",
+    )
+
+    class Meta:
+        verbose_name = "Product Fragrance Note"
+        verbose_name_plural = "Product Fragrance Notes"
+        ordering = ["layer", "position", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "layer", "fragrance_note"],
+                name="unique_product_note_per_layer",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "layer", "position"],
+                name="unique_product_note_position",
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name="product_note_position_gte_1",
+            ),
+            models.CheckConstraint(
+                condition=Q(layer__in=("top", "middle", "base")),
+                name="product_note_valid_layer",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.product.name}: {self.get_layer_display()} "
+            f"#{self.position} {self.fragrance_note.name}"
+        )
 
 
 class ProductImage(BaseModel):

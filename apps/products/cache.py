@@ -4,7 +4,8 @@ from urllib.parse import urlencode
 from apps.lib.cache import RedisCacheService
 
 
-CACHE_VERSION_KEY = "products:catalog:version"
+CATALOG_CACHE_SCHEMA = "fragrance-v2"
+CACHE_VERSION_KEY = f"products:{CATALOG_CACHE_SCHEMA}:version"
 CACHE_VERSION_TIMEOUT = 7 * 24 * 60 * 60
 PRODUCT_LIST_CACHE_TTL = 60
 PRODUCT_DETAIL_CACHE_TTL = 5 * 60
@@ -37,8 +38,14 @@ def product_list_cache_key(request) -> str:
     fingerprint = sha256(
         f"{request.get_host()}|{request.path}|{canonical_query}".encode()
     ).hexdigest()
-    return f"products:v{get_catalog_cache_version()}:list:{fingerprint}"
+    return (
+        f"products:{CATALOG_CACHE_SCHEMA}:v{get_catalog_cache_version()}:"
+        f"list:{fingerprint}"
+    )
 
 
 def product_detail_cache_key(*, product_uuid) -> str:
-    return f"products:v{get_catalog_cache_version()}:detail:{product_uuid}"
+    return (
+        f"products:{CATALOG_CACHE_SCHEMA}:v{get_catalog_cache_version()}:"
+        f"detail:{product_uuid}"
+    )

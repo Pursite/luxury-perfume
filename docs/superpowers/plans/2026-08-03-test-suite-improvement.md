@@ -77,7 +77,7 @@ Delete tracked `.coverage`, retain the staged ignore entries, and scan with `git
 
 - [ ] **Step 6: Run the default suite and inspect warnings**
 
-Run: `COVERAGE_FILE=/tmp/wine-shop-task1.coverage venv/bin/python -m pytest -q`
+Run: `COVERAGE_FILE=/tmp/luxury-perfume-task1.coverage venv/bin/python -m pytest -q`
 
 ---
 
@@ -144,7 +144,7 @@ Inject an `IntegrityError` from the second database write inside the real profil
 
 - [ ] **Step 7: Run all user tests**
 
-Run: `COVERAGE_FILE=/tmp/wine-shop-users.coverage venv/bin/python -m pytest apps/users/tests -q`
+Run: `COVERAGE_FILE=/tmp/luxury-perfume-users.coverage venv/bin/python -m pytest apps/users/tests -q`
 
 ---
 
@@ -200,7 +200,7 @@ Assert a missing row returns without creating files, corrupt input raises the ex
 
 - [ ] **Step 6: Run all product tests**
 
-Run: `COVERAGE_FILE=/tmp/wine-shop-products.coverage venv/bin/python -m pytest apps/products/tests -q`
+Run: `COVERAGE_FILE=/tmp/luxury-perfume-products.coverage venv/bin/python -m pytest apps/products/tests -q`
 
 ---
 
@@ -245,7 +245,7 @@ Use the real `security` alias to store/verify/consume OTP state, verify replay f
 
 ```bash
 DJANGO_SETTINGS_MODULE=config.settings.integration \
-INTEGRATION_DB_NAME=wine_shop_test INTEGRATION_DB_USER=wine_shop \
+INTEGRATION_DB_NAME=luxury_perfume_test INTEGRATION_DB_USER=luxury_perfume \
 INTEGRATION_DB_HOST=127.0.0.1 INTEGRATION_DB_PORT=5432 \
 INTEGRATION_CACHE_REDIS_URL=redis://127.0.0.1:6379/14 \
 INTEGRATION_SECURITY_REDIS_URL=redis://127.0.0.1:6379/15 \
@@ -302,7 +302,7 @@ Inspect YAML, run available local YAML validation if installed, and compare impo
 
 - [ ] **Step 1: Run the complete default suite with enforced coverage**
 
-Run: `COVERAGE_FILE=/tmp/wine-shop-final.coverage venv/bin/python -m pytest`
+Run: `COVERAGE_FILE=/tmp/luxury-perfume-final.coverage venv/bin/python -m pytest`
 
 - [ ] **Step 2: Run the complete marked integration suite**
 

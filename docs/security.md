@@ -2,7 +2,7 @@
 
 ## Implemented controls
 
-DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users.
+DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users. Public and authenticated non-staff catalogue reads share a response cache because their output is identical; staff bypass it because they may inspect inactive products. `Product.is_active` is catalogue visibility only and does not alter `User.is_active` account-state behavior.
 
 Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. The accompanying migration refuses to proceed if legacy case conflicts exist, preserving records for private operator remediation.
 
@@ -20,7 +20,17 @@ Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits. I
 
 ## Data and upload integrity
 
-The custom user model requires active users to have a username or phone number. Product discounts must be lower than regular price, and a conditional unique constraint allows one primary image per product. Decimal validation uses `Decimal` bounds, avoiding float coercion warnings. Category saves reject cycles. Product uploads are staff-only and restrict MIME/content pairs, file size, dimensions, corruption, decompression bombs, and generated filenames.
+The custom user model requires active users to have a username or phone
+number. Product discounts must be lower than regular price, fragrance volume
+must be positive, introduction years cannot predate 1700, and optional
+8–14-digit barcodes are unique. Application validation also rejects future
+introduction years. A conditional unique constraint allows one primary image
+per product. Ordered fragrance-note links enforce valid top/middle/base layers,
+positive positions, and uniqueness of both note and position within each
+product layer. Decimal validation uses `Decimal` bounds, avoiding float
+coercion warnings. Category saves reject cycles. Product uploads are
+staff-only and restrict MIME/content pairs, file size, dimensions, corruption,
+decompression bombs, and generated filenames.
 
 ## Configuration, logging, and transport
 

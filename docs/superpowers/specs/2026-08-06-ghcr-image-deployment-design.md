@@ -12,7 +12,7 @@ code or retaining registry credentials there.
 - CI preserves the current `default-tests` and `integration-tests` jobs. The
   stable dependent check is named `Application image`.
 - Pull requests build and verify the image without publishing. Successful
-  pushes to `main` publish one `ghcr.io/pursite/wine-shop:<40-char SHA>` tag.
+  pushes to `main` publish one `ghcr.io/pursite/luxury-perfume:<40-char SHA>` tag.
 - The deployment pins the pulled image by its resolved `sha256` digest, not by
   the mutable tag alone.
 - Application source uses development builds only through the development
@@ -70,7 +70,7 @@ and sources the remaining script; the token is never interpolated into the SSH
 command. The remote script creates a `mktemp -d` Docker configuration,
 authenticates using `docker login --password-stdin`, pulls the SHA tag, obtains
 its image digest from local Docker metadata, sets `APP_IMAGE` to
-`ghcr.io/pursite/wine-shop@sha256:…`, unsets the token, and removes the
+`ghcr.io/pursite/luxury-perfume@sha256:…`, unsets the token, and removes the
 temporary configuration through a trap before Compose deployment proceeds.
 
 The retained production gates are: strict host-key verification, protected

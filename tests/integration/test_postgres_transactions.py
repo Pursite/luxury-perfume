@@ -9,9 +9,18 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.products.cache import get_catalog_cache_version
-from apps.products.models import Product, ProductImage
-from apps.products.services import create_product_image_service
-from apps.products.tests.factories import ProductFactory, ProductImageFactory
+from apps.products.models import (
+    FragranceNote,
+    Product,
+    ProductFragranceNote,
+    ProductImage,
+)
+from apps.products.services import create_product_image_service, update_product_service
+from apps.products.tests.factories import (
+    FragranceNoteFactory,
+    ProductFactory,
+    ProductImageFactory,
+)
 from apps.users.models import CustomUser
 from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
 from apps.users.services.user_auth_service import UserAuthService
@@ -38,6 +47,26 @@ def test_postgresql_reports_named_product_constraints():
         == "product_discount_lower_than_price"
     )
 
+    invalid_volume = ProductFactory.build(volume_ml=0)
+    with pytest.raises(IntegrityError) as volume_error:
+        with transaction.atomic():
+            invalid_volume.save(force_insert=True)
+
+    assert (
+        volume_error.value.__cause__.diag.constraint_name
+        == "product_positive_volume_ml"
+    )
+
+    invalid_year = ProductFactory.build(introduction_year=1699)
+    with pytest.raises(IntegrityError) as year_error:
+        with transaction.atomic():
+            invalid_year.save(force_insert=True)
+
+    assert (
+        year_error.value.__cause__.diag.constraint_name
+        == "product_introduction_year_not_before_1700"
+    )
+
     product = ProductFactory()
     ProductImageFactory(product=product, is_primary=True)
     with pytest.raises(IntegrityError) as primary_error:
@@ -47,6 +76,40 @@ def test_postgresql_reports_named_product_constraints():
     assert (
         primary_error.value.__cause__.diag.constraint_name
         == "one_primary_image_per_product"
+    )
+
+    first_note = FragranceNoteFactory(name="Bergamot", slug="bergamot")
+    second_note = FragranceNoteFactory(name="Lemon", slug="lemon")
+    ProductFragranceNote.objects.create(
+        product=product,
+        fragrance_note=first_note,
+        layer=ProductFragranceNote.Layer.TOP,
+        position=1,
+    )
+    with pytest.raises(IntegrityError) as note_error:
+        with transaction.atomic():
+            ProductFragranceNote.objects.create(
+                product=product,
+                fragrance_note=first_note,
+                layer=ProductFragranceNote.Layer.TOP,
+                position=2,
+            )
+    assert (
+        note_error.value.__cause__.diag.constraint_name
+        == "unique_product_note_per_layer"
+    )
+
+    with pytest.raises(IntegrityError) as position_error:
+        with transaction.atomic():
+            ProductFragranceNote.objects.create(
+                product=product,
+                fragrance_note=second_note,
+                layer=ProductFragranceNote.Layer.TOP,
+                position=1,
+            )
+    assert (
+        position_error.value.__cause__.diag.constraint_name
+        == "unique_product_note_position"
     )
 
 
@@ -101,6 +164,50 @@ def test_primary_image_updates_are_serialized_by_real_row_lock(mocker):
         product=product,
         is_primary=True,
     ).count() == 1
+
+
+def test_fragrance_note_layer_updates_are_serialized_by_real_row_lock():
+    product = ProductFactory()
+    notes = [
+        FragranceNoteFactory(name=name, slug=name.lower())
+        for name in ("Amber", "Bergamot", "Cedar", "Davana")
+    ]
+    ready = Barrier(2)
+
+    def replace_top_layer(note_pair):
+        close_old_connections()
+        try:
+            thread_product = Product.objects.get(pk=product.pk)
+            thread_notes = list(
+                FragranceNote.objects.filter(pk__in=[note.pk for note in note_pair])
+            )
+            notes_by_id = {note.pk: note for note in thread_notes}
+            ordered_notes = [notes_by_id[note.pk] for note in note_pair]
+            ready.wait(timeout=10)
+            update_product_service(
+                product=thread_product,
+                validated_data={"top_notes": ordered_notes},
+            )
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(replace_top_layer, notes[:2]),
+            executor.submit(replace_top_layer, notes[2:]),
+        ]
+        for future in futures:
+            future.result(timeout=20)
+
+    persisted = list(
+        ProductFragranceNote.objects.filter(
+            product=product,
+            layer=ProductFragranceNote.Layer.TOP,
+        )
+        .order_by("position")
+        .values_list("fragrance_note__name", flat=True)
+    )
+    assert persisted in (["Amber", "Bergamot"], ["Cedar", "Davana"])
 
 
 def test_postgresql_enforces_casefold_identity_constraints():

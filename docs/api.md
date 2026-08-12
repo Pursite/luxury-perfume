@@ -49,18 +49,69 @@ The `address` accepted by profile completion has `title`, `full_address`, and op
 | `POST /products/<product_uuid>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
 | `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
 
-`product_uuid` is a UUID. Product write fields are `category`, optional nullable `brand`, `name`, `slug`, `sku`, `description`, `price`, optional `discount_price`, `stock`, `abv`, `volume_ml`, optional `country_of_origin`, optional `vintage_year`, optional `ibu`, optional `taste_notes`, optional `serving_temp`, `is_active`, and `is_featured`. `category` and `brand` use their UUID primary keys; the category must be active. `discount_price`, when provided, must be lower than `price`.
+`product_uuid` is a UUID. Product write fields are `category`, optional nullable
+`brand`, `name`, `slug`, `sku`, `description`, `price`, optional
+`discount_price`, `stock`, `volume_ml`, optional `country_of_origin`,
+`concentration`, `target_audience`, `fragrance_family`, optional nullable
+`introduction_year`, `suitable_season`, `suitable_usage_time`, optional
+nullable `barcode`, optional UUID arrays `top_notes`, `middle_notes`, and
+`base_notes`, `is_active`, and `is_featured`. `category`, `brand`, and note
+values use UUID primary keys; the category must be active and every referenced
+note must already exist. Each note array is ordered: the first UUID receives
+position 1, and create/update responses return the exact submitted order. A
+note cannot be repeated within one layer, but the same note may appear in
+different layers. An omitted note layer is preserved on PATCH, while an
+explicit empty array clears it. Product types such as perfume, cologne, and
+Body Splash are represented by `Category`; they are not concentration values.
 
-Product-list output fields are `uuid`, `name`, `slug`, `sku`, `price`, `discount_price`, `final_price`, `stock`, `abv`, `volume_ml`, `category`, `brand`, `primary_image`, `is_featured`, and `created_at`. Detail adds `description`, `country_of_origin`, `vintage_year`, `ibu`, `taste_notes`, `serving_temp`, `is_active`, `images`, and `updated_at`. Category summaries have `uuid`, `name`, and `slug`; brand summaries add `country`. An image object has integer `id`, `image`, `thumbnail`, `is_primary`, and `display_order`.
+`volume_ml` must be positive. `discount_price`, when provided, must be lower
+than `price`. `introduction_year` must be between 1700 and the current year.
+`barcode` is distinct from `sku`; when present it must be unique and contain
+8–14 ASCII digits. An empty barcode is stored as null so multiple products can
+omit it. Existing products migrated from the former catalogue use the neutral
+`unspecified` classification until staff curate them; new writes may also use
+that explicit value.
+
+Product-list output fields are `uuid`, `name`, `slug`, `sku`, `price`,
+`discount_price`, `final_price`, `stock`, `concentration`, `target_audience`,
+`fragrance_family`, `introduction_year`, `suitable_season`,
+`suitable_usage_time`, `volume_ml`, `category`, `brand`, `primary_image`,
+`is_featured`, and `created_at`. Detail adds `description`,
+`country_of_origin`, `barcode`, `top_notes`, `middle_notes`, `base_notes`,
+`is_active`, `images`, and `updated_at`. Each note summary has `uuid`, `name`,
+and `slug`, and each layer array is in its persisted position order. Category
+summaries have `uuid`, `name`, and `slug`; brand
+summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
+`is_primary`, and `display_order`.
+
+### Fragrance choices
+
+- `concentration`: `unspecified`, `extrait_de_parfum`, `parfum`,
+  `eau_de_parfum`, `eau_de_toilette`, or `eau_de_cologne`.
+- `target_audience`: `unspecified`, `women`, `men`, `unisex`, or `kids`.
+- `fragrance_family`: `unspecified`, `amber`, `aromatic`, `aquatic`, `chypre`,
+  `citrus`, `floral`, `fougere`, `fruity`, `gourmand`, `green`, `leather`,
+  `musk`, `powdery`, `spicy`, `woody`, or `other`.
+- `suitable_season`: `unspecified`, `spring`, `summer`, `autumn`, `winter`, or
+  `all_seasons`.
+- `suitable_usage_time`: `unspecified`, `day`, `night`, or `day_and_night`.
 
 ### Product list query parameters
 
 `GET /api/v1/products/` accepts:
 
 - Pagination: `page` and `page_size` (default 12, maximum 100).
-- Search: `search` across name, SKU, description, taste notes, brand name, and category name.
-- Ordering: `ordering` with `price`, `created_at`, `abv`, `stock`, `name`, or `volume_ml`; prefix a field with `-` for descending order. Default: `-created_at`.
-- Filters: UUID `category`, UUID `brand`, boolean `is_featured`, exact case-insensitive `country_of_origin`, `vintage_year`, `min_price`, `max_price`, `min_abv`, `max_abv`, and boolean `in_stock` (`true` selects stock above zero; `false` selects zero stock).
+- Search: `search` across name, SKU, description, brand name, category name,
+  and top, middle, or base note names.
+- Ordering: `ordering` with `price`, `created_at`, `introduction_year`, `stock`,
+  `name`, or `volume_ml`; prefix a field with `-` for descending order.
+  Default: `-created_at`.
+- Filters: UUID `category`, UUID `brand`, boolean `is_featured`, exact
+  case-insensitive `country_of_origin`, exact `concentration`,
+  `target_audience`, `fragrance_family`, `introduction_year`,
+  `suitable_season`, `suitable_usage_time`, UUID `note` across all three note
+  layers, `min_price`, `max_price`, and boolean `in_stock` (`true` selects
+  stock above zero; `false` selects zero stock).
 
 A paginated response has this exact shape:
 
@@ -75,7 +126,13 @@ A paginated response has this exact shape:
 }
 ```
 
-Anonymous product-list and detail responses use the default Redis cache when available. Cache behavior does not change visibility rules.
+Anonymous and authenticated non-staff product-list and detail requests share
+the same default Redis cache when available; the response contains no
+user-specific catalogue data, so cache keys never include a user identifier.
+Staff requests bypass that shared cache because staff may retrieve inactive
+product details. `Product.is_active` controls catalogue visibility for public
+and non-staff requests; it is unrelated to `User.is_active`, which controls
+account state. Cache behavior does not change visibility rules.
 
 ### Image upload
 

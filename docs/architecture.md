@@ -2,10 +2,11 @@
 
 ## Overview
 
-Wine Shop API is a Django 6 and Django REST Framework application. Its current Django applications are `apps.users`, `apps.products`, and `apps.lib`.
+Luxury Perfume is a Django 6 and Django REST Framework application. Its current
+Django applications are `apps.users`, `apps.products`, and `apps.lib`.
 
 ```text
-wine-shop/
+luxury-perfume/
 ├── apps/
 │   ├── lib/          # shared infrastructure
 │   ├── products/     # catalogue domain
@@ -42,7 +43,11 @@ Output serializer and HTTP response
 - **Serializers** validate and normalize request data and define output representations. Product upload serializers also validate image content.
 - **Services** implement state-changing workflows such as signup, OTP handling, password reset, logout, product writes, image writes, and post-commit cleanup/queueing.
 - **Selectors** contain reusable read queries, including case-insensitive username lookups and filtered product queries.
-- **Models** define durable state and model-level invariants. PostgreSQL constraints add final protection for active-user identities, case-insensitive username/email uniqueness, product discount prices, and primary product images.
+- **Models** define durable state and model-level invariants. PostgreSQL
+  constraints add final protection for active-user identities,
+  case-insensitive username/email uniqueness, product discount prices,
+  positive fragrance volume, introduction-year bounds, unique barcodes, and
+  primary product images.
 
 ## Applications
 
@@ -52,7 +57,23 @@ Owns the custom user and address models, user serializers and views, selectors, 
 
 ### `apps.products`
 
-Owns products, categories, brands, and product images. Public catalogue reads are filtered through selectors and can be cached. Product and image writes are staff-only at the API boundary. Category hierarchy validation prevents cycles; image services schedule thumbnail generation after commit.
+Owns fragrance products, categories, brands, reusable fragrance notes, and
+product images. A product stores bounded concentration, target audience,
+fragrance family, season, and usage-time values. Product types such as perfume
+and Body Splash use the existing category hierarchy. One explicit
+`ProductFragranceNote` through model reuses normalized notes for top,
+middle/heart, and base layers while persisting a 1-based position.
+Public catalogue reads are filtered through selectors and can be cached. The
+same versioned response cache serves anonymous and authenticated non-staff
+requests because their representations are identical; staff requests bypass it
+because they may retrieve inactive product details. Product visibility uses
+`Product.is_active`, independently of account-state `User.is_active`.
+Product and image writes are staff-only at the API boundary. Product services
+lock concurrent product updates and replace submitted note layers in one
+transaction. Database uniqueness constraints prevent a duplicate note or
+duplicate position within a product layer, while check constraints enforce
+valid layers and positive positions. Category hierarchy validation prevents
+cycles; image services schedule thumbnail generation after commit.
 
 ### `apps.lib`
 
@@ -67,11 +88,25 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 
 ## Data, cache, and authentication
 
-PostgreSQL stores durable users, addresses, catalogue records, product images, and Simple JWT outstanding/blacklist records. The identity migration checks for legacy case-fold conflicts before adding its functional unique constraints, so it stops without rewriting data if remediation is required.
+PostgreSQL stores durable users, addresses, fragrance catalogue records,
+reusable note relations, product images, and Simple JWT outstanding/blacklist
+records. The identity migration checks for legacy case-fold conflicts before
+adding its functional unique constraints, so it stops without rewriting data
+if remediation is required. The fragrance-domain migration preserves generic
+product data, assigns neutral classification defaults to existing products,
+and deliberately does not reinterpret incompatible legacy description fields
+as fragrance notes. The ordered-note migration preserves existing note
+memberships in the alphabetical order the former API exposed, and the
+catalogue cache uses a new schema namespace so stale representations cannot be
+reused.
 
 Redis has two configured cache aliases with separate URLs:
 
-- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. It is configured to ignore cache exceptions, so a cache failure can fall back to the database.
+- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. Its
+  versioned product list/detail responses are shared by anonymous and
+  authenticated non-staff users, while staff bypass the shared cache. It is
+  configured to ignore cache exceptions, so a cache failure can fall back to
+  the database.
 - `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, password-login guard state, and OTP phone/IP throttle histories. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
 
 JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).

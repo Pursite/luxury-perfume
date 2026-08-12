@@ -45,11 +45,18 @@ class ProductListCreateAPIView(APIView):
         "name",
         "sku",
         "description",
-        "taste_notes",
         "brand__name",
         "category__name",
+        "fragrance_note_links__fragrance_note__name",
     )
-    ordering_fields = ("price", "created_at", "abv", "stock", "name", "volume_ml")
+    ordering_fields = (
+        "price",
+        "created_at",
+        "introduction_year",
+        "stock",
+        "name",
+        "volume_ml",
+    )
     ordering = ("-created_at",)
 
     def get_permissions(self):
@@ -59,7 +66,7 @@ class ProductListCreateAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         cache_key = None
-        if not request.user.is_authenticated:
+        if not request.user.is_staff:
             cache_key = product_list_cache_key(request)
             cached_data = RedisCacheService.get(cache_key)
             if cached_data is not None:
@@ -121,7 +128,7 @@ class ProductDetailAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         cache_key = None
-        if not request.user.is_authenticated:
+        if not request.user.is_staff:
             cache_key = product_detail_cache_key(
                 product_uuid=self.kwargs["product_uuid"]
             )

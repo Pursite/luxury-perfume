@@ -16,11 +16,11 @@ services:
 
     volumes:
       - type: bind
-        source: /srv/wine-shop/staticfiles
+        source: /srv/luxury-perfume/staticfiles
         target: /app/staticfiles
 
       - type: bind
-        source: /srv/wine-shop/media
+        source: /srv/luxury-perfume/media
         target: /app/media
 
     logging:
@@ -41,7 +41,7 @@ services:
 
     volumes:
       - type: bind
-        source: /srv/wine-shop/media
+        source: /srv/luxury-perfume/media
         target: /app/media
 
     logging:
