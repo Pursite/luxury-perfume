@@ -43,6 +43,44 @@ def test_otp_verification_locks_after_exact_failure_threshold(settings):
         guard.verify("123456")
 
 
+def test_otp_lockout_survives_a_new_code_request(settings):
+    settings.OTP_VERIFICATION_MAX_ATTEMPTS = 5
+    settings.OTP_VERIFICATION_LOCK_SECONDS = 300
+    guard = OTPVerificationGuard("login", "09123456789")
+    guard.store_code("123456")
+
+    for _ in range(5):
+        with pytest.raises(
+            ValidationError,
+            match="Invalid or expired verification code",
+        ):
+            guard.verify("000000")
+
+    guard.store_code("654321")
+
+    assert caches["security"].get(guard.lock_key) == 1
+    with pytest.raises(Throttled, match="Too many verification attempts"):
+        guard.verify("654321")
+
+
+def test_otp_verification_rechecks_a_lock_acquired_before_lease(mocker):
+    guard = OTPVerificationGuard("login", "09123456789")
+    guard.store_code("123456")
+    original_add = guard.cache.add
+
+    def acquire_lease_after_lock(key, value, timeout=None, version=None):
+        if key == guard.lease_key:
+            guard.cache.set(guard.lock_key, 1, timeout=60)
+        return original_add(key, value, timeout=timeout, version=version)
+
+    mocker.patch.object(guard.cache, "add", side_effect=acquire_lease_after_lock)
+
+    with pytest.raises(Throttled, match="Too many verification attempts"):
+        guard.verify("123456")
+
+    assert caches["security"].get(guard.code_key) == "123456"
+
+
 def test_otp_purpose_namespaces_are_isolated():
     signup = OTPVerificationGuard("signup", "09123456789")
     login = OTPVerificationGuard("login", "09123456789")

@@ -12,18 +12,29 @@ class UserAuthService:
 
     @classmethod
     def complete_user_profile(cls, user: CustomUser, validated_data: dict) -> CustomUser:
+        # This service is also used directly in tests and management code.  Keep
+        # onboarding unable to accidentally persist a raw password even when a
+        # caller bypasses the request serializer.
+        if "password" in validated_data:
+            raise ValidationError({
+                "credentials": "Use profile update to change credentials.",
+            })
         address_data = validated_data.pop('address')
-        password = validated_data.pop('password')
 
         try:
             with transaction.atomic():
                 user = CustomUser.objects.select_for_update().get(pk=user.pk)
+                if not user.phone_number:
+                    raise ValidationError({
+                        "phone_number": "Verify a phone number before completing your profile.",
+                    })
+                if Address.objects.select_for_update().filter(user=user).exists():
+                    raise ValidationError({
+                        "address": "Use profile update to edit an existing address.",
+                    })
                 for attr, value in validated_data.items():
                     setattr(user, attr, value)
 
-                user.set_password(password)
-                revoke_user_refresh_tokens(user)
-                user.is_active = True
                 user.save()
 
                 Address.objects.create(
@@ -38,7 +49,7 @@ class UserAuthService:
             }) from exc
 
         AppLogger.log_activity(
-            msg="User successfully completed profile and added first address.",
+            msg="profile.onboarding_completed",
             user=user,
             status="INFO"
         )
@@ -47,6 +58,7 @@ class UserAuthService:
     @classmethod
     def update_user_profile(cls, user: CustomUser, validated_data: dict) -> CustomUser:
         password = validated_data.pop('password', None)
+        address_data = validated_data.pop('address', None)
 
         try:
             with transaction.atomic():
@@ -59,13 +71,36 @@ class UserAuthService:
                     setattr(user, attr, value)
 
                 user.save()
+
+                if address_data is not None:
+                    address_id = address_data.pop('id', None)
+                    if address_id is None:
+                        if Address.objects.select_for_update().filter(user=user).exists():
+                            raise ValidationError({
+                                "address": "An address ID is required to update an existing address.",
+                            })
+                        address = Address(user=user)
+                    else:
+                        address = Address.objects.select_for_update().filter(
+                            pk=address_id,
+                            user=user,
+                        ).first()
+                        if address is None:
+                            raise ValidationError({
+                                "address": "Address not found.",
+                            })
+
+                    address.title = address_data['title']
+                    address.full_address = address_data['full_address']
+                    address.postal_code = address_data.get('postal_code')
+                    address.save()
         except IntegrityError as exc:
             raise ValidationError({
                 "non_field_errors": ["Unable to update the profile with the provided information."],
             }) from exc
 
         AppLogger.log_activity(
-            msg="User successfully updated their profile info.",
+            msg="profile.updated",
             user=user,
             status="INFO"
         )

@@ -21,12 +21,12 @@ Phone input is trimmed and must be exactly `09[0-9]{9}`: eleven ASCII digits
 beginning with `09`, for example `09123456789`. Unicode digits, international
 forms, and alternate formatting are rejected rather than translated.
 
-Every password entry point—direct signup, profile completion, profile update,
-and password reset—uses the same configured Django policy: a 12-character
+Every password entry point—direct signup, profile update, and password reset—
+uses the same configured Django policy: a 12-character
 minimum plus similarity, common-password, and numeric-password validation.
 The API also has a 128-character request-size cap for password fields.
 Passwords are never logged. OTP-created accounts have an unusable password
-until profile completion sets one; superusers require a password.
+until the user sets one through profile update; superusers require a password.
 
 ## JWT lifecycle, refresh, and logout
 
@@ -39,7 +39,7 @@ rotation are enabled: clients must replace the old refresh token after each
 successful response; replaying it is rejected.
 
 Tokens carry Simple JWT's password-hash revocation claim. A password change
-(profile completion/update or OTP reset) locks the user record, blacklists all
+(profile update or OTP reset) locks the user record, blacklists all
 unexpired outstanding refresh tokens, and invalidates access tokens minted from
 the old password. The refresh endpoint validates that claim while holding the
 same user-row lock, so it cannot race a password change into a usable session.
@@ -79,8 +79,9 @@ Request OTP -> security cache -> placeholder Celery task -> verify -> consume
 
 The Celery task remains a placeholder and does not call an SMS provider.
 
-- `POST signup/send-otp/` and `POST signup/verify-otp/` create a phone-only
-  account after successful verification.
+- `POST signup/send-otp/` and `POST signup/verify-otp/` create a phone-only,
+  active account after successful verification. Its stored phone number is
+  already verified, but the remaining customer profile may be completed later.
 - `POST login/send-otp/` and `POST login/verify-otp/` issue tokens for an
   active matching user. Unknown-phone request responses remain generic.
 - `POST password-reset/send-otp/` always returns the same request response.
@@ -91,23 +92,46 @@ Each request and verification endpoint applies two independent limits from the
 fail-closed `security` cache: one keyed by normalized phone and one by client
 IP. `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE` retain the
 phone-limit settings; `OTP_REQUEST_IP_THROTTLE_RATE` and
-`OTP_VERIFY_IP_THROTTLE_RATE` configure IP limits. A cache outage returns 503,
-not an unthrottled request. Production trusts one host-managed proxy via
-`DRF_NUM_PROXIES=1`; do not expose Gunicorn directly or increase this value
-without matching trusted proxy topology.
+`OTP_VERIFY_IP_THROTTLE_RATE` configure IP limits. The shipped request defaults
+allow one request per phone per minute and ten requests per IP per minute, so
+the phone limit remains strict without unnecessarily blocking users behind a
+shared NAT. A cache outage returns 503, not an unthrottled request. Production
+trusts one host-managed proxy via `DRF_NUM_PROXIES=1`; do not expose Gunicorn
+directly or increase this value without matching trusted proxy topology.
 
-OTP state is separated by `signup`, `login`, and `password-reset` purposes.
+OTP state is separated by `signup`, `login`, `password-reset`, and the
+authenticated-user-bound profile-phone purpose.
 `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and
 `OTP_VERIFICATION_LOCK_SECONDS` govern expiry and the additional per-phone
 verification lock. Verification uses a short security-cache lease and
 constant-time comparison; Redis provides atomic lease acquisition, but the
-multi-key verification sequence is not a Redis transaction.
+multi-key verification sequence is not a Redis transaction. A new OTP replaces
+the code only; it never clears failed-attempt state or an active lock. A
+successful verification consumes the code, making it single-use.
 
 ## Profile behavior
 
-Profile completion and update require JWT authentication but do not otherwise
-block login or refresh. Completion sets username, email, name, password, and a
-first address. Update accepts any subset of `username`, `first_name`,
-`last_name`, and `password`; it does not accept email or addresses. Responses
-keep the existing `data` user representation. A password-bearing completion or
-update has the session-revocation behavior described above.
+`is_active` is account state only: it represents an enabled or disabled
+account, not onboarding progress. Username/password signup creates an active
+user immediately and returns tokens even though that user has no verified
+phone number or complete customer profile. Incomplete users can browse and use
+normal authenticated endpoints. Future checkout-like operations can opt in to
+the reusable `IsProfileComplete` permission; it is not applied globally.
+
+`is_profile_complete` is derived rather than stored. It is true only when a
+user has a username, a verified phone number, email, first and last
+names, and at least one address. Public API flows only persist a profile phone
+after `POST profile/phone/send-otp/` followed by successful
+`POST profile/phone/verify-otp/`; verification is bound to the authenticated
+account and refuses a number owned by another user without revealing that
+ownership.
+
+`POST profile/complete/` is one-time onboarding: it requires the verified
+phone, sets username/email/name, and creates the first address. It neither
+changes a password nor changes account activation. `PATCH profile/update/` is
+repeatable and can update username, email, names, password, and address data.
+To edit an existing address it requires that owned address's explicit `id`, so
+it never creates duplicates on repeat edits. Password updates retain the
+session-revocation behavior described above; ordinary profile edits do not
+revoke access or refresh tokens. Responses keep the existing `data` user
+representation.

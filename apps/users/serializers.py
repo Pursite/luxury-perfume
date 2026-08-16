@@ -88,6 +88,10 @@ class AddressInputSerializer(serializers.Serializer):
     )
 
 
+class AddressUpdateInputSerializer(AddressInputSerializer):
+    id = serializers.UUIDField(required=False)
+
+
 class CompleteProfileInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         validators=[username_regex],
@@ -97,11 +101,6 @@ class CompleteProfileInputSerializer(serializers.Serializer):
             'min_length': 'username must be at least 5 characters.',
             'max_length': 'username can`t be more than 12 characters.'
         }
-    )
-    password = serializers.CharField(
-        write_only=True,
-        trim_whitespace=False,
-        max_length=PASSWORD_MAX_LENGTH,
     )
     email = serializers.EmailField(
         error_messages={'invalid': 'invalid email address.'}
@@ -124,20 +123,6 @@ class CompleteProfileInputSerializer(serializers.Serializer):
         if UserSelector.is_email_taken(email=value, exclude_user_id=user.pk):
             raise serializers.ValidationError("this email is already taken.")
         return value
-
-    def validate(self, attrs):
-        user = self.context["request"].user
-        candidate = CustomUser(
-            pk=user.pk,
-            phone_number=user.phone_number,
-            username=attrs["username"],
-            email=attrs["email"],
-            first_name=attrs["first_name"],
-            last_name=attrs["last_name"],
-        )
-        validate_password_policy(attrs["password"], candidate)
-        return attrs
-
 
 class UserOutputSerializer(serializers.ModelSerializer):
     addresses = AddressSerializer(many=True, read_only=True)
@@ -169,6 +154,8 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
     )
     first_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, error_messages={'invalid': 'invalid email address.'})
+    address = AddressUpdateInputSerializer(required=False)
 
     password = serializers.CharField(
         write_only=True,
@@ -182,6 +169,13 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
         value = CustomUser.normalize_username(value)
         if UserSelector.is_username_taken(username=value, exclude_user_id=user.pk):
             raise serializers.ValidationError("this username is already taken.")
+        return value
+
+    def validate_email(self, value):
+        user = self.context['request'].user
+        value = CustomUser.normalize_email(value)
+        if UserSelector.is_email_taken(email=value, exclude_user_id=user.pk):
+            raise serializers.ValidationError("this email is already taken.")
         return value
 
     def validate(self, attrs):

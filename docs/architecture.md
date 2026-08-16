@@ -53,7 +53,15 @@ Output serializer and HTTP response
 
 ### `apps.users`
 
-Owns the custom user and address models, user serializers and views, selectors, and services for username/password and phone/OTP authentication, password reset, profile completion/update, and logout. It queues the Celery OTP task.
+Owns the custom user and address models, user serializers and views, selectors,
+and services for username/password and phone/OTP authentication, password
+reset, profile-phone verification, profile onboarding/update, and logout.
+`is_active` is account state, while `is_profile_complete` is a derived customer
+readiness property. The opt-in `IsProfileComplete` permission is available for
+future sensitive operations but does not restrict ordinary authenticated use.
+Profile-phone OTP state is bound to both the account and the candidate phone;
+address edits lock and require an explicitly owned address ID. It queues the
+Celery OTP task.
 
 ### `apps.products`
 
@@ -107,7 +115,11 @@ Redis has two configured cache aliases with separate URLs:
   authenticated non-staff users, while staff bypass the shared cache. It is
   configured to ignore cache exceptions, so a cache failure can fall back to
   the database.
-- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks, leases, password-login guard state, and OTP phone/IP throttle histories. It does not suppress exceptions; security-cache errors produce a 503 response instead of bypassing authentication protection.
+- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks,
+  leases, password-login guard and throttle state, signup-throttle state, and
+  OTP phone/IP throttle histories. Profile-phone codes use a purpose scoped to
+  the authenticated user. It does not suppress exceptions; security-cache
+  errors produce a 503 response instead of bypassing authentication protection.
 
 JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
 

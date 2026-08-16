@@ -1,5 +1,5 @@
 from typing import Optional
-
+from uuid import UUID
 from django.contrib.auth.hashers import check_password, make_password
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -70,17 +70,29 @@ class UserSelector:
         ).exists()
 
     @staticmethod
-    def is_username_taken(username: str, exclude_user_id: int = None) -> bool:
+    def is_username_taken(
+            username: str,
+            exclude_user_id: UUID | None = None,
+    ) -> bool:
         query = CustomUser.objects.all()
-        if exclude_user_id:
+
+        if exclude_user_id is not None:
             query = query.exclude(pk=exclude_user_id)
+
         return query.filter(
             username__iexact=CustomUser.normalize_username(username),
         ).exists()
 
     @staticmethod
-    def is_email_taken(email: str, exclude_user_id: int = None) -> bool:
+    def is_email_taken(
+            email: str,
+            exclude_user_id: UUID | None = None,
+    ) -> bool:
         query = CustomUser.objects.all()
-        if exclude_user_id:
+
+        if exclude_user_id is not None:
             query = query.exclude(pk=exclude_user_id)
-        return query.filter(email__iexact=CustomUser.normalize_email(email)).exists()
+
+        return query.filter(
+            email__iexact=CustomUser.normalize_email(email),
+        ).exists()

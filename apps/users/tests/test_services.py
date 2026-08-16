@@ -138,16 +138,15 @@ def test_password_login_lockout_is_scoped_to_username_and_client_ip(settings):
 
 def test_complete_profile_rolls_back_user_when_address_creation_fails(mocker):
     user = UserFactory(
+        phone_number="0912345678",
         username=None,
         email=None,
         first_name="",
         last_name="",
         is_active=True,
     )
-    original_password = user.password
     validated_data = {
         "username": "rollback_user",
-        "password": "StrongPass22!",
         "email": "rollback@example.com",
         "first_name": "Rollback",
         "last_name": "User",
@@ -177,5 +176,26 @@ def test_complete_profile_rolls_back_user_when_address_creation_fails(mocker):
     assert user.email is None
     assert user.first_name == ""
     assert user.last_name == ""
+    assert Address.objects.filter(user=user).count() == 0
+
+
+def test_profile_completion_refuses_password_input_instead_of_storing_it_raw():
+    user = UserFactory(username=None, email=None, first_name="", last_name="")
+    original_password = user.password
+
+    with pytest.raises(ValidationError, match="credentials"):
+        UserAuthService.complete_user_profile(
+            user=user,
+            validated_data={
+                "username": "secure_customer",
+                "password": "RawPasswordMustNotBeStored123!",
+                "email": "secure@example.com",
+                "first_name": "Secure",
+                "last_name": "Customer",
+                "address": {"title": "Home", "full_address": "Test address"},
+            },
+        )
+
+    user.refresh_from_db()
     assert user.password == original_password
     assert Address.objects.filter(user=user).count() == 0

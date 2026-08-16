@@ -2,6 +2,21 @@ from rest_framework import permissions
 from .loggers import AppLogger
 
 
+class IsProfileComplete(permissions.BasePermission):
+    """Opt-in guard for operations that require verified customer details."""
+
+    message = "A complete customer profile is required for this operation."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and user.is_active
+            and user.is_profile_complete
+        )
+
+
 class IsAdminOrReadOnly(permissions.BasePermission):
 
     def has_permission(self, request, view):

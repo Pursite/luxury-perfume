@@ -12,11 +12,36 @@ Username/password failures remain generic for unknown, incorrect, inactive, and 
 
 ## Throttling and security cache
 
-The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, and two OTP dimensions. Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`.
+The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, and two OTP dimensions. Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
 
-OTP throttles, codes, failed-attempt counters, temporary locks, verification leases, and password-login guard state use only the `security` cache alias. It does not ignore errors: security-cache failures return 503 instead of allowing an unprotected request. The ordinary `default` cache is separate and may tolerate failures for catalogue caching. Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can reach loopback Gunicorn; do not trust forwarded client IP headers in another topology without changing that setting.
+OTP throttles, codes, failed-attempt counters, temporary locks, verification
+leases, the password-login guard, and password-login/signup throttle histories
+use only the `security` cache alias. It does not ignore errors: security-cache
+failures return 503 instead of allowing an unprotected request. The ordinary
+`default` cache is separate and may tolerate failures for catalogue caching.
+Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can
+reach loopback Gunicorn; do not trust forwarded client IP headers in another
+topology without changing that setting.
 
-Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits. Invalid alternate digit sets or formatting are rejected before application logic. OTP state remains namespaced by `signup`, `login`, and `password-reset`. `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and `OTP_VERIFICATION_LOCK_SECONDS` control expiry and the separate per-phone verification lock. Verification compares with `secrets.compare_digest` and uses an atomic Redis lease so only one concurrent consumer succeeds. The multi-key sequence is not a Redis transaction.
+Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits.
+Invalid alternate digit sets or formatting are rejected before application logic.
+OTP state remains namespaced by `signup`, `login`, `password-reset`, and a
+profile-phone purpose bound to the authenticated user's ID.
+`OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and
+`OTP_VERIFICATION_LOCK_SECONDS` control expiry and the separate per-phone
+verification lock. Verification compares with `secrets.compare_digest` and
+uses an atomic Redis lease so only one concurrent consumer succeeds. Issuing a
+new code does not reset failed attempts or an active lock, and a successful
+verification consumes the code. The multi-key sequence is not a Redis
+transaction.
+
+`User.is_active` is reserved for account enablement and disablement; profile
+progress never changes it. Profile completeness is derived from username,
+verified phone number, email, names, and an address. `IsProfileComplete` is an
+opt-in permission for future sensitive customer operations and is not a global
+authentication gate. The authenticated profile-phone flow only stores a phone
+after OTP success and uses a locked user row plus the unique database
+constraint to reject ownership races.
 
 ## Data and upload integrity
 

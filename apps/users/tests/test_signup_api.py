@@ -1,4 +1,5 @@
 import pytest
+from django.core.cache import caches
 from django.urls import reverse
 from django.db import IntegrityError
 from rest_framework import status
@@ -34,6 +35,8 @@ class TestUserSignupAPIView:
         assert user.password != signup_payload["password"]
         assert user.phone_number is None
         assert user.email is None
+        assert user.is_active is True
+        assert user.is_profile_complete is False
         assert "password" not in response.data["user"]
         assert "phone_number" not in response.data["user"]
         assert "email" not in response.data["user"]
@@ -57,6 +60,27 @@ class TestUserSignupAPIView:
 
         assert login_response.status_code == status.HTTP_200_OK
         assert set(login_response.data["tokens"]) == {"access", "refresh"}
+
+    def test_incomplete_signup_user_can_use_authenticated_endpoints(
+        self,
+        api_client,
+        signup_payload,
+    ):
+        signup_response = api_client.post(self.url, signup_payload, format="json")
+        api_client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {signup_response.data['tokens']['access']}"
+        )
+
+        response = api_client.patch(
+            reverse("apps.users:update_profile"),
+            {"first_name": "Customer"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user = CustomUser.objects.get(username=signup_payload["username"])
+        assert user.is_profile_complete is False
+        assert user.first_name == "Customer"
 
     def test_duplicate_username_returns_generic_non_enumerating_error(
         self,
@@ -143,3 +167,21 @@ class TestUserSignupAPIView:
 
         assert first_response.status_code == status.HTTP_201_CREATED
         assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_signup_throttle_fails_closed_when_security_cache_is_unavailable(
+        self,
+        api_client,
+        mocker,
+        signup_payload,
+    ):
+        mocker.patch.object(
+            caches["security"],
+            "get",
+            side_effect=OSError("cache unavailable"),
+        )
+
+        response = api_client.post(self.url, signup_payload, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "temporarily unavailable" in str(response.data["detail"])
+        assert not CustomUser.objects.filter(username=signup_payload["username"]).exists()

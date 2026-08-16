@@ -48,6 +48,23 @@ def test_redis_otp_lockout_survives_new_guard_instance(settings):
         OTPVerificationGuard("password-reset", phone_number).verify("123456")
 
 
+def test_redis_otp_lockout_survives_a_new_code_request(settings):
+    settings.OTP_VERIFICATION_MAX_ATTEMPTS = 2
+    settings.OTP_VERIFICATION_LOCK_SECONDS = 60
+    phone_number = "09123456789"
+    guard = OTPVerificationGuard("login", phone_number)
+    guard.store_code("123456")
+
+    for _ in range(2):
+        with pytest.raises(ValidationError):
+            guard.verify("000000")
+
+    guard.store_code("654321")
+
+    with pytest.raises(Throttled, match="Too many verification attempts"):
+        guard.verify("654321")
+
+
 def test_redis_cache_aliases_keep_catalog_and_security_state_separate():
     caches["default"].set("same-key", "catalog")
     caches["security"].set("same-key", "security")
@@ -60,11 +77,21 @@ def test_redis_security_throttles_enforce_normalized_phone_and_ip_keys():
     factory = APIRequestFactory()
     first = make_request(factory, " 09123456789 ", "198.51.100.10")
     same_phone_other_ip = make_request(factory, "09123456789", "198.51.100.11")
-    other_phone_same_ip = make_request(factory, "09123456788", "198.51.100.10")
     assert OTPPhoneNumberRateThrottle().allow_request(first, None) is True
     assert OTPPhoneNumberRateThrottle().allow_request(same_phone_other_ip, None) is False
-    assert OTPIPRateThrottle().allow_request(first, None) is True
-    assert OTPIPRateThrottle().allow_request(other_phone_same_ip, None) is False
+
+    ip_requests = [
+        make_request(factory, f"0912345678{index}", "198.51.100.10")
+        for index in range(10)
+    ]
+    assert all(
+        OTPIPRateThrottle().allow_request(request, None)
+        for request in ip_requests
+    )
+    assert OTPIPRateThrottle().allow_request(
+        make_request(factory, "09123456770", "198.51.100.10"),
+        None,
+    ) is False
 
 
 def test_redis_otp_verification_allows_exactly_one_concurrent_consumer():
