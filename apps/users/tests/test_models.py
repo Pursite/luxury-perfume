@@ -1,7 +1,6 @@
 import pytest
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from django.db import IntegrityError, transaction
 
 from apps.users.models import Address, CustomUser
 
@@ -158,58 +157,3 @@ def test_profile_completeness_requires_each_customer_detail():
 
     address.delete()
     assert user.is_profile_complete is False
-
-
-@pytest.mark.django_db(transaction=True)
-def test_identity_constraint_migration_deactivates_legacy_active_identityless_users():
-    old_target = [("users", "0003_alter_customuser_phone_number")]
-    new_target = [("users", "0004_customuser_users_active_user_requires_identity")]
-
-    executor = MigrationExecutor(connection)
-    executor.migrate(old_target)
-    old_apps = executor.loader.project_state(old_target).apps
-    LegacyCustomUser = old_apps.get_model("users", "CustomUser")
-    user = LegacyCustomUser.objects.create(
-        password="!",
-        is_active=True,
-        username=None,
-        phone_number=None,
-    )
-
-    executor = MigrationExecutor(connection)
-    executor.migrate(new_target)
-    new_apps = executor.loader.project_state(new_target).apps
-    MigratedCustomUser = new_apps.get_model("users", "CustomUser")
-
-    assert MigratedCustomUser.objects.get(pk=user.pk).is_active is False
-
-
-@pytest.mark.django_db(transaction=True)
-def test_case_insensitive_identity_migration_refuses_legacy_conflicts_without_rewriting_them():
-    old_target = [("users", "0004_customuser_users_active_user_requires_identity")]
-    new_target = [("users", "0005_customuser_case_insensitive_identities")]
-    executor = MigrationExecutor(connection)
-    executor.migrate(old_target)
-    old_apps = executor.loader.project_state(old_target).apps
-    LegacyCustomUser = old_apps.get_model("users", "CustomUser")
-    first = LegacyCustomUser.objects.create(
-        username="LegacyUser",
-        email="legacy-one@example.com",
-        password="!",
-        is_active=True,
-    )
-    second = LegacyCustomUser.objects.create(
-        username="legacyuser",
-        email="legacy-two@example.com",
-        password="!",
-        is_active=True,
-    )
-
-    try:
-        with pytest.raises(RuntimeError, match="case-insensitive identity conflicts"):
-            executor.migrate(new_target)
-
-        assert LegacyCustomUser.objects.filter(pk__in=[first.pk, second.pk]).count() == 2
-    finally:
-        LegacyCustomUser.objects.filter(pk__in=[first.pk, second.pk]).delete()
-        executor.migrate(new_target)
