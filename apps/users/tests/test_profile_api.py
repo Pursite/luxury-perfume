@@ -173,6 +173,33 @@ class TestProfileFlow:
         assert address.title == "Office"
         assert address.full_address == "New address"
 
+    def test_update_profile_partially_updates_an_owned_address(self, api_client):
+        user = UserFactory()
+        address = Address.objects.create(
+            user=user,
+            title="Home",
+            full_address="Old address",
+            postal_code="1111111111",
+        )
+        api_client.force_authenticate(user=user)
+
+        response = api_client.patch(
+            self.UPDATE_PROFILE_URL,
+            {
+                "address": {
+                    "id": str(address.pk),
+                    "full_address": "Updated address",
+                },
+            },
+            format="json",
+        )
+
+        address.refresh_from_db()
+        assert response.status_code == status.HTTP_200_OK
+        assert address.title == "Home"
+        assert address.full_address == "Updated address"
+        assert address.postal_code == "1111111111"
+
     def test_update_profile_rejects_an_address_owned_by_another_user(self, api_client):
         user = UserFactory()
         other_address = Address.objects.create(

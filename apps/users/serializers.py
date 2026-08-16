@@ -90,6 +90,24 @@ class AddressInputSerializer(serializers.Serializer):
 
 class AddressUpdateInputSerializer(AddressInputSerializer):
     id = serializers.UUIDField(required=False)
+    title = serializers.CharField(max_length=50, required=False)
+    full_address = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        address_id = attrs.get("id")
+        if address_id is None:
+            missing_fields = {
+                field: "This field is required."
+                for field in ("title", "full_address")
+                if field not in attrs
+            }
+            if missing_fields:
+                raise serializers.ValidationError(missing_fields)
+        elif len(attrs) == 1:
+            raise serializers.ValidationError(
+                "Provide at least one address field to update."
+            )
+        return attrs
 
 
 class CompleteProfileInputSerializer(serializers.Serializer):
