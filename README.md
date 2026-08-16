@@ -6,9 +6,11 @@ a public fragrance catalogue with staff-only mutations.
 
 ## Implemented features
 
-- Username/password signup and login; phone/OTP signup and login; password reset by OTP.
+- Username/password signup and login; phone/OTP signup and login; password
+  reset by OTP; authenticated phone verification for username/password users.
 - JWT access and refresh tokens, an explicit refresh endpoint with rotation and blacklisting, password-change session revocation, and owner-bound logout.
-- Profile completion and updates, including addresses.
+- Derived profile completion plus repeatable profile/address updates. Accounts
+  remain active and usable while customer details are incomplete.
 - Public product list and detail endpoints with fragrance concentration,
   audience, family, season, usage time, introduction year, and normalized
   top/heart/base notes whose submitted order is preserved; product types such

@@ -23,17 +23,6 @@ def test_every_password_entry_point_uses_django_similarity_validation():
     signup = UserSignupInputSerializer(
         data={"username": "new_signup_user", "password": "new_signup_user_123!"}
     )
-    complete = CompleteProfileInputSerializer(
-        data={
-            "username": "current_user",
-            "password": password,
-            "email": "current@example.com",
-            "first_name": "Current",
-            "last_name": "User",
-            "address": {"title": "Home", "full_address": "Test address"},
-        },
-        context={"request": request},
-    )
     update = UserProfileUpdateInputSerializer(
         data={"password": password},
         context={"request": request},
@@ -48,11 +37,9 @@ def test_every_password_entry_point_uses_django_similarity_validation():
     )
 
     assert signup.is_valid() is False
-    assert complete.is_valid() is False
     assert update.is_valid() is False
     assert reset.is_valid() is False
     assert "password" in signup.errors
-    assert "password" in complete.errors
     assert "password" in update.errors
     assert "password" in reset.errors
 
@@ -67,7 +54,6 @@ def test_profile_serializers_reject_case_insensitive_username_conflicts():
     complete = CompleteProfileInputSerializer(
         data={
             "username": "existing_user",
-            "password": "StrongPass1!",
             "email": "new@example.com",
             "first_name": "Test",
             "last_name": "User",

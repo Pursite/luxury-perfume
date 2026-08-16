@@ -9,6 +9,7 @@ from .serializers import PhoneInputSerializer, VerifyOTPInputSerializer, UserPas
 from .services.signup_otp_service import SendOTPService
 from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
+from .services.profile_phone_service import ProfilePhoneVerificationService
 from .selectors import UserSelector
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
@@ -147,6 +148,43 @@ class LoginWithOTPCodeAPIView(APIView):
         )
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+class SendProfilePhoneOTPAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
+
+    def post(self, request):
+        serializer = PhoneInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = ProfilePhoneVerificationService.send_phone_verification(
+            user=request.user,
+            phone_number=serializer.validated_data["phone_number"],
+        )
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VerifyProfilePhoneOTPAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
+
+    def post(self, request):
+        serializer = VerifyOTPInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = ProfilePhoneVerificationService.verify_phone_verification(
+            user=request.user,
+            phone_number=serializer.validated_data["phone_number"],
+            submitted_otp=serializer.validated_data["otp"],
+        )
+        return Response(
+            {
+                "message": "phone number verified.",
+                "data": UserOutputSerializer(user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class CompleteProfileAPIView(APIView):

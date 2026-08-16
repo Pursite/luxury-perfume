@@ -147,7 +147,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
 
     @property
     def is_profile_complete(self):
-        has_basic_info = bool(self.username and self.email and self.first_name and self.last_name)
+        has_basic_info = bool(
+            self.username
+            and self.phone_number
+            and self.email
+            and self.first_name
+            and self.last_name
+        )
         has_address = self.addresses.exists()
         return has_basic_info and has_address
 

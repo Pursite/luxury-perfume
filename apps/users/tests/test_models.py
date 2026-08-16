@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 
-from apps.users.models import CustomUser
+from apps.users.models import Address, CustomUser
 
 
 @pytest.mark.django_db
@@ -102,6 +102,62 @@ def test_case_insensitive_username_and_email_constraints_are_enforced_by_databas
                 email="casesensitive@example.com",
                 password="!",
             )
+
+
+@pytest.mark.django_db
+def test_profile_completeness_requires_a_verified_phone_number():
+    user = CustomUser.objects.create_user(
+        username="profile_customer",
+        password="StrongPass123!",
+        email="profile@example.com",
+        first_name="Profile",
+        last_name="Customer",
+    )
+    Address.objects.create(
+        user=user,
+        title="Home",
+        full_address="Test address",
+    )
+
+    assert user.is_profile_complete is False
+
+    user.phone_number = "09123456789"
+    user.save(update_fields=["phone_number"])
+
+    assert user.is_profile_complete is True
+
+
+@pytest.mark.django_db
+def test_profile_completeness_requires_each_customer_detail():
+    user = CustomUser.objects.create_user(
+        username="complete_customer",
+        password="StrongPass123!",
+        phone_number="09123456789",
+        email="complete@example.com",
+        first_name="Complete",
+        last_name="Customer",
+    )
+    address = Address.objects.create(
+        user=user,
+        title="Home",
+        full_address="Test address",
+    )
+
+    assert user.is_profile_complete is True
+
+    for field, original_value in (
+        ("username", user.username),
+        ("phone_number", user.phone_number),
+        ("email", user.email),
+        ("first_name", user.first_name),
+        ("last_name", user.last_name),
+    ):
+        setattr(user, field, "")
+        assert user.is_profile_complete is False
+        setattr(user, field, original_value)
+
+    address.delete()
+    assert user.is_profile_complete is False
 
 
 @pytest.mark.django_db(transaction=True)

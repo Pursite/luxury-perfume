@@ -16,6 +16,7 @@ from rest_framework_simplejwt.utils import get_md5_hash_password
 from rest_framework_simplejwt.views import TokenRefreshView
 
 
+@transaction.atomic
 def revoke_user_refresh_tokens(user):
     """Blacklist every unexpired refresh token while the user row is locked."""
     tokens = OutstandingToken.objects.select_for_update().filter(

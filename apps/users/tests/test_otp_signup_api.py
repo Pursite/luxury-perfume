@@ -117,25 +117,29 @@ class TestSignupOTPAPI:
         assert first_response.status_code == status.HTTP_200_OK
         assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
-    def test_signup_otp_request_is_also_throttled_by_client_ip(self, api_client, mocker):
+    def test_signup_otp_request_allows_multiple_numbers_from_a_shared_ip(
+        self,
+        api_client,
+        mocker,
+    ):
         mocker.patch(
             "apps.users.services.signup_otp_service.send_otp_sms_task.delay"
         )
-        first_response = api_client.post(
-            self.send_otp_url,
-            {"phone_number": "09121112233"},
-            format="json",
-            REMOTE_ADDR="198.51.100.10",
-        )
-        second_response = api_client.post(
-            self.send_otp_url,
-            {"phone_number": "09121112234"},
-            format="json",
-            REMOTE_ADDR="198.51.100.10",
-        )
+        responses = [
+            api_client.post(
+                self.send_otp_url,
+                {"phone_number": phone_number},
+                format="json",
+                REMOTE_ADDR="198.51.100.10",
+            )
+            for phone_number in ("09121112233", "09121112234", "09121112235")
+        ]
 
-        assert first_response.status_code == status.HTTP_200_OK
-        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert [response.status_code for response in responses] == [
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+        ]
 
     def test_signup_otp_verification_creates_user_and_consumes_code(
         self,
@@ -173,6 +177,7 @@ class TestSignupOTPAPI:
         assert set(first_response.data["tokens"]) == {"access", "refresh"}
         user = CustomUser.objects.get(phone_number=phone_number)
         assert user.has_usable_password() is False
+        assert user.is_profile_complete is False
         assert replay_response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(replay_response.data["otp"]) == (
             "Invalid or expired verification code."

@@ -35,6 +35,29 @@ class TestAuthenticationAPI:
         assert response.data["message"] == "successfully logged in."
         assert set(response.data["tokens"]) == {"access", "refresh"}
 
+    def test_password_login_throttle_fails_closed_when_security_cache_is_unavailable(
+        self,
+        api_client,
+        mocker,
+    ):
+        user = UserFactory(username="password_user")
+        user.set_password("SecurePass123!")
+        user.save(update_fields=["password"])
+        mocker.patch.object(
+            caches["security"],
+            "get",
+            side_effect=OSError("cache unavailable"),
+        )
+
+        response = api_client.post(
+            self.password_login_url,
+            {"username": "password_user", "password": "SecurePass123!"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "temporarily unavailable" in str(response.data["detail"])
+
     @pytest.mark.parametrize(
         ("username", "password"),
         [
@@ -298,14 +321,14 @@ class TestAuthenticationAPI:
         password_check.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("url_name", "is_verification", "limit"),
+        ("url_name", "is_verification", "phone_limit", "ip_limit"),
         [
-            ("users:signup_send_otp", False, 1),
-            ("users:login_send_otp", False, 1),
-            ("users:password_reset_send_otp", False, 1),
-            ("users:signup_verify_otp", True, 10),
-            ("users:verify_login_otp", True, 10),
-            ("users:password_reset_verify_and_reset", True, 10),
+            ("users:signup_send_otp", False, 1, 10),
+            ("users:login_send_otp", False, 1, 10),
+            ("users:password_reset_send_otp", False, 1, 10),
+            ("users:signup_verify_otp", True, 10, 10),
+            ("users:verify_login_otp", True, 10, 10),
+            ("users:password_reset_verify_and_reset", True, 10, 10),
         ],
     )
     @pytest.mark.parametrize("dimension", ["phone", "ip"])
@@ -315,11 +338,13 @@ class TestAuthenticationAPI:
         settings,
         url_name,
         is_verification,
-        limit,
+        phone_limit,
+        ip_limit,
         dimension,
     ):
         settings.OTP_VERIFICATION_MAX_ATTEMPTS = 100
         url = reverse(url_name)
+        limit = phone_limit if dimension == "phone" else ip_limit
 
         def payload(index):
             data = {"phone_number": f"0912{index:07d}"}

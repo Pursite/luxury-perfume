@@ -1,5 +1,5 @@
 from django.core.cache import caches
-from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
+from rest_framework.throttling import SimpleRateThrottle
 
 from apps.lib.security_cache import SecurityCacheUnavailable
 from apps.users.models import CustomUser
@@ -17,6 +17,7 @@ class SecurityCacheRateThrottle(SimpleRateThrottle):
             return super().allow_request(request, view)
         except Exception as exc:
             raise SecurityCacheUnavailable from exc
+
 
 class OTPPhoneNumberRateThrottle(SecurityCacheRateThrottle):
     scope = "otp"
@@ -54,10 +55,23 @@ class OTPVerificationIPRateThrottle(OTPIPRateThrottle):
     scope = "otp_verify_ip"
 
 
-class PasswordLoginRateThrottle(AnonRateThrottle):
+class PasswordLoginRateThrottle(SecurityCacheRateThrottle):
     scope = "login"
 
-class SignupRateThrottle(AnonRateThrottle):
-    """A dedicated anonymous registration limit, keyed by client IP."""
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }
+
+
+class SignupRateThrottle(SecurityCacheRateThrottle):
+    """A dedicated fail-closed registration limit, keyed by client IP."""
 
     scope = "signup"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }

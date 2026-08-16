@@ -21,8 +21,10 @@ User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`. Ex
 | `POST /users/token/refresh/` | Public | `refresh` | 200; rotated `access` and `refresh` tokens |
 | `POST /users/login/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
-| `POST /users/profile/complete/` | Authenticated | `username`, `password`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
-| `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `first_name`, `last_name`, `password` | 200; message and serialized user in `data` |
+| `POST /users/profile/phone/send-otp/` | Authenticated; phone + IP OTP-request throttles | `phone_number` | 200; generic message and `expires_in` |
+| `POST /users/profile/phone/verify-otp/` | Authenticated; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; verified serialized user in `data` |
+| `POST /users/profile/complete/` | Authenticated; requires a verified phone | `username`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
+| `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `email`, `first_name`, `last_name`, `password`, `address` | 200; message and serialized user in `data` |
 | `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
 | `POST /users/password-reset/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/password-reset/verify-and-reset/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp`, `password` | 200; message and tokens |
@@ -34,7 +36,7 @@ Refresh responses rotate the submitted refresh token and blacklist its prior
 value. Password changes invalidate older access and refresh tokens. Detailed
 security behavior is in [authentication.md](authentication.md).
 
-The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
+The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must also include that address's `id`, and the ID must belong to the authenticated user. Without an ID, profile update creates an address only for a user that has none. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
 
 ## Products
 

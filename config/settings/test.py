@@ -5,6 +5,7 @@ import os
 
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key")
 os.environ.setdefault("JWT_SIGNING_KEY", "test-only-jwt-signing-key-at-least-32-bytes")
+os.environ["OTP_REQUEST_IP_THROTTLE_RATE"] = "10/m"
 
 from .base import *  # noqa: E402,F403
 

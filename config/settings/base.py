@@ -107,7 +107,7 @@ REST_FRAMEWORK = {
         "otp": env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
         "otp_ip": env(
             "OTP_REQUEST_IP_THROTTLE_RATE",
-            default=env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
+            default="10/m",
         ),
         "otp_verify": env("OTP_VERIFY_THROTTLE_RATE", default="10/m"),
         "otp_verify_ip": env(

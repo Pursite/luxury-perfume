@@ -34,7 +34,6 @@ class OTPVerificationGuard:
     def store_code(self, code: str) -> None:
         try:
             self.cache.set(self.code_key, code, settings.OTP_EXPIRY_SECONDS)
-            self.cache.delete_many([self.attempts_key, self.lock_key])
         except Exception as exc:
             raise SecurityCacheUnavailable from exc
 
@@ -50,6 +49,10 @@ class OTPVerificationGuard:
                     detail="Verification is already in progress. Please try again."
                 )
             try:
+                if self.cache.get(self.lock_key):
+                    raise Throttled(
+                        detail="Too many verification attempts. Please try again later."
+                    )
                 saved = self.cache.get(self.code_key)
                 from secrets import compare_digest
 
