@@ -75,6 +75,13 @@ class UserAuthService:
                 if address_data is not None:
                     address_id = address_data.pop('id', None)
                     if address_id is None:
+                        missing_fields = {
+                            field: "This field is required."
+                            for field in ("title", "full_address")
+                            if field not in address_data
+                        }
+                        if missing_fields:
+                            raise ValidationError({"address": missing_fields})
                         if Address.objects.select_for_update().filter(user=user).exists():
                             raise ValidationError({
                                 "address": "An address ID is required to update an existing address.",
@@ -90,9 +97,9 @@ class UserAuthService:
                                 "address": "Address not found.",
                             })
 
-                    address.title = address_data['title']
-                    address.full_address = address_data['full_address']
-                    address.postal_code = address_data.get('postal_code')
+                    for field in ("title", "full_address", "postal_code"):
+                        if field in address_data:
+                            setattr(address, field, address_data[field])
                     address.save()
         except IntegrityError as exc:
             raise ValidationError({

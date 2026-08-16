@@ -123,15 +123,16 @@ user has a username, a verified phone number, email, first and last
 names, and at least one address. Public API flows only persist a profile phone
 after `POST profile/phone/send-otp/` followed by successful
 `POST profile/phone/verify-otp/`; verification is bound to the authenticated
-account and refuses a number owned by another user without revealing that
-ownership.
+account, is available only while that account has no verified phone, and
+refuses a number owned by another user without revealing that ownership.
 
 `POST profile/complete/` is one-time onboarding: it requires the verified
 phone, sets username/email/name, and creates the first address. It neither
 changes a password nor changes account activation. `PATCH profile/update/` is
 repeatable and can update username, email, names, password, and address data.
-To edit an existing address it requires that owned address's explicit `id`, so
-it never creates duplicates on repeat edits. Password updates retain the
+To edit an existing address it requires that owned address's explicit `id` and
+accepts only the address fields being changed, so it never creates duplicates
+on repeat edits. Password updates retain the
 session-revocation behavior described above; ordinary profile edits do not
 revoke access or refresh tokens. Responses keep the existing `data` user
 representation.

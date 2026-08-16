@@ -46,6 +46,8 @@ class ProfilePhoneVerificationService:
         phone_number: str,
     ) -> dict:
         phone_number = CustomUser.normalize_phone_number(phone_number)
+        if user.phone_number:
+            return cls._request_response()
         is_owned_by_another_user = CustomUser.objects.filter(
             phone_number=phone_number,
         ).exclude(pk=user.pk).exists()
@@ -72,6 +74,8 @@ class ProfilePhoneVerificationService:
         submitted_otp: str,
     ) -> CustomUser:
         phone_number = CustomUser.normalize_phone_number(phone_number)
+        if user.phone_number:
+            raise ValidationError(cls.generic_otp_error)
         cls._guard(user, phone_number).verify(submitted_otp)
 
         try:
@@ -80,7 +84,11 @@ class ProfilePhoneVerificationService:
                 phone_is_owned = CustomUser.objects.filter(
                     phone_number=phone_number,
                 ).exclude(pk=locked_user.pk).exists()
-                if not locked_user.is_active or phone_is_owned:
+                if (
+                    not locked_user.is_active
+                    or locked_user.phone_number
+                    or phone_is_owned
+                ):
                     raise ValidationError(cls.generic_otp_error)
 
                 locked_user.phone_number = phone_number

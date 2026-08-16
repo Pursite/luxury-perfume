@@ -83,6 +83,36 @@ class TestProfilePhoneVerificationAPI:
         assert claimant.phone_number is None
         delivery.assert_not_called()
 
+    def test_phone_verification_cannot_replace_an_existing_verified_phone(
+        self,
+        api_client,
+        mocker,
+    ):
+        user = UserFactory(phone_number="09123456789")
+        replacement_phone = "09123456788"
+        api_client.force_authenticate(user=user)
+        delivery = mocker.patch(
+            "apps.users.services.profile_phone_service.send_otp_sms_task.delay"
+        )
+
+        send_response = api_client.post(
+            self.send_url,
+            {"phone_number": replacement_phone},
+            format="json",
+        )
+        ProfilePhoneVerificationService._guard(user, replacement_phone).store_code("123456")
+        verify_response = api_client.post(
+            self.verify_url,
+            {"phone_number": replacement_phone, "otp": "123456"},
+            format="json",
+        )
+
+        user.refresh_from_db()
+        assert send_response.status_code == status.HTTP_200_OK
+        delivery.assert_not_called()
+        assert verify_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert user.phone_number == "09123456789"
+
     def test_phone_verification_rejects_a_ownership_race_after_otp_consumption(
         self,
         api_client,
