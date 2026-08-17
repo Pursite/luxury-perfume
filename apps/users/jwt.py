@@ -8,12 +8,22 @@ from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
     OutstandingToken,
 )
 from rest_framework_simplejwt.utils import get_md5_hash_password
 from rest_framework_simplejwt.views import TokenRefreshView
+
+
+def issue_tokens_for_user(user) -> dict[str, str]:
+    """Issue the project-standard access and refresh token pair."""
+    refresh = RefreshToken.for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
 
 
 @transaction.atomic

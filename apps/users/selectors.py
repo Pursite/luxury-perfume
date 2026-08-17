@@ -2,7 +2,6 @@ from typing import Optional
 from uuid import UUID
 from django.contrib.auth.hashers import check_password, make_password
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
 
@@ -28,14 +27,6 @@ class UserSelector:
             )
         except CustomUser.DoesNotExist:
             return None
-
-    @staticmethod
-    def generate_tokens_for_user(user: CustomUser) -> dict:
-        refresh = RefreshToken.for_user(user)
-        return {
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
-        }
 
     @staticmethod
     def authenticate_by_username_password(username: str, password: str) -> CustomUser:

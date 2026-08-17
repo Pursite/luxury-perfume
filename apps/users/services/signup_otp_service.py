@@ -9,6 +9,7 @@ from apps.lib.loggers import AppLogger
 from apps.users.models import CustomUser
 from apps.users.selectors import UserSelector
 from apps.users.tasks import send_otp_sms_task
+from apps.users.jwt import issue_tokens_for_user
 
 
 class SendOTPService:
@@ -69,7 +70,7 @@ class SendOTPService:
         except (DjangoValidationError, IntegrityError) as exc:
             raise ValidationError(cls.generic_otp_error) from exc
 
-        tokens = UserSelector.generate_tokens_for_user(user)
+        tokens = issue_tokens_for_user(user)
 
         AppLogger.log_activity(msg="User registered successfully via OTP", user=user, status="INFO")
 

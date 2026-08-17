@@ -6,6 +6,7 @@ from apps.lib.loggers import AppLogger
 from ..selectors import UserSelector
 from ..tasks import send_otp_sms_task
 from ..models import CustomUser
+from ..jwt import issue_tokens_for_user
 
 
 class LoginOtpService:
@@ -43,7 +44,7 @@ class LoginOtpService:
             raise
         guard.clear()
 
-        tokens = UserSelector.generate_tokens_for_user(user)
+        tokens = issue_tokens_for_user(user)
 
         AppLogger.log_activity(msg="User logged in successfully via username/password", user=user, status="INFO")
 
@@ -91,7 +92,7 @@ class LoginOtpService:
         if not user or not user.is_active:
             raise ValidationError(cls.generic_otp_error)
 
-        tokens = UserSelector.generate_tokens_for_user(user)
+        tokens = issue_tokens_for_user(user)
 
         AppLogger.log_activity(msg="User logged in successfully via OTP", user=user, status="INFO")
 

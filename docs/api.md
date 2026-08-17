@@ -36,6 +36,9 @@ Refresh responses rotate the submitted refresh token and blacklist its prior
 value. Password changes invalidate older access and refresh tokens. Detailed
 security behavior is in [authentication.md](authentication.md).
 
+Usernames supplied by signup, profile completion, or profile update must be
+5–150 ASCII letters, digits, or underscores.
+
 The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
 
 ## Products
