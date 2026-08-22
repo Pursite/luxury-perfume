@@ -83,7 +83,7 @@ class TestProductListCreateAPIView:
         response = api_client.get(
             self.url,
             {
-                "category": str(category.id),
+                "category": category.slug,
                 "brand": str(brand.id),
                 "search": "AUR-100",
                 "ordering": "-price",
@@ -95,6 +95,60 @@ class TestProductListCreateAPIView:
         assert response.status_code == status.HTTP_200_OK
         assert response.data["count"] == 1
         assert response.data["results"][0]["uuid"] == str(matching.uuid)
+
+    def test_list_category_slug_includes_products_in_descendant_categories(
+        self,
+        api_client,
+    ):
+        men = CategoryFactory(name="Men", slug="men")
+        cologne = CategoryFactory(name="Cologne", slug="cologne", parent=men)
+        eau_de_cologne = CategoryFactory(
+            name="Eau de Cologne",
+            slug="eau-de-cologne",
+            parent=cologne,
+        )
+        women = CategoryFactory(name="Women", slug="women")
+        exact_product = ProductFactory(category=men)
+        child_product = ProductFactory(category=cologne)
+        descendant_product = ProductFactory(category=eau_de_cologne)
+        unrelated_product = ProductFactory(category=women)
+
+        response = api_client.get(self.url, {"category": "men"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {item["uuid"] for item in response.data["results"]} == {
+            str(exact_product.uuid),
+            str(child_product.uuid),
+            str(descendant_product.uuid),
+        }
+        assert str(unrelated_product.uuid) not in {
+            item["uuid"] for item in response.data["results"]
+        }
+
+    def test_list_category_unknown_slug_returns_an_empty_result(self, api_client):
+        ProductFactory()
+
+        response = api_client.get(self.url, {"category": "not-a-category"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["count"] == 0
+        assert response.data["results"] == []
+
+    def test_list_category_slug_combines_with_in_stock_filter(self, api_client):
+        men = CategoryFactory(name="Men", slug="men")
+        cologne = CategoryFactory(name="Cologne", slug="cologne", parent=men)
+        in_stock = ProductFactory(category=cologne, stock=1)
+        ProductFactory(category=men, stock=0)
+        ProductFactory(stock=10)
+
+        response = api_client.get(
+            self.url,
+            {"category": "men", "in_stock": "true"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["count"] == 1
+        assert response.data["results"][0]["uuid"] == str(in_stock.uuid)
 
     @pytest.mark.parametrize(
         ("query_parameter", "value", "nonmatching_override"),

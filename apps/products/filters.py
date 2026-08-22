@@ -1,12 +1,12 @@
 from django_filters import rest_framework as filters
 
-from apps.products.models import Product
+from apps.products.models import Category, Product
 
 
 class ProductFilter(filters.FilterSet):
     """Filters available to the public product catalogue."""
 
-    category = filters.UUIDFilter(field_name="category_id")
+    category = filters.CharFilter(method="filter_category")
     brand = filters.UUIDFilter(field_name="brand_id")
     is_featured = filters.BooleanFilter()
     country_of_origin = filters.CharFilter(lookup_expr="iexact")
@@ -34,3 +34,25 @@ class ProductFilter(filters.FilterSet):
         return queryset.filter(
             fragrance_note_links__fragrance_note_id=value
         ).distinct()
+
+    def filter_category(self, queryset, _name, slug):
+        root_id = (
+            Category.objects.filter(slug=slug)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if root_id is None:
+            return queryset.none()
+
+        category_ids = {root_id}
+        pending_parent_ids = [root_id]
+        while pending_parent_ids:
+            child_ids = Category.objects.filter(
+                parent_id__in=pending_parent_ids
+            ).values_list("id", flat=True)
+            pending_parent_ids = [
+                child_id for child_id in child_ids if child_id not in category_ids
+            ]
+            category_ids.update(pending_parent_ids)
+
+        return queryset.filter(category_id__in=category_ids)

@@ -111,8 +111,10 @@ summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 - Ordering: `ordering` with `price`, `created_at`, `introduction_year`, `stock`,
   `name`, or `volume_ml`; prefix a field with `-` for descending order.
   Default: `-created_at`.
-- Filters: UUID `category`, UUID `brand`, boolean `is_featured`, exact
-  case-insensitive `country_of_origin`, exact `concentration`,
+- Filters: category slug `category` (for example, `?category=men`; includes
+  products in that category and every descendant category), UUID `brand`,
+  boolean `is_featured`, exact case-insensitive `country_of_origin`, exact
+  `concentration`,
   `target_audience`, `fragrance_family`, `introduction_year`,
   `suitable_season`, `suitable_usage_time`, UUID `note` across all three note
   layers, `min_price`, `max_price`, and boolean `in_stock` (`true` selects
