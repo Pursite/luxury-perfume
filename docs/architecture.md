@@ -76,6 +76,10 @@ same versioned response cache serves anonymous and authenticated non-staff
 requests because their representations are identical; staff requests bypass it
 because they may retrieve inactive product details. Product visibility uses
 `Product.is_active`, independently of account-state `User.is_active`.
+Products use immutable lowercase slugs as their public URL identifiers;
+canonical UUID-shaped slugs are rejected so legacy UUID text cannot be
+ambiguous with a slug. The stable product UUID remains in API representations
+but is not used for product-addressed routes.
 Product and image writes are staff-only at the API boundary. Product services
 lock concurrent product updates and replace submitted note layers in one
 transaction. Database uniqueness constraints prevent a duplicate note or

@@ -97,6 +97,16 @@ class ProductAdmin(admin.ModelAdmin):
     readonly_fields = ("uuid",)
     inlines = [ProductFragranceNoteInline, ProductImageInline]
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return super().get_readonly_fields(request, obj)
+        return (*super().get_readonly_fields(request, obj), "slug")
+
+    def get_prepopulated_fields(self, request, obj=None):
+        if obj is not None:
+            return {}
+        return super().get_prepopulated_fields(request, obj)
+
     fieldsets = (
         (
             "Basic Information",

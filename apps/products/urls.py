@@ -11,9 +11,9 @@ app_name = "apps.products"
 
 urlpatterns = [
     path("", ProductListCreateAPIView.as_view(), name="product-list"),
-    path("<uuid:product_uuid>/", ProductDetailAPIView.as_view(), name="product-detail"),
+    path("<slug:product_slug>/", ProductDetailAPIView.as_view(), name="product-detail"),
     path(
-        "<uuid:product_uuid>/images/upload/",
+        "<slug:product_slug>/images/upload/",
         ProductImageUploadAPIView.as_view(),
         name="product-image-upload",
     ),

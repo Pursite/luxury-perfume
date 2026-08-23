@@ -47,16 +47,18 @@ The `address` accepted by profile completion has `title`, `full_address`, and op
 | --- | --- | --- | --- |
 | `GET /products/` | Public | Lists active products | 200; paginated product list |
 | `POST /products/` | Authenticated staff only | Product write fields | 201; product detail |
-| `GET /products/<product_uuid>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
-| `PUT /products/<product_uuid>/` | Authenticated staff only | Complete product write fields | 200; product detail |
-| `PATCH /products/<product_uuid>/` | Authenticated staff only | Partial product write fields | 200; product detail |
-| `DELETE /products/<product_uuid>/` | Authenticated staff only | — | 204; no body |
-| `POST /products/<product_uuid>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
+| `GET /products/<product_slug>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
+| `PUT /products/<product_slug>/` | Authenticated staff only | Complete product write fields | 200; product detail |
+| `PATCH /products/<product_slug>/` | Authenticated staff only | Partial product write fields | 200; product detail |
+| `DELETE /products/<product_slug>/` | Authenticated staff only | — | 204; no body |
+| `POST /products/<product_slug>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
 | `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
 
-`product_uuid` is a UUID. Product write fields are `category`, optional nullable
-`brand`, `name`, `slug`, `sku`, `description`, `price`, optional
-`discount_price`, `stock`, `volume_ml`, optional `country_of_origin`,
+`product_slug` is the product's exact, case-sensitive public slug. Product
+slugs must be lowercase, cannot use canonical UUID syntax, and cannot change
+after creation. UUID product URLs are not supported. Product write fields are
+`category`, optional nullable `brand`, `name`, `slug`, `sku`, `description`,
+`price`, optional `discount_price`, `stock`, `volume_ml`, optional `country_of_origin`,
 `concentration`, `target_audience`, `fragrance_family`, optional nullable
 `introduction_year`, `suitable_season`, `suitable_usage_time`, optional
 nullable `barcode`, optional UUID arrays `top_notes`, `middle_notes`, and
@@ -88,6 +90,9 @@ and `slug`, and each layer array is in its persisted position order. Category
 summaries have `uuid`, `name`, and `slug`; brand
 summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 `is_primary`, and `display_order`.
+
+The product `uuid` remains a stable response identifier but is not a URL lookup
+value.
 
 ### Fragrance choices
 
@@ -143,7 +148,7 @@ account state. Cache behavior does not change visibility rules.
 
 ### Image upload
 
-`POST /api/v1/products/<product_uuid>/images/upload/` requires `multipart/form-data` with:
+`POST /api/v1/products/<product_slug>/images/upload/` requires `multipart/form-data` with:
 
 - `image` — required JPEG, PNG, or WebP upload.
 - `is_primary` — optional boolean, default `false`.

@@ -44,8 +44,8 @@ def product_list_cache_key(request) -> str:
     )
 
 
-def product_detail_cache_key(*, product_uuid) -> str:
+def product_detail_cache_key(*, product_slug: str) -> str:
     return (
         f"products:{CATALOG_CACHE_SCHEMA}:v{get_catalog_cache_version()}:"
-        f"detail:{product_uuid}"
+        f"detail:slug:{product_slug}"
     )

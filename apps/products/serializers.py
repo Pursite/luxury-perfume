@@ -11,6 +11,7 @@ from apps.products.models import (
     Product,
     ProductFragranceNote,
     ProductImage,
+    validate_public_product_slug,
 )
 
 
@@ -247,6 +248,14 @@ class ProductWriteInputSerializer(serializers.ModelSerializer):
 
     def validate_barcode(self, value):
         return value or None
+
+    def validate_slug(self, value):
+        validate_public_product_slug(value)
+        if self.instance is not None and value != self.instance.slug:
+            raise serializers.ValidationError(
+                "Slug cannot be changed after product creation."
+            )
+        return value
 
     def _validate_note_layer(self, notes):
         if len(notes) != len({note.pk for note in notes}):

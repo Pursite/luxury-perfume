@@ -260,6 +260,31 @@ Obtain the image using the same ephemeral-token procedure as CD. Do not
 configure a persistent `docker login` on the VPS, and do not place the token
 or `APP_IMAGE` in `.env`.
 
+Before deploying the product slug URL cutover, audit the target database with
+these read-only queries:
+
+```sql
+SELECT id, slug
+FROM products_product
+WHERE slug <> lower(slug);
+
+SELECT lower(slug) AS canonical_slug, array_agg(slug ORDER BY slug) AS variants
+FROM products_product
+GROUP BY lower(slug)
+HAVING count(*) > 1;
+
+SELECT id, slug
+FROM products_product
+WHERE slug ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+```
+
+All three result sets must be empty. If any query returns rows, stop the
+release and assign reviewed lowercase, non-UUID-shaped unique slugs before
+retrying. Do not automatically lowercase data because case-only variants can
+collide. This is an immediate URL cutover: clients must construct product
+detail, mutation, and image-upload URLs from the response `slug`; UUID product
+URLs return 404 after deployment.
+
 The case-insensitive identity migration is a release gate: it first checks for
 legacy usernames or emails that collide after case-folding. If it aborts, it
 does not rewrite records or disclose their values. Stop the release, resolve
