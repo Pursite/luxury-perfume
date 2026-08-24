@@ -86,6 +86,11 @@ transaction. Database uniqueness constraints prevent a duplicate note or
 duplicate position within a product layer, while check constraints enforce
 valid layers and positive positions. Category hierarchy validation prevents
 cycles; image services schedule thumbnail generation after commit.
+Product-image creation assigns a collision-resistant object key and owns an
+outermost database transaction so a failed row write can compensate by deleting
+only the newly stored, unreferenced original.
+Image deletion locks and reloads its rows before collecting file names, keeping
+storage cleanup consistent with concurrent thumbnail work.
 
 ### `apps.lib`
 
@@ -96,7 +101,7 @@ Contains shared base models, cache helpers, the security-cache guards, logging h
 Celery is configured in `config/celery.py` and discovers application tasks.
 
 - User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The task currently logs a placeholder result; an SMS-provider client is not implemented.
-- Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail from the uploaded image.
+- Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and an existing-file check make Celery redelivery idempotent.
 
 ## Data, cache, and authentication
 

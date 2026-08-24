@@ -5,6 +5,7 @@ from django.db import transaction
 from apps.products.models import Product, ProductFragranceNote, ProductImage
 from apps.products.services import (
     _enqueue_thumbnail,
+    create_product_image_service,
     create_product_service,
     delete_product_image_service,
     delete_product_service,
@@ -180,6 +181,108 @@ def test_product_update_rolls_back_scalar_and_note_replacement_together(mocker):
     ]
 
 
+def test_failed_image_insert_removes_newly_stored_original(mocker, image_file):
+    product = ProductFactory()
+    storage = ProductImage._meta.get_field("image").storage
+    original_save = ProductImage.save
+
+    def save_then_fail(instance, *args, **kwargs):
+        original_save(instance, *args, **kwargs)
+        raise RuntimeError("simulated database failure")
+
+    mocker.patch.object(ProductImage, "save", save_then_fail)
+
+    with pytest.raises(RuntimeError, match="database failure"):
+        create_product_image_service(
+            product=product,
+            image_file=image_file("rollback-original.jpg"),
+            is_primary=False,
+            display_order=0,
+        )
+
+    assert not ProductImage.objects.filter(product=product).exists()
+    assert storage.listdir("products")[1] == []
+
+
+def test_failed_image_insert_preserves_existing_colliding_original(
+    mocker,
+    image_file,
+):
+    existing = ProductImage.objects.create(
+        product=ProductFactory(),
+        image=image_file("collision.jpg"),
+    )
+    storage = existing.image.storage
+    original_save = ProductImage.save
+
+    def save_then_fail(instance, *args, **kwargs):
+        original_save(instance, *args, **kwargs)
+        raise RuntimeError("simulated database failure")
+
+    mocker.patch.object(ProductImage, "save", save_then_fail)
+
+    with pytest.raises(RuntimeError, match="database failure"):
+        create_product_image_service(
+            product=ProductFactory(),
+            image_file=image_file("collision.jpg"),
+            is_primary=False,
+            display_order=0,
+        )
+
+    _, stored_files = storage.listdir("products")
+    assert ProductImage.objects.filter(pk=existing.pk).exists()
+    assert storage.exists(existing.image.name)
+    assert stored_files == [existing.image.name.rsplit("/", maxsplit=1)[-1]]
+
+
+def test_original_cleanup_failure_is_logged_without_masking_insert_error(
+    mocker,
+    image_file,
+):
+    product = ProductFactory()
+    storage = ProductImage._meta.get_field("image").storage
+    original_save = ProductImage.save
+
+    def save_then_fail(instance, *args, **kwargs):
+        original_save(instance, *args, **kwargs)
+        raise RuntimeError("simulated database failure")
+
+    mocker.patch.object(ProductImage, "save", save_then_fail)
+    mocker.patch.object(storage, "delete", side_effect=OSError("storage unavailable"))
+    error_log = mocker.patch("apps.products.services.AppLogger.log_system_error")
+
+    with pytest.raises(RuntimeError, match="database failure"):
+        create_product_image_service(
+            product=product,
+            image_file=image_file("cleanup-failure.jpg"),
+            is_primary=False,
+            display_order=0,
+        )
+
+    assert len(storage.listdir("products")[1]) == 1
+    error_log.assert_called_once_with(
+        msg="product_image.original_cleanup_failed",
+        include_traceback=True,
+    )
+
+
+def test_image_creation_rejects_outer_transaction_before_storing_file(image_file):
+    product = ProductFactory()
+    storage = ProductImage._meta.get_field("image").storage
+
+    with transaction.atomic():
+        with pytest.raises(RuntimeError, match="durable atomic block"):
+            create_product_image_service(
+                product=product,
+                image_file=image_file("nested-transaction.jpg"),
+                is_primary=False,
+                display_order=0,
+            )
+
+    assert not ProductImage.objects.filter(product=product).exists()
+    assert storage.exists("products/nested-transaction.jpg") is False
+
+
 def test_image_delete_removes_original_and_thumbnail_after_commit(
     django_capture_on_commit_callbacks,
 ):
@@ -194,9 +297,31 @@ def test_image_delete_removes_original_and_thumbnail_after_commit(
     thumbnail_name = product_image.thumbnail.name
 
     with django_capture_on_commit_callbacks(execute=True):
-        delete_product_image_service(product_image=product_image)
+        deleted = delete_product_image_service(product_image=product_image)
 
+    assert deleted is True
     assert not ProductImage.objects.filter(pk=product_image.pk).exists()
+    assert storage.exists(image_name) is False
+    assert storage.exists(thumbnail_name) is False
+
+
+def test_image_delete_reloads_thumbnail_before_scheduling_file_cleanup(
+    django_capture_on_commit_callbacks,
+):
+    stale_product_image = ProductImageFactory()
+    current_product_image = ProductImage.objects.get(pk=stale_product_image.pk)
+    current_product_image.thumbnail.save(
+        "late-thumbnail.webp",
+        ContentFile(b"thumbnail"),
+        save=True,
+    )
+    storage = stale_product_image.image.storage
+    image_name = stale_product_image.image.name
+    thumbnail_name = current_product_image.thumbnail.name
+
+    with django_capture_on_commit_callbacks(execute=True):
+        delete_product_image_service(product_image=stale_product_image)
+
     assert storage.exists(image_name) is False
     assert storage.exists(thumbnail_name) is False
 
@@ -211,10 +336,60 @@ def test_product_delete_removes_all_image_files_after_commit(
     names = [first.image.name, second.image.name]
 
     with django_capture_on_commit_callbacks(execute=True):
-        delete_product_service(product=product)
+        deleted = delete_product_service(product=product)
 
+    assert deleted is True
     assert not Product.objects.filter(pk=product.pk).exists()
     assert all(storage.exists(name) is False for name in names)
+
+
+def test_product_delete_ignores_stale_prefetch_when_collecting_image_names(
+    django_capture_on_commit_callbacks,
+):
+    product_image = ProductImageFactory()
+    stale_product = Product.objects.prefetch_related("images").get(
+        pk=product_image.product_id
+    )
+    list(stale_product.images.all())
+    current_product_image = ProductImage.objects.get(pk=product_image.pk)
+    current_product_image.thumbnail.save(
+        "late-product-thumbnail.webp",
+        ContentFile(b"thumbnail"),
+        save=True,
+    )
+    storage = product_image.image.storage
+    thumbnail_name = current_product_image.thumbnail.name
+
+    with django_capture_on_commit_callbacks(execute=True):
+        delete_product_service(product=stale_product)
+
+    assert storage.exists(thumbnail_name) is False
+
+
+def test_product_delete_reports_when_resolved_row_has_vanished(
+    django_capture_on_commit_callbacks,
+):
+    stale_product = ProductFactory()
+    Product.objects.filter(pk=stale_product.pk).delete()
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        deleted = delete_product_service(product=stale_product)
+
+    assert deleted is False
+    assert callbacks == []
+
+
+def test_image_delete_reports_when_resolved_row_has_vanished(
+    django_capture_on_commit_callbacks,
+):
+    stale_product_image = ProductImageFactory()
+    ProductImage.objects.filter(pk=stale_product_image.pk).delete()
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        deleted = delete_product_image_service(product_image=stale_product_image)
+
+    assert deleted is False
+    assert callbacks == []
 
 
 def test_rolled_back_image_delete_preserves_row_and_file():

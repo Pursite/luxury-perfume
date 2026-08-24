@@ -413,6 +413,27 @@ class TestProductDetailAPIView:
 
         assert api_client.get(url).status_code == status.HTTP_404_NOT_FOUND
 
+    def test_delete_returns_not_found_when_product_vanishes_before_lock(
+        self,
+        api_client,
+        admin_user,
+        mocker,
+    ):
+        product = ProductFactory()
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_slug": product.slug},
+        )
+        api_client.force_authenticate(user=admin_user)
+        mocker.patch(
+            "apps.products.views.delete_product_service",
+            return_value=False,
+        )
+
+        response = api_client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 @pytest.mark.django_db
 class TestProductImageAPIView:
@@ -494,6 +515,27 @@ class TestProductImageAPIView:
         assert api_client.delete(url).status_code == status.HTTP_204_NO_CONTENT
         assert not ProductImage.objects.filter(id=image.id).exists()
         assert api_client.delete(url).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_returns_not_found_when_image_vanishes_before_lock(
+        self,
+        api_client,
+        admin_user,
+        mocker,
+    ):
+        image = ProductImageFactory()
+        url = reverse(
+            "apps.products:product-image-delete",
+            kwargs={"image_id": image.id},
+        )
+        api_client.force_authenticate(user=admin_user)
+        mocker.patch(
+            "apps.products.views.delete_product_image_service",
+            return_value=False,
+        )
+
+        response = api_client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db

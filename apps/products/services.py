@@ -1,5 +1,7 @@
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from django.db import transaction
 
@@ -92,20 +94,27 @@ def update_product_service(
 
 
 @transaction.atomic
-def delete_product_service(*, product: Product) -> None:
+def delete_product_service(*, product: Product) -> bool:
     """Delete a product and schedule uploaded-file removal after commit."""
+    try:
+        locked_product = Product.objects.select_for_update().get(pk=product.pk)
+    except Product.DoesNotExist:
+        return False
+    product_images = list(
+        ProductImage.objects.select_for_update().filter(product=locked_product)
+    )
     image_names = [
         field.name
-        for image in product.images.all()
+        for image in product_images
         for field in (image.image, image.thumbnail)
         if field.name
     ]
     storage = ProductImage._meta.get_field("image").storage
-    product.delete()
+    locked_product.delete()
     transaction.on_commit(lambda: _delete_files(storage, image_names))
+    return True
 
 
-@transaction.atomic
 def create_product_image_service(
     *,
     product: Product,
@@ -114,34 +123,73 @@ def create_product_image_service(
     display_order: int,
 ) -> ProductImage:
     """Create an image while atomically enforcing one primary image per product."""
-    if is_primary:
-        Product.objects.select_for_update().get(pk=product.pk)
-        ProductImage.objects.filter(product=product, is_primary=True).update(
-            is_primary=False
-        )
-
-    product_image = ProductImage.objects.create(
+    product_image = ProductImage(
         product=product,
         image=image_file,
         is_primary=is_primary,
         display_order=display_order,
     )
-    transaction.on_commit(lambda: _enqueue_thumbnail(product_image.id))
+    product_image.image.name = _unique_original_name(product_image.image.name)
+    image_was_committed = product_image.image._committed
+
+    try:
+        with transaction.atomic(durable=True):
+            if is_primary:
+                Product.objects.select_for_update().get(pk=product.pk)
+                ProductImage.objects.filter(product=product, is_primary=True).update(
+                    is_primary=False
+                )
+
+            product_image.save(force_insert=True)
+            transaction.on_commit(lambda: _enqueue_thumbnail(product_image.id))
+    except Exception:
+        if not image_was_committed and product_image.image._committed:
+            _delete_unreferenced_original(product_image)
+        raise
+
     return product_image
 
 
+def _unique_original_name(original_name: str) -> str:
+    """Return a collision-resistant key while preserving the validated suffix."""
+    return f"{uuid4().hex}{Path(original_name).suffix.lower()}"
+
+
+def _delete_unreferenced_original(product_image: ProductImage) -> None:
+    image_name = product_image.image.name
+    if not image_name:
+        return
+
+    try:
+        if ProductImage.objects.filter(image=image_name).exists():
+            return
+        product_image.image.storage.delete(image_name)
+    except Exception:
+        AppLogger.log_system_error(
+            msg="product_image.original_cleanup_failed",
+            include_traceback=True,
+        )
+
+
 @transaction.atomic
-def delete_product_image_service(*, product_image: ProductImage) -> None:
+def delete_product_image_service(*, product_image: ProductImage) -> bool:
     """Delete an image record and delete its object-storage file after commit."""
+    try:
+        locked_product_image = ProductImage.objects.select_for_update().get(
+            pk=product_image.pk
+        )
+    except ProductImage.DoesNotExist:
+        return False
     image_names = [
         field.name
-        for field in (product_image.image, product_image.thumbnail)
+        for field in (locked_product_image.image, locked_product_image.thumbnail)
         if field.name
     ]
-    storage = product_image.image.storage
-    product_image.delete()
+    storage = locked_product_image.image.storage
+    locked_product_image.delete()
     if image_names:
         transaction.on_commit(lambda: _delete_files(storage, image_names))
+    return True
 
 
 def _delete_files(storage: Any, image_names: Iterable[str]) -> None:

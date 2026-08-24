@@ -1,3 +1,4 @@
+from django.http import Http404
 from rest_framework import permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -172,7 +173,8 @@ class ProductDetailAPIView(APIView):
     def delete(self, request, *args, **kwargs):
         product = self.get_object()
         product_sku = product.sku
-        delete_product_service(product=product)
+        if not delete_product_service(product=product):
+            raise Http404
         AppLogger.log_activity(msg=f"Product deleted: {product_sku}", user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -217,7 +219,8 @@ class ProductImageDeleteAPIView(APIView):
     def delete(self, request, image_id, *args, **kwargs):
         product_image = get_product_image_by_id(image_id=image_id)
         product_sku = product_image.product.sku
-        delete_product_image_service(product_image=product_image)
+        if not delete_product_image_service(product_image=product_image):
+            raise Http404
         AppLogger.log_activity(
             msg=f"Image deleted for product: {product_sku}",
             user=request.user,
