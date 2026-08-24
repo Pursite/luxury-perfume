@@ -1,8 +1,9 @@
 from io import BytesIO
-from pathlib import Path
+import warnings
 
 from celery import shared_task
 from django.core.files.base import ContentFile
+from django.db import transaction
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from apps.lib.loggers import AppLogger
@@ -23,42 +24,143 @@ THUMBNAIL_SIZE = (600, 600)
 def generate_product_image_thumbnail(product_image_id: int) -> None:
     """Generate a WebP thumbnail without delaying an image-upload response."""
     generated_thumbnail_name = None
-    try:
-        product_image = ProductImage.objects.get(pk=product_image_id)
-    except ProductImage.DoesNotExist:
-        return
+    cleanup_attempted = False
 
     try:
-        with product_image.image.open("rb") as image_file:
-            image = Image.open(image_file)
-            image.load()
-            image = ImageOps.exif_transpose(image)
-            if image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGB")
-            image.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
-
-            output = BytesIO()
-            image.save(output, format="WEBP", quality=82, method=6)
-
-        thumbnail_name = f"{Path(product_image.image.name).stem}-thumbnail.webp"
-        product_image.thumbnail.save(
-            thumbnail_name,
-            ContentFile(output.getvalue()),
-            save=False,
-        )
-        generated_thumbnail_name = product_image.thumbnail.name
-        product_image.save(update_fields=["thumbnail", "updated_at"])
-    except Exception:
-        if generated_thumbnail_name:
+        with transaction.atomic():
             try:
-                product_image.thumbnail.storage.delete(generated_thumbnail_name)
-            except Exception:
-                AppLogger.log_system_error(
-                    msg="product_image.thumbnail_cleanup_failed",
-                    include_traceback=True,
+                product_image = ProductImage.objects.select_for_update().get(
+                    pk=product_image_id
                 )
+            except ProductImage.DoesNotExist:
+                return
+
+            storage = product_image.thumbnail.storage
+            current_thumbnail_name = product_image.thumbnail.name
+            if current_thumbnail_name and _stored_thumbnail_is_valid(
+                storage,
+                current_thumbnail_name,
+            ):
+                return
+            invalid_thumbnail_name = current_thumbnail_name or None
+
+            with product_image.image.open("rb") as image_file:
+                image = Image.open(image_file)
+                image.load()
+                image = ImageOps.exif_transpose(image)
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGB")
+                image.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+
+                output = BytesIO()
+                image.save(output, format="WEBP", quality=82, method=6)
+
+            thumbnail_field = ProductImage._meta.get_field("thumbnail")
+            thumbnail_name = thumbnail_field.generate_filename(
+                product_image,
+                f"by-image-id/{product_image.id}/thumbnail.webp",
+            )
+            if storage.exists(thumbnail_name):
+                if ProductImage.objects.exclude(pk=product_image.id).filter(
+                    thumbnail=thumbnail_name
+                ).exists():
+                    raise OSError("Deterministic thumbnail name is already referenced")
+                storage.delete(thumbnail_name)
+                if storage.exists(thumbnail_name):
+                    raise OSError("Deterministic thumbnail name remains unavailable")
+
+            try:
+                with transaction.atomic():
+                    generated_thumbnail_name = storage.save(
+                        thumbnail_name,
+                        ContentFile(output.getvalue()),
+                        max_length=thumbnail_field.max_length,
+                    )
+                    if generated_thumbnail_name != thumbnail_name:
+                        raise OSError(
+                            "Storage changed the deterministic thumbnail name"
+                        )
+
+                    product_image.thumbnail.name = generated_thumbnail_name
+                    product_image.save(update_fields=["thumbnail", "updated_at"])
+                    if invalid_thumbnail_name:
+                        transaction.on_commit(
+                            lambda: _delete_unreferenced_thumbnail(
+                                storage,
+                                invalid_thumbnail_name,
+                            )
+                        )
+            except Exception:
+                if generated_thumbnail_name:
+                    cleanup_attempted = True
+                    _delete_unreferenced_thumbnail(storage, generated_thumbnail_name)
+                raise
+    except Exception:
+        if generated_thumbnail_name and not cleanup_attempted:
+            _delete_thumbnail_after_transaction_failure(
+                product_image_id=product_image_id,
+                storage=storage,
+                thumbnail_name=generated_thumbnail_name,
+            )
         AppLogger.log_system_error(
             msg="product_image.thumbnail_generation_failed",
             include_traceback=True,
         )
         raise
+
+
+def _stored_thumbnail_is_valid(storage, thumbnail_name: str) -> bool:
+    if not storage.exists(thumbnail_name):
+        return False
+
+    try:
+        with storage.open(thumbnail_name, "rb") as thumbnail_file:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                image = Image.open(thumbnail_file)
+                image.load()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+        SyntaxError,
+        UnidentifiedImageError,
+    ):
+        return False
+    return image.format == "WEBP"
+
+
+def _delete_unreferenced_thumbnail(storage, thumbnail_name: str) -> None:
+    try:
+        _delete_thumbnail_if_unreferenced(storage, thumbnail_name)
+    except Exception:
+        AppLogger.log_system_error(
+            msg="product_image.thumbnail_cleanup_failed",
+            include_traceback=True,
+        )
+
+
+def _delete_thumbnail_after_transaction_failure(
+    *,
+    product_image_id: int,
+    storage,
+    thumbnail_name: str,
+) -> None:
+    try:
+        with transaction.atomic():
+            try:
+                ProductImage.objects.select_for_update().get(pk=product_image_id)
+            except ProductImage.DoesNotExist:
+                pass
+            _delete_thumbnail_if_unreferenced(storage, thumbnail_name)
+    except Exception:
+        AppLogger.log_system_error(
+            msg="product_image.thumbnail_cleanup_failed",
+            include_traceback=True,
+        )
+
+
+def _delete_thumbnail_if_unreferenced(storage, thumbnail_name: str) -> None:
+    if ProductImage.objects.filter(thumbnail=thumbnail_name).exists():
+        return
+    storage.delete(thumbnail_name)

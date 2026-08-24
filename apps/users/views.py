@@ -10,7 +10,7 @@ from .services.signup_otp_service import SendOTPService
 from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
 from .services.profile_phone_service import ProfilePhoneVerificationService
-from .selectors import UserSelector
+from .jwt import issue_tokens_for_user
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
 from ..lib.loggers import AppLogger
@@ -51,7 +51,7 @@ class UserSignupAPIView(APIView):
         return Response(
             {
                 "user": output_serializer.data,
-                "tokens": UserSelector.generate_tokens_for_user(user),
+                "tokens": issue_tokens_for_user(user),
             },
             status=status.HTTP_201_CREATED,
         )

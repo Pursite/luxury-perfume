@@ -87,6 +87,25 @@ def test_product_model_validation_rejects_non_lower_discount():
 
 
 @pytest.mark.parametrize(
+    ("slug", "message"),
+    [
+        ("Aurora-Parfum", "Slug must use lowercase characters."),
+        (
+            "550e8400-e29b-41d4-a716-446655440000",
+            "Slug must not use canonical UUID syntax.",
+        ),
+    ],
+)
+def test_product_model_rejects_noncanonical_public_slug(slug, message):
+    product = ProductFactory.build(slug=slug)
+
+    with pytest.raises(ValidationError) as exc_info:
+        product.full_clean()
+
+    assert exc_info.value.message_dict["slug"] == [message]
+
+
+@pytest.mark.parametrize(
     ("overrides", "invalid_field"),
     [
         ({"volume_ml": 0}, "volume_ml"),

@@ -15,6 +15,27 @@ def validate_introduction_year(value: int) -> None:
         raise ValidationError("Introduction year cannot be in the future.")
 
 
+def validate_public_product_slug(value: str) -> None:
+    if value != value.lower():
+        raise ValidationError("Slug must use lowercase characters.")
+
+    try:
+        parsed_uuid = uuid.UUID(value)
+    except (AttributeError, TypeError, ValueError):
+        return
+    if str(parsed_uuid) == value:
+        raise ValidationError("Slug must not use canonical UUID syntax.")
+
+
+def validate_product_pricing(price, discount_price) -> None:
+    if price is not None and discount_price is not None and discount_price >= price:
+        raise ValidationError({
+            "discount_price": (
+                "Discount price must be strictly lower than regular price."
+            ),
+        })
+
+
 class Category(BaseModel):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, unique=True)
@@ -88,7 +109,7 @@ class FragranceNote(BaseModel):
 
 
 class Product(BaseModel):
-    """A product with an internal integer key and a public UUID."""
+    """A product with an internal integer key, stable UUID, and public slug."""
 
     class Concentration(models.TextChoices):
         UNSPECIFIED = "unspecified", "Unspecified"
@@ -258,14 +279,11 @@ class Product(BaseModel):
 
     def clean(self) -> None:
         super().clean()
-        if (
-            self.price is not None
-            and self.discount_price is not None
-            and self.discount_price >= self.price
-        ):
-            raise ValidationError({
-                "discount_price": "Discount price must be strictly lower than regular price.",
-            })
+        try:
+            validate_public_product_slug(self.slug)
+        except ValidationError as exc:
+            raise ValidationError({"slug": exc.messages}) from exc
+        validate_product_pricing(self.price, self.discount_price)
 
     @property
     def final_price(self):

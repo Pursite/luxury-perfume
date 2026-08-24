@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.lib.image_validation import (
@@ -11,6 +12,8 @@ from apps.products.models import (
     Product,
     ProductFragranceNote,
     ProductImage,
+    validate_product_pricing,
+    validate_public_product_slug,
 )
 
 
@@ -248,6 +251,14 @@ class ProductWriteInputSerializer(serializers.ModelSerializer):
     def validate_barcode(self, value):
         return value or None
 
+    def validate_slug(self, value):
+        validate_public_product_slug(value)
+        if self.instance is not None and value != self.instance.slug:
+            raise serializers.ValidationError(
+                "Slug cannot be changed after product creation."
+            )
+        return value
+
     def _validate_note_layer(self, notes):
         if len(notes) != len({note.pk for note in notes}):
             raise serializers.ValidationError(
@@ -270,12 +281,8 @@ class ProductWriteInputSerializer(serializers.ModelSerializer):
             "discount_price",
             getattr(self.instance, "discount_price", None),
         )
-        if (
-            price is not None
-            and discount_price is not None
-            and discount_price >= price
-        ):
-            raise serializers.ValidationError({
-                "discount_price": "Discount price must be strictly lower than regular price.",
-            })
+        try:
+            validate_product_pricing(price, discount_price)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
         return attrs

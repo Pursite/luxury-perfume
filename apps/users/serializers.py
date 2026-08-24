@@ -1,7 +1,6 @@
 from rest_framework import serializers
-from django.contrib.auth import password_validation
-from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import CustomUser, Address
+from .password_policy import validate_password_policy
 from .selectors import UserSelector
 
 from django.core.validators import RegexValidator
@@ -15,14 +14,6 @@ username_regex = RegexValidator(
 PASSWORD_MAX_LENGTH = 128
 
 
-def validate_password_policy(password, user):
-    """Apply the project's single Django password policy to request input."""
-    try:
-        password_validation.validate_password(password, user=user)
-    except DjangoValidationError as exc:
-        raise serializers.ValidationError({"password": list(exc.messages)}) from exc
-
-
 class NormalizedPhoneNumberSerializer(serializers.Serializer):
     phone_number = serializers.CharField(max_length=11, trim_whitespace=False)
 
@@ -30,7 +21,7 @@ class NormalizedPhoneNumberSerializer(serializers.Serializer):
         value = CustomUser.normalize_phone_number(value)
         if not CustomUser.is_valid_phone_number(value):
             raise serializers.ValidationError(
-                "Phone number must be entered in the format: '0912345678'."
+                "Phone number must be entered in the format: '09123456789'."
             )
         return value
 
@@ -114,10 +105,10 @@ class CompleteProfileInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         validators=[username_regex],
         min_length=5,
-        max_length=12,
+        max_length=150,
         error_messages={
             'min_length': 'username must be at least 5 characters.',
-            'max_length': 'username can`t be more than 12 characters.'
+            'max_length': 'username can`t be more than 150 characters.'
         }
     )
     email = serializers.EmailField(
@@ -163,11 +154,11 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         validators=[username_regex],
         min_length=5,
-        max_length=12,
+        max_length=150,
         required=False,
         error_messages={
             'min_length': 'username must be at least 5 characters.',
-            'max_length': 'username can`t be more than 12 characters.'
+            'max_length': 'username can`t be more than 150 characters.'
         }
     )
     first_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
@@ -205,7 +196,7 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
             pk=user.pk,
             phone_number=user.phone_number,
             username=attrs.get("username", user.username),
-            email=user.email,
+            email=attrs.get("email", user.email),
             first_name=attrs.get("first_name", user.first_name),
             last_name=attrs.get("last_name", user.last_name),
         )
@@ -228,8 +219,7 @@ class PasswordResetVerifyInputSerializer(NormalizedPhoneNumberSerializer):
     )
 
     def validate(self, attrs):
-        user = UserSelector.get_user_by_phone(attrs["phone_number"])
-        validate_password_policy(attrs["password"], user)
+        validate_password_policy(attrs["password"])
         return attrs
 
 

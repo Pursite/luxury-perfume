@@ -7,7 +7,8 @@ from apps.lib.security_cache import OTPVerificationGuard
 from apps.users.models import CustomUser
 from apps.users.selectors import UserSelector
 from apps.users.tasks import send_otp_sms_task
-from apps.users.jwt import revoke_user_refresh_tokens
+from apps.users.jwt import issue_tokens_for_user, revoke_user_refresh_tokens
+from apps.users.password_policy import validate_password_policy
 
 
 class PasswordResetService:
@@ -60,20 +61,29 @@ class PasswordResetService:
     @classmethod
     def verify_and_reset_password(cls, phone_number: str, submitted_otp: str, new_password: str) -> dict:
         phone_number = CustomUser.normalize_phone_number(phone_number)
-        cls._guard(phone_number).verify(submitted_otp)
 
-        with transaction.atomic():
-            user = CustomUser.objects.select_for_update().filter(
-                phone_number=phone_number,
-                is_active=True,
-            ).first()
-            if not user:
-                raise ValidationError(cls.generic_otp_error)
-            user.set_password(new_password)
-            revoke_user_refresh_tokens(user)
-            user.save()
+        def reset_verified_user_password():
+            with transaction.atomic():
+                user = CustomUser.objects.select_for_update().filter(
+                    phone_number=phone_number,
+                    is_active=True,
+                ).first()
+                if not user:
+                    return None
+                validate_password_policy(new_password, user)
+                user.set_password(new_password)
+                revoke_user_refresh_tokens(user)
+                user.save()
+                return user
 
-        tokens = UserSelector.generate_tokens_for_user(user)
+        user = cls._guard(phone_number).verify(
+            submitted_otp,
+            on_success=reset_verified_user_password,
+        )
+        if user is None:
+            raise ValidationError(cls.generic_otp_error)
+
+        tokens = issue_tokens_for_user(user)
 
         AppLogger.log_activity(msg="User password reset successfully via OTP", user=user, status="INFO")
 

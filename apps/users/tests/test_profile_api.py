@@ -139,6 +139,35 @@ class TestProfileFlow:
         user.refresh_from_db()
         assert user.check_password("NewStrongPass123!@") is True
 
+    def test_update_profile_rejects_password_similar_to_new_email_without_persisting(
+        self,
+        api_client,
+    ):
+        user = UserFactory(
+            username="profile_customer",
+            email="previous@example.com",
+            first_name="Profile",
+            last_name="Customer",
+        )
+        user.set_password("OldStrongPass123!")
+        user.save(update_fields=["password"])
+        api_client.force_authenticate(user=user)
+
+        response = api_client.patch(
+            self.UPDATE_PROFILE_URL,
+            {
+                "email": "nextidentity@example.com",
+                "password": "nextidentity@example.com123!",
+            },
+            format="json",
+        )
+
+        user.refresh_from_db()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "password" in response.data
+        assert user.email == "previous@example.com"
+        assert user.check_password("OldStrongPass123!")
+
     def test_update_profile_reuses_an_owned_address_without_creating_a_duplicate(
         self,
         api_client,

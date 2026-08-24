@@ -1,4 +1,6 @@
+from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.db.models import Case, IntegerField, Value, When
 
 from apps.products.models import (
@@ -9,10 +11,55 @@ from apps.products.models import (
     ProductFragranceNote,
     ProductImage,
 )
+from apps.products.serializers import ProductImageUploadInputSerializer
+from apps.products.services import (
+    cleanup_product_image_original_after_rollback,
+    create_product_image_in_transaction_service,
+    delete_product_image_service,
+    delete_product_service,
+    delete_products_service,
+    update_product_image_service,
+)
+
+
+class ProductImageInlineForm(forms.ModelForm):
+    class Meta:
+        model = ProductImage
+        fields = ("image", "is_primary", "display_order")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        uploaded_image = self.files.get(self.add_prefix("image"))
+        if uploaded_image is not None:
+            uploaded_image.declared_mime_type = uploaded_image.content_type
+
+    def clean(self):
+        cleaned_data = super().clean()
+        self._validate_constraints = False
+        return cleaned_data
+
+    def clean_image(self):
+        image = self.cleaned_data.get("image")
+        if image is None:
+            return image
+        if self.instance.pk:
+            if "image" in self.changed_data:
+                raise ValidationError(
+                    "Delete this image and add a new one to replace its file."
+                )
+            return image
+
+        serializer = ProductImageUploadInputSerializer(data={"image": image})
+        if not serializer.is_valid():
+            raise ValidationError([
+                str(message) for message in serializer.errors.get("image", ())
+            ])
+        return serializer.validated_data["image"]
 
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
+    form = ProductImageInlineForm
     extra = 1
     fields = ("image", "is_primary", "display_order")
 
@@ -96,6 +143,63 @@ class ProductAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = ("uuid",)
     inlines = [ProductFragranceNoteInline, ProductImageInline]
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        request._created_product_images = []
+        try:
+            return super().changeform_view(
+                request,
+                object_id=object_id,
+                form_url=form_url,
+                extra_context=extra_context,
+            )
+        except Exception:
+            for product_image in request._created_product_images:
+                cleanup_product_image_original_after_rollback(product_image)
+            raise
+        finally:
+            del request._created_product_images
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is not ProductImage:
+            return super().save_formset(request, form, formset, change)
+
+        formset.save(commit=False)
+        for product_image in formset.deleted_objects:
+            delete_product_image_service(product_image=product_image)
+        for product_image, _changed_fields in formset.changed_objects:
+            update_product_image_service(
+                product_image=product_image,
+                is_primary=product_image.is_primary,
+                display_order=product_image.display_order,
+            )
+        for product_image in formset.new_objects:
+            created_image = create_product_image_in_transaction_service(
+                product=formset.instance,
+                image_file=product_image.image.file,
+                is_primary=product_image.is_primary,
+                display_order=product_image.display_order,
+            )
+            request._created_product_images.append(created_image)
+        formset.save_m2m()
+
+    def delete_model(self, request, obj):
+        delete_product_service(product=obj)
+
+    def delete_queryset(self, request, queryset):
+        delete_products_service(
+            product_ids=queryset.values_list("pk", flat=True),
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return super().get_readonly_fields(request, obj)
+        return (*super().get_readonly_fields(request, obj), "slug")
+
+    def get_prepopulated_fields(self, request, obj=None):
+        if obj is not None:
+            return {}
+        return super().get_prepopulated_fields(request, obj)
 
     fieldsets = (
         (

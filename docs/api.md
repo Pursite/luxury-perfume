@@ -36,6 +36,9 @@ Refresh responses rotate the submitted refresh token and blacklist its prior
 value. Password changes invalidate older access and refresh tokens. Detailed
 security behavior is in [authentication.md](authentication.md).
 
+Usernames supplied by signup, profile completion, or profile update must be
+5–150 ASCII letters, digits, or underscores.
+
 The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
 
 ## Products
@@ -44,16 +47,18 @@ The `address` accepted by profile completion has `title`, `full_address`, and op
 | --- | --- | --- | --- |
 | `GET /products/` | Public | Lists active products | 200; paginated product list |
 | `POST /products/` | Authenticated staff only | Product write fields | 201; product detail |
-| `GET /products/<product_uuid>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
-| `PUT /products/<product_uuid>/` | Authenticated staff only | Complete product write fields | 200; product detail |
-| `PATCH /products/<product_uuid>/` | Authenticated staff only | Partial product write fields | 200; product detail |
-| `DELETE /products/<product_uuid>/` | Authenticated staff only | — | 204; no body |
-| `POST /products/<product_uuid>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
+| `GET /products/<product_slug>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
+| `PUT /products/<product_slug>/` | Authenticated staff only | Complete product write fields | 200; product detail |
+| `PATCH /products/<product_slug>/` | Authenticated staff only | Partial product write fields | 200; product detail |
+| `DELETE /products/<product_slug>/` | Authenticated staff only | — | 204; no body |
+| `POST /products/<product_slug>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
 | `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
 
-`product_uuid` is a UUID. Product write fields are `category`, optional nullable
-`brand`, `name`, `slug`, `sku`, `description`, `price`, optional
-`discount_price`, `stock`, `volume_ml`, optional `country_of_origin`,
+`product_slug` is the product's exact, case-sensitive public slug. Product
+slugs must be lowercase, cannot use canonical UUID syntax, and cannot change
+after creation. UUID product URLs are not supported. Product write fields are
+`category`, optional nullable `brand`, `name`, `slug`, `sku`, `description`,
+`price`, optional `discount_price`, `stock`, `volume_ml`, optional `country_of_origin`,
 `concentration`, `target_audience`, `fragrance_family`, optional nullable
 `introduction_year`, `suitable_season`, `suitable_usage_time`, optional
 nullable `barcode`, optional UUID arrays `top_notes`, `middle_notes`, and
@@ -86,6 +91,9 @@ summaries have `uuid`, `name`, and `slug`; brand
 summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 `is_primary`, and `display_order`.
 
+The product `uuid` remains a stable response identifier but is not a URL lookup
+value.
+
 ### Fragrance choices
 
 - `concentration`: `unspecified`, `extrait_de_parfum`, `parfum`,
@@ -108,8 +116,10 @@ summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 - Ordering: `ordering` with `price`, `created_at`, `introduction_year`, `stock`,
   `name`, or `volume_ml`; prefix a field with `-` for descending order.
   Default: `-created_at`.
-- Filters: UUID `category`, UUID `brand`, boolean `is_featured`, exact
-  case-insensitive `country_of_origin`, exact `concentration`,
+- Filters: category slug `category` (for example, `?category=men`; includes
+  products in that category and every descendant category), UUID `brand`,
+  boolean `is_featured`, exact case-insensitive `country_of_origin`, exact
+  `concentration`,
   `target_audience`, `fragrance_family`, `introduction_year`,
   `suitable_season`, `suitable_usage_time`, UUID `note` across all three note
   layers, `min_price`, `max_price`, and boolean `in_stock` (`true` selects
@@ -138,7 +148,7 @@ account state. Cache behavior does not change visibility rules.
 
 ### Image upload
 
-`POST /api/v1/products/<product_uuid>/images/upload/` requires `multipart/form-data` with:
+`POST /api/v1/products/<product_slug>/images/upload/` requires `multipart/form-data` with:
 
 - `image` — required JPEG, PNG, or WebP upload.
 - `is_primary` — optional boolean, default `false`.

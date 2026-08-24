@@ -37,8 +37,8 @@ class OTPVerificationGuard:
         except Exception as exc:
             raise SecurityCacheUnavailable from exc
 
-    def verify(self, submitted: str) -> None:
-        lease = f"{self.prefix}:lease"
+    def verify(self, submitted: str, on_success=None):
+        lease = self.lease_key
         try:
             if self.cache.get(self.lock_key):
                 raise Throttled(
@@ -61,7 +61,9 @@ class OTPVerificationGuard:
                     if self.cache.incr(self.attempts_key) >= settings.OTP_VERIFICATION_MAX_ATTEMPTS:
                         self.cache.set(self.lock_key, 1, settings.OTP_VERIFICATION_LOCK_SECONDS)
                     raise ValidationError({"otp": "Invalid or expired verification code."})
+                result = on_success() if on_success is not None else None
                 self.cache.delete_many([self.code_key, self.attempts_key, self.lock_key])
+                return result
             finally:
                 self.cache.delete(lease)
         except (Throttled, ValidationError):

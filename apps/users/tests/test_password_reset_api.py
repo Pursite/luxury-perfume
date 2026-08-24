@@ -185,6 +185,93 @@ class TestPasswordResetAPI:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "password" in response.data
 
+    def test_password_reset_does_not_expose_user_specific_validation_before_otp(
+        self,
+        api_client,
+    ):
+        existing_phone = "09123456789"
+        unknown_phone = "09123456788"
+        UserFactory(
+            username="reset_customer",
+            email="resetidentity@example.com",
+            phone_number=existing_phone,
+        )
+        payload = {
+            "otp": "123456",
+            "password": "resetidentity@example.com123!",
+        }
+
+        existing_response = api_client.post(
+            self.verify_and_reset_url,
+            {**payload, "phone_number": existing_phone},
+            format="json",
+            REMOTE_ADDR="198.51.100.10",
+        )
+        unknown_response = api_client.post(
+            self.verify_and_reset_url,
+            {**payload, "phone_number": unknown_phone},
+            format="json",
+            REMOTE_ADDR="198.51.100.11",
+        )
+
+        assert existing_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert unknown_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert existing_response.data == unknown_response.data == {
+            "otp": "Invalid or expired verification code.",
+        }
+
+    def test_password_reset_rejects_verified_user_similar_password_without_consuming_otp(
+        self,
+        api_client,
+        mocker,
+    ):
+        phone_number = "09123456789"
+        user = UserFactory(
+            username="reset_customer",
+            email="resetidentity@example.com",
+            phone_number=phone_number,
+        )
+        user.set_password("OldStrongPass123!")
+        user.save(update_fields=["password"])
+        mocker.patch.object(
+            PasswordResetService,
+            "_generate_otp_code",
+            return_value="123456",
+        )
+        mocker.patch(
+            "apps.users.services.pass_reset_service.send_otp_sms_task.delay"
+        )
+        api_client.post(
+            self.send_reset_otp_url,
+            {"phone_number": phone_number},
+            format="json",
+        )
+
+        rejected_response = api_client.post(
+            self.verify_and_reset_url,
+            {
+                "phone_number": phone_number,
+                "otp": "123456",
+                "password": "resetidentity@example.com123!",
+            },
+            format="json",
+        )
+        success_response = api_client.post(
+            self.verify_and_reset_url,
+            {
+                "phone_number": phone_number,
+                "otp": "123456",
+                "password": "NewStrongPass123!",
+            },
+            format="json",
+        )
+
+        user.refresh_from_db()
+        assert rejected_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "password" in rejected_response.data
+        assert success_response.status_code == status.HTTP_200_OK
+        assert user.check_password("NewStrongPass123!")
+
     def test_password_reset_does_not_disclose_inactive_account_state(
         self,
         api_client,

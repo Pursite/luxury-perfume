@@ -38,8 +38,12 @@ class TestCustomUserManager:
         assert both_user.phone_number == "09123456788"
 
     def test_create_user_runs_model_validation_for_invalid_phone_numbers(self):
-        with pytest.raises(DjangoValidationError, match="Phone number must be entered"):
-            CustomUser.objects.create_user(phone_number="not-a-phone-number")
+        with pytest.raises(DjangoValidationError) as exc_info:
+            CustomUser.objects.create_user(phone_number="invalid")
+
+        assert exc_info.value.message_dict["phone_number"] == [
+            "Phone number must be entered in the format: '09123456789'."
+        ]
 
     @pytest.mark.parametrize("phone_number", ["۰۹۱۲۳۴۵۶۷۸۹", "0912345678۹"])
     def test_phone_numbers_reject_non_ascii_digits(self, phone_number):

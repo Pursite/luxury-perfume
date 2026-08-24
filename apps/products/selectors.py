@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
@@ -31,10 +29,10 @@ def get_public_products_queryset(*, request, view) -> QuerySet[Product]:
     return OrderingFilter().filter_queryset(request, queryset, view)
 
 
-def get_product_by_uuid(
-    *, product_uuid: UUID | str, include_inactive: bool = False
+def get_product_by_slug(
+    *, product_slug: str, include_inactive: bool = False
 ) -> Product:
-    """Fetch a product by its public UUID, with relations needed for detail output."""
+    """Fetch a product by its public slug, with relations needed for detail output."""
     queryset = Product.objects.select_related("category", "brand").prefetch_related(
         "images",
         Prefetch(
@@ -47,15 +45,15 @@ def get_product_by_uuid(
     )
     if not include_inactive:
         queryset = queryset.filter(is_active=True)
-    return get_object_or_404(queryset, uuid=product_uuid)
+    return get_object_or_404(queryset, slug=product_slug)
 
 
 def get_product_detail(
-    *, product_uuid: UUID | str, include_inactive: bool = False
+    *, product_slug: str, include_inactive: bool = False
 ) -> Product:
-    """Semantic alias for the UUID-backed detail query."""
-    return get_product_by_uuid(
-        product_uuid=product_uuid,
+    """Semantic alias for the slug-backed detail query."""
+    return get_product_by_slug(
+        product_slug=product_slug,
         include_inactive=include_inactive,
     )
 

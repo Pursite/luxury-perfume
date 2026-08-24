@@ -62,6 +62,57 @@ def test_product_update_serializer_rejects_discount_equal_to_existing_price():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("slug", "message"),
+    [
+        ("Aurora-Parfum", "Slug must use lowercase characters."),
+        (
+            "550e8400-e29b-41d4-a716-446655440000",
+            "Slug must not use canonical UUID syntax.",
+        ),
+    ],
+)
+def test_product_write_serializer_rejects_noncanonical_public_slug(
+    product_payload,
+    slug,
+    message,
+):
+    serializer = ProductWriteInputSerializer(
+        data={**product_payload, "slug": slug},
+    )
+
+    assert serializer.is_valid() is False
+    assert str(serializer.errors["slug"][0]) == message
+
+
+@pytest.mark.django_db
+def test_product_write_serializer_accepts_non_uuid_slug(product_payload):
+    serializer = ProductWriteInputSerializer(
+        data={
+            **product_payload,
+            "slug": "550e8400e29b41d4a716446655440000",
+        },
+    )
+
+    assert serializer.is_valid(), serializer.errors
+
+
+@pytest.mark.django_db
+def test_product_update_serializer_rejects_slug_change():
+    product = ProductFactory(slug="original-slug")
+    serializer = ProductWriteInputSerializer(
+        product,
+        data={"slug": "replacement-slug"},
+        partial=True,
+    )
+
+    assert serializer.is_valid() is False
+    assert str(serializer.errors["slug"][0]) == (
+        "Slug cannot be changed after product creation."
+    )
+
+
+@pytest.mark.django_db
 def test_product_write_serializer_accepts_reusable_fragrance_notes(product_payload):
     bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
     jasmine = FragranceNoteFactory(name="Jasmine", slug="jasmine")

@@ -7,6 +7,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from apps.products.cache import (
+    CATALOG_CACHE_SCHEMA,
     CACHE_VERSION_KEY,
     get_catalog_cache_version,
     invalidate_product_api_cache,
@@ -22,7 +23,7 @@ def test_public_detail_response_is_reused_until_namespace_invalidation(api_clien
     product = ProductFactory(name="Cached name")
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     first_response = api_client.get(url)
@@ -41,7 +42,7 @@ def test_nonstaff_detail_reuses_anonymous_public_cache(api_client, normal_user):
     product = ProductFactory(name="Cached public detail")
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     anonymous_response = api_client.get(url)
@@ -77,7 +78,7 @@ def test_staff_detail_bypasses_shared_public_cache(api_client, admin_user):
     product = ProductFactory(name="Cached public detail")
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     assert api_client.get(url).data["name"] == "Cached public detail"
@@ -94,7 +95,7 @@ def test_staff_inactive_detail_does_not_populate_public_cache(api_client, admin_
     product = ProductFactory(is_active=False)
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     api_client.force_authenticate(user=admin_user)
@@ -128,7 +129,7 @@ def test_inactive_products_are_hidden_from_anonymous_and_nonstaff_users(
     list_url = reverse("apps.products:product-list")
     detail_url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     anonymous_list = api_client.get(list_url)
@@ -151,7 +152,7 @@ def test_committed_catalogue_change_invalidates_shared_public_detail_cache(
     product = ProductFactory(name="Before commit")
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     assert api_client.get(url).data["name"] == "Before commit"
@@ -165,13 +166,16 @@ def test_committed_catalogue_change_invalidates_shared_public_detail_cache(
 
 
 @pytest.mark.django_db
-def test_current_catalog_does_not_reuse_pre_ordered_note_cache_entries(api_client):
+def test_slug_detail_does_not_reuse_pre_cutover_uuid_cache_entry(api_client):
     product = ProductFactory(name="Current fragrance")
-    legacy_key = f"products:v1:detail:{product.uuid}"
+    legacy_key = (
+        f"products:{CATALOG_CACHE_SCHEMA}:v{get_catalog_cache_version()}:"
+        f"detail:{product.uuid}"
+    )
     caches["default"].set(legacy_key, {"name": "Obsolete cached fragrance"})
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
 
     response = api_client.get(url)
@@ -249,7 +253,7 @@ def test_note_only_service_update_invalidates_a_cached_detail(api_client):
     note = FragranceNoteFactory(name="Bergamot", slug="bergamot")
     url = reverse(
         "apps.products:product-detail",
-        kwargs={"product_uuid": product.uuid},
+        kwargs={"product_slug": product.slug},
     )
     first_response = api_client.get(url)
 

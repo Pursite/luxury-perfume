@@ -12,10 +12,8 @@ are relative to `/api/v1/users/`.
 An active user needs a non-empty username or phone number. Usernames and email
 addresses are trimmed, retain their display casing, and are unique
 case-insensitively at the database layer. The migration
-`users.0005_customuser_case_insensitive_identities` stops safely before schema
-changes if legacy case-conflicting usernames or emails exist; it neither
-changes nor reports identity values. An operator must resolve those records
-privately and rerun the migration.
+history was reset intentionally; the current clean initial migration defines
+these constraints and deployments do not carry legacy identity data migrations.
 
 Phone input is trimmed and must be exactly `09[0-9]{9}`: eleven ASCII digits
 beginning with `09`, for example `09123456789`. Unicode digits, international
@@ -56,9 +54,10 @@ refresh token returns the existing generic 400 validation response.
 ## Username/password endpoints
 
 `POST signup/` accepts a 5–150 character ASCII-letter/digit/underscore
-username and a password. It returns `201` with the minimal username and a
-token pair. Case-conflicting and concurrent signup attempts return the existing
-generic 400 response.
+username and a password. The same username limit and character rule apply to
+profile onboarding and repeatable profile updates. It returns `201` with the
+minimal username and a token pair. Case-conflicting and concurrent signup
+attempts return the existing generic 400 response.
 
 `POST login/userpass/` accepts `username` and `password`, returning `200` with
 a message and a token pair. Lookups are case-insensitive and all absent,
@@ -85,8 +84,10 @@ The Celery task remains a placeholder and does not call an SMS provider.
 - `POST login/send-otp/` and `POST login/verify-otp/` issue tokens for an
   active matching user. Unknown-phone request responses remain generic.
 - `POST password-reset/send-otp/` always returns the same request response.
-  `POST password-reset/verify-and-reset/` verifies the OTP, applies the shared
-  password policy, revokes prior sessions, and returns a new token pair.
+  `POST password-reset/verify-and-reset/` applies account-independent password
+  checks before OTP verification. After a matching OTP is proven, it applies
+  the full user-aware password policy before consuming the OTP, revokes prior
+  sessions, and returns a new token pair.
 
 Each request and verification endpoint applies two independent limits from the
 fail-closed `security` cache: one keyed by normalized phone and one by client

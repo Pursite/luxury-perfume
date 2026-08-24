@@ -1,3 +1,4 @@
+from django.http import Http404
 from rest_framework import permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -15,7 +16,7 @@ from apps.products.cache import (
     product_list_cache_key,
 )
 from apps.products.selectors import (
-    get_product_by_uuid,
+    get_product_by_slug,
     get_product_detail,
     get_product_image_by_id,
     get_public_products_queryset,
@@ -108,7 +109,7 @@ class ProductListCreateAPIView(APIView):
 
 
 class ProductDetailAPIView(APIView):
-    """Public UUID detail and administrator-only UUID update/delete endpoints."""
+    """Public slug detail and administrator-only slug update/delete endpoints."""
 
     throttle_classes = (AnonRateThrottle, UserRateThrottle)
 
@@ -122,7 +123,7 @@ class ProductDetailAPIView(APIView):
             self.request.user.is_authenticated and self.request.user.is_staff
         )
         return get_product_detail(
-            product_uuid=self.kwargs["product_uuid"],
+            product_slug=self.kwargs["product_slug"],
             include_inactive=include_inactive,
         )
 
@@ -130,7 +131,7 @@ class ProductDetailAPIView(APIView):
         cache_key = None
         if not request.user.is_staff:
             cache_key = product_detail_cache_key(
-                product_uuid=self.kwargs["product_uuid"]
+                product_slug=self.kwargs["product_slug"]
             )
             cached_data = RedisCacheService.get(cache_key)
             if cached_data is not None:
@@ -172,20 +173,24 @@ class ProductDetailAPIView(APIView):
     def delete(self, request, *args, **kwargs):
         product = self.get_object()
         product_sku = product.sku
-        delete_product_service(product=product)
+        if not delete_product_service(product=product):
+            raise Http404
         AppLogger.log_activity(msg=f"Product deleted: {product_sku}", user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProductImageUploadAPIView(APIView):
-    """Administrator-only multipart image upload addressed by the product UUID."""
+    """Administrator-only multipart image upload addressed by the product slug."""
 
     permission_classes = (IsAdmin,)
     throttle_classes = (AnonRateThrottle, UserRateThrottle)
     parser_classes = (MultiPartParser, FormParser)
 
-    def post(self, request, product_uuid, *args, **kwargs):
-        product = get_product_by_uuid(product_uuid=product_uuid, include_inactive=True)
+    def post(self, request, product_slug, *args, **kwargs):
+        product = get_product_by_slug(
+            product_slug=product_slug,
+            include_inactive=True,
+        )
         serializer = ProductImageUploadInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         product_image = create_product_image_service(
@@ -214,7 +219,8 @@ class ProductImageDeleteAPIView(APIView):
     def delete(self, request, image_id, *args, **kwargs):
         product_image = get_product_image_by_id(image_id=image_id)
         product_sku = product_image.product.sku
-        delete_product_image_service(product_image=product_image)
+        if not delete_product_image_service(product_image=product_image):
+            raise Http404
         AppLogger.log_activity(
             msg=f"Image deleted for product: {product_sku}",
             user=request.user,

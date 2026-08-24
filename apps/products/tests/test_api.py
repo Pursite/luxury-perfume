@@ -83,7 +83,7 @@ class TestProductListCreateAPIView:
         response = api_client.get(
             self.url,
             {
-                "category": str(category.id),
+                "category": category.slug,
                 "brand": str(brand.id),
                 "search": "AUR-100",
                 "ordering": "-price",
@@ -95,6 +95,60 @@ class TestProductListCreateAPIView:
         assert response.status_code == status.HTTP_200_OK
         assert response.data["count"] == 1
         assert response.data["results"][0]["uuid"] == str(matching.uuid)
+
+    def test_list_category_slug_includes_products_in_descendant_categories(
+        self,
+        api_client,
+    ):
+        men = CategoryFactory(name="Men", slug="men")
+        cologne = CategoryFactory(name="Cologne", slug="cologne", parent=men)
+        eau_de_cologne = CategoryFactory(
+            name="Eau de Cologne",
+            slug="eau-de-cologne",
+            parent=cologne,
+        )
+        women = CategoryFactory(name="Women", slug="women")
+        exact_product = ProductFactory(category=men)
+        child_product = ProductFactory(category=cologne)
+        descendant_product = ProductFactory(category=eau_de_cologne)
+        unrelated_product = ProductFactory(category=women)
+
+        response = api_client.get(self.url, {"category": "men"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {item["uuid"] for item in response.data["results"]} == {
+            str(exact_product.uuid),
+            str(child_product.uuid),
+            str(descendant_product.uuid),
+        }
+        assert str(unrelated_product.uuid) not in {
+            item["uuid"] for item in response.data["results"]
+        }
+
+    def test_list_category_unknown_slug_returns_an_empty_result(self, api_client):
+        ProductFactory()
+
+        response = api_client.get(self.url, {"category": "not-a-category"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["count"] == 0
+        assert response.data["results"] == []
+
+    def test_list_category_slug_combines_with_in_stock_filter(self, api_client):
+        men = CategoryFactory(name="Men", slug="men")
+        cologne = CategoryFactory(name="Cologne", slug="cologne", parent=men)
+        in_stock = ProductFactory(category=cologne, stock=1)
+        ProductFactory(category=men, stock=0)
+        ProductFactory(stock=10)
+
+        response = api_client.get(
+            self.url,
+            {"category": "men", "in_stock": "true"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["count"] == 1
+        assert response.data["results"][0]["uuid"] == str(in_stock.uuid)
 
     @pytest.mark.parametrize(
         ("query_parameter", "value", "nonmatching_override"),
@@ -209,7 +263,7 @@ class TestProductListCreateAPIView:
 
 @pytest.mark.django_db
 class TestProductDetailAPIView:
-    def test_detail_uses_uuid_and_hides_inactive_products(self, api_client):
+    def test_detail_uses_canonical_slug_and_hides_inactive_products(self, api_client):
         active = ProductFactory()
         bergamot = FragranceNoteFactory(name="Bergamot", slug="bergamot")
         lemon = FragranceNoteFactory(name="Lemon", slug="lemon")
@@ -222,11 +276,11 @@ class TestProductDetailAPIView:
         inactive = ProductFactory(is_active=False)
         active_url = reverse(
             "apps.products:product-detail",
-            kwargs={"product_uuid": active.uuid},
+            kwargs={"product_slug": active.slug},
         )
         inactive_url = reverse(
             "apps.products:product-detail",
-            kwargs={"product_uuid": inactive.uuid},
+            kwargs={"product_slug": inactive.slug},
         )
 
         response = api_client.get(active_url)
@@ -248,6 +302,14 @@ class TestProductDetailAPIView:
             "serving_temp",
         }.isdisjoint(response.data)
         assert api_client.get(inactive_url).status_code == status.HTTP_404_NOT_FOUND
+        assert (
+            api_client.get(f"/api/v1/products/{active.slug.upper()}/").status_code
+            == status.HTTP_404_NOT_FOUND
+        )
+        assert (
+            api_client.get(f"/api/v1/products/{active.uuid}/").status_code
+            == status.HTTP_404_NOT_FOUND
+        )
         assert api_client.get("/api/v1/products/1/").status_code == status.HTTP_404_NOT_FOUND
 
     def test_put_patch_and_delete_require_admin(self, api_client, admin_user, normal_user):
@@ -256,7 +318,7 @@ class TestProductDetailAPIView:
         rose = FragranceNoteFactory(name="Rose", slug="rose")
         url = reverse(
             "apps.products:product-detail",
-            kwargs={"product_uuid": product.uuid},
+            kwargs={"product_slug": product.slug},
         )
 
         api_client.force_authenticate(user=normal_user)
@@ -317,18 +379,65 @@ class TestProductDetailAPIView:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Product.objects.filter(uuid=product.uuid).exists()
 
-    def test_unknown_uuid_returns_not_found(self, api_client):
+    def test_patch_rejects_slug_change_without_partial_write(
+        self,
+        api_client,
+        admin_user,
+    ):
+        product = ProductFactory(name="Original", slug="original-slug")
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_slug": product.slug},
+        )
+        api_client.force_authenticate(user=admin_user)
+
+        response = api_client.patch(
+            url,
+            {"name": "Must not persist", "slug": "replacement-slug"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert str(response.data["slug"][0]) == (
+            "Slug cannot be changed after product creation."
+        )
+        product.refresh_from_db()
+        assert product.name == "Original"
+        assert product.slug == "original-slug"
+
+    def test_unknown_slug_returns_not_found(self, api_client):
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_slug": "missing-product"},
+        )
+
+        assert api_client.get(url).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_delete_returns_not_found_when_product_vanishes_before_lock(
+        self,
+        api_client,
+        admin_user,
+        mocker,
+    ):
         product = ProductFactory()
         url = reverse(
             "apps.products:product-detail",
-            kwargs={"product_uuid": product.uuid},
-        ).replace(str(product.uuid), "00000000-0000-0000-0000-000000000000")
-        assert api_client.get(url).status_code == status.HTTP_404_NOT_FOUND
+            kwargs={"product_slug": product.slug},
+        )
+        api_client.force_authenticate(user=admin_user)
+        mocker.patch(
+            "apps.products.views.delete_product_service",
+            return_value=False,
+        )
+
+        response = api_client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db
 class TestProductImageAPIView:
-    def test_upload_toggles_primary_image_and_uses_product_uuid(
+    def test_upload_toggles_primary_image_and_uses_product_slug(
         self,
         api_client,
         admin_user,
@@ -339,7 +448,7 @@ class TestProductImageAPIView:
         api_client.force_authenticate(user=admin_user)
         url = reverse(
             "apps.products:product-image-upload",
-            kwargs={"product_uuid": product.uuid},
+            kwargs={"product_slug": product.slug},
         )
 
         response = api_client.post(
@@ -365,7 +474,7 @@ class TestProductImageAPIView:
         product = ProductFactory()
         url = reverse(
             "apps.products:product-image-upload",
-            kwargs={"product_uuid": product.uuid},
+            kwargs={"product_slug": product.slug},
         )
         api_client.force_authenticate(user=normal_user)
         assert (
@@ -375,8 +484,8 @@ class TestProductImageAPIView:
 
         api_client.force_authenticate(user=UserFactory(is_staff=True))
         unknown_url = url.replace(
-            str(product.uuid),
-            "00000000-0000-0000-0000-000000000000",
+            product.slug,
+            "missing-product",
         )
         assert (
             api_client.post(
@@ -407,13 +516,34 @@ class TestProductImageAPIView:
         assert not ProductImage.objects.filter(id=image.id).exists()
         assert api_client.delete(url).status_code == status.HTTP_404_NOT_FOUND
 
+    def test_delete_returns_not_found_when_image_vanishes_before_lock(
+        self,
+        api_client,
+        admin_user,
+        mocker,
+    ):
+        image = ProductImageFactory()
+        url = reverse(
+            "apps.products:product-image-delete",
+            kwargs={"image_id": image.id},
+        )
+        api_client.force_authenticate(user=admin_user)
+        mocker.patch(
+            "apps.products.views.delete_product_image_service",
+            return_value=False,
+        )
+
+        response = api_client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 @pytest.mark.django_db
 class TestProductImageUploadValidation:
     def _upload_url(self, product):
         return reverse(
             "apps.products:product-image-upload",
-            kwargs={"product_uuid": product.uuid},
+            kwargs={"product_slug": product.slug},
         )
 
     def test_rejects_disallowed_declared_mime_type(
