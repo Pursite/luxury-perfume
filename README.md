@@ -1,8 +1,8 @@
 # Luxury Perfume API
 
 A Django REST Framework backend for Luxury Perfume, a perfume, cologne, and
-body-splash store. It provides user authentication and profile management plus
-a public fragrance catalogue with staff-only mutations.
+body-splash store. It provides user authentication and profile management, a
+public fragrance catalogue with staff-only mutations, and authenticated carts.
 
 ## Implemented features
 
@@ -19,6 +19,9 @@ a public fragrance catalogue with staff-only mutations.
   caching shared with authenticated non-staff users. Staff catalogue requests
   bypass that shared cache.
 - Staff-only product and image mutations, content-aware JPEG/PNG/WebP validation, category-cycle protection, and data-integrity constraints.
+- Authenticated, owner-bound carts with live Product prices, stock, activity,
+  and images. Cart writes are synchronous PostgreSQL transactions and never
+  reserve stock or prices.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
 
@@ -35,7 +38,13 @@ tooling is layered on top through
 
 ## Architecture
 
-Requests are coordinated by views, validated and represented by serializers, then delegated to services for mutations or selectors for reusable reads. Models and database constraints enforce persisted invariants; Celery handles OTP-task and image-thumbnail background work. `apps.lib` contains shared infrastructure such as cache, security-cache, logging, pagination, permissions, throttles, and image validation.
+Requests are coordinated by views, validated and represented by serializers,
+then delegated to services for mutations or selectors for reusable reads.
+Models and database constraints enforce persisted invariants; Celery handles
+OTP-task and image-thumbnail background work. `apps.cart` remains entirely
+synchronous and database-backed. `apps.lib` contains shared infrastructure
+such as cache, security-cache, logging, pagination, permissions, throttles,
+and image validation.
 
 For the complete design, see [architecture.md](docs/architecture.md).
 
@@ -111,7 +120,8 @@ change only container-specific addresses for this optional host workflow.
 Adjust `DB_PORT` and the Redis URL ports if the host services use non-default
 ports.
 
-The API prefixes are `/api/v1/users/` and `/api/v1/products/`.
+The API prefixes are `/api/v1/users/`, `/api/v1/products/`, and
+`/api/v1/cart/`.
 
 ## Tests and checks
 
@@ -145,7 +155,8 @@ docker compose -f docker/docker-compose.integration.yml down
 Override the dedicated `INTEGRATION_DB_*`,
 `INTEGRATION_CACHE_REDIS_URL`, and `INTEGRATION_SECURITY_REDIS_URL`
 environment variables when using existing test services. The integration suite
-covers case-insensitive identity constraints and concurrent signup, Redis
+covers case-insensitive identity constraints and concurrent signup, Cart
+creation and increment races, unrelated-user Cart lock isolation, Redis
 OTP-consumption races, and security-throttle keys. Never point integration
 tests at production databases or Redis databases.
 
@@ -184,10 +195,10 @@ Update the relevant document whenever routes, configuration, authentication beha
 ## Project status and roadmap
 
 The users, authentication, profiles, fragrance products, categories, brands,
-reusable fragrance notes, and product-image domains are implemented. The
+reusable fragrance notes, product-image, and Cart domains are implemented. The
 project remains under active development.
 
-Not implemented: a separate inventory system, cart, orders, payments,
+Not implemented: a separate inventory system, orders, checkout, payments,
 shipping, reviews, object-storage integration, or an SMS-provider integration.
 
 The repository includes a Docker Compose deployment layout for development and
