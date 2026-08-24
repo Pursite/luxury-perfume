@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from django.db import transaction
+from django.db.models import Q
 
 from apps.lib.loggers import AppLogger
 from apps.products.models import FragranceNote, Product, ProductFragranceNote, ProductImage
@@ -94,14 +95,25 @@ def update_product_service(
 
 
 @transaction.atomic
-def delete_product_service(*, product: Product) -> bool:
-    """Delete a product and schedule uploaded-file removal after commit."""
-    try:
-        locked_product = Product.objects.select_for_update().get(pk=product.pk)
-    except Product.DoesNotExist:
-        return False
+def delete_products_service(*, product_ids: Iterable[int]) -> int:
+    """Delete products atomically and remove their uploaded files after commit."""
+    requested_ids = sorted({product_id for product_id in product_ids if product_id})
+    if not requested_ids:
+        return 0
+
+    locked_products = list(
+        Product.objects.select_for_update()
+        .filter(pk__in=requested_ids)
+        .order_by("pk")
+    )
+    locked_product_ids = [product.pk for product in locked_products]
+    if not locked_product_ids:
+        return 0
+
     product_images = list(
-        ProductImage.objects.select_for_update().filter(product=locked_product)
+        ProductImage.objects.select_for_update()
+        .filter(product_id__in=locked_product_ids)
+        .order_by("pk")
     )
     image_names = [
         field.name
@@ -110,9 +122,15 @@ def delete_product_service(*, product: Product) -> bool:
         if field.name
     ]
     storage = ProductImage._meta.get_field("image").storage
-    locked_product.delete()
-    transaction.on_commit(lambda: _delete_files(storage, image_names))
-    return True
+    Product.objects.filter(pk__in=locked_product_ids).delete()
+    if image_names:
+        transaction.on_commit(lambda: _delete_files(storage, image_names))
+    return len(locked_product_ids)
+
+
+def delete_product_service(*, product: Product) -> bool:
+    """Delete one product and report whether its resolved row still existed."""
+    return delete_products_service(product_ids=[product.pk]) == 1
 
 
 def create_product_image_service(
@@ -254,7 +272,31 @@ def delete_product_image_service(*, product_image: ProductImage) -> bool:
 
 
 def _delete_files(storage: Any, image_names: Iterable[str]) -> None:
-    for image_name in image_names:
+    candidate_names = tuple(dict.fromkeys(image_names))
+    if not candidate_names:
+        return
+
+    try:
+        referenced_names = set()
+        references = ProductImage.objects.filter(
+            Q(image__in=candidate_names) | Q(thumbnail__in=candidate_names)
+        ).values_list("image", "thumbnail")
+        for image_name, thumbnail_name in references:
+            referenced_names.update(
+                name
+                for name in (image_name, thumbnail_name)
+                if name in candidate_names
+            )
+    except Exception:
+        AppLogger.log_system_error(
+            msg="product_image.storage_reference_check_failed",
+            include_traceback=True,
+        )
+        return
+
+    for image_name in candidate_names:
+        if image_name in referenced_names:
+            continue
         try:
             storage.delete(image_name)
         except Exception:

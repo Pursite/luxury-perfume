@@ -6,6 +6,14 @@ DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `Al
 
 Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. These functional uniqueness constraints are declared directly in the users application's current initial migration.
 
+Django Admin uses `is_staff` only to control admin-site login eligibility;
+actual model access still requires Django model permissions. Delegated,
+non-superuser staff may manage customer accounts but cannot view or modify
+staff or superuser accounts or their addresses, assign groups or direct
+permissions, or manage permission groups. Superusers retain those management
+capabilities. Admin password changes and customer deactivation blacklist all
+outstanding refresh tokens.
+
 Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
 
 Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.

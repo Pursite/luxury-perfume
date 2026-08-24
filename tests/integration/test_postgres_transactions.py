@@ -9,13 +9,16 @@ from threading import (
     main_thread,
 )
 from time import monotonic
+from uuid import UUID
 
 import pytest
+from django.contrib import admin
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.files.storage import FileSystemStorage
 from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.db.models.query import QuerySet
+from django.test import RequestFactory
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -44,7 +47,7 @@ from apps.products.tests.factories import (
 from apps.users.models import CustomUser
 from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
 from apps.users.services.user_auth_service import UserAuthService
-from apps.users.tests.factories import UserFactory
+from apps.users.tests.factories import AddressFactory, UserFactory
 
 
 pytestmark = [
@@ -67,6 +70,29 @@ def _wait_until_postgres_backend_is_blocked_on_lock(*, backend_pid: int) -> None
 
     raise AssertionError(
         f"PostgreSQL backend {backend_pid} did not block on a row lock"
+    )
+
+
+def _wait_for_backend_to_finish_or_block(
+    *,
+    backend_pid: int,
+    finished: Event,
+) -> str:
+    deadline = monotonic() + 10
+    with connection.cursor() as cursor:
+        while monotonic() < deadline:
+            if finished.is_set():
+                return "finished"
+            cursor.execute(
+                "SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s",
+                [backend_pid],
+            )
+            row = cursor.fetchone()
+            if row and row[0] == "Lock":
+                return "blocked"
+
+    raise AssertionError(
+        f"PostgreSQL backend {backend_pid} neither finished nor blocked"
     )
 
 
@@ -202,6 +228,100 @@ def test_primary_image_updates_are_serialized_by_real_row_lock(mocker):
         product=product,
         is_primary=True,
     ).count() == 1
+
+
+def test_address_admin_superuser_save_locks_owners_before_address():
+    intended_owner = UserFactory(id=UUID(int=1))
+    current_owner = UserFactory(id=UUID(int=2))
+    address = AddressFactory(user=current_owner)
+    superuser = UserFactory(is_staff=True, is_superuser=True)
+    ordinary_staff = UserFactory(is_staff=True, is_superuser=False)
+    owner_locked = Event()
+    release_owner = Event()
+    ordinary_finished = Event()
+    superuser_backend_pid = Queue()
+    ordinary_backend_pid = Queue()
+
+    def block_intended_owner():
+        close_old_connections()
+        try:
+            with transaction.atomic():
+                CustomUser.objects.select_for_update().get(pk=intended_owner.pk)
+                owner_locked.set()
+                if not release_owner.wait(timeout=10):
+                    raise TimeoutError("owner lock was not released")
+            return None
+        except Exception as exc:
+            return exc
+        finally:
+            close_old_connections()
+
+    def reassign_as_superuser():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                superuser_backend_pid.put(cursor.fetchone()[0])
+            request = RequestFactory().post("/admin/users/address/")
+            request.user = CustomUser.objects.get(pk=superuser.pk)
+            thread_address = address.__class__.objects.get(pk=address.pk)
+            thread_address.user_id = intended_owner.pk
+            admin.site._registry[address.__class__].save_model(
+                request,
+                thread_address,
+                form=None,
+                change=True,
+            )
+            return None
+        except Exception as exc:
+            return exc
+        finally:
+            close_old_connections()
+
+    def update_as_ordinary_staff():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                ordinary_backend_pid.put(cursor.fetchone()[0])
+            request = RequestFactory().post("/admin/users/address/")
+            request.user = CustomUser.objects.get(pk=ordinary_staff.pk)
+            thread_address = address.__class__.objects.get(pk=address.pk)
+            thread_address.title = "Concurrent customer update"
+            admin.site._registry[address.__class__].save_model(
+                request,
+                thread_address,
+                form=None,
+                change=True,
+            )
+            return None
+        except Exception as exc:
+            return exc
+        finally:
+            ordinary_finished.set()
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        blocker_future = executor.submit(block_intended_owner)
+        assert owner_locked.wait(timeout=10)
+        superuser_future = executor.submit(reassign_as_superuser)
+        backend_pid = superuser_backend_pid.get(timeout=10)
+        _wait_until_postgres_backend_is_blocked_on_lock(backend_pid=backend_pid)
+        ordinary_future = executor.submit(update_as_ordinary_staff)
+        ordinary_pid = ordinary_backend_pid.get(timeout=10)
+        ordinary_outcome = _wait_for_backend_to_finish_or_block(
+            backend_pid=ordinary_pid,
+            finished=ordinary_finished,
+        )
+        release_owner.set()
+        blocker_error = blocker_future.result(timeout=20)
+        superuser_error = superuser_future.result(timeout=20)
+        ordinary_error = ordinary_future.result(timeout=20)
+
+    assert ordinary_outcome == "finished"
+    assert blocker_error is None
+    assert superuser_error is None
+    assert ordinary_error is None
 
 
 def test_thumbnail_redeliveries_are_serialized_by_real_row_lock(mocker):

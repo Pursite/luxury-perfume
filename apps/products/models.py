@@ -27,6 +27,15 @@ def validate_public_product_slug(value: str) -> None:
         raise ValidationError("Slug must not use canonical UUID syntax.")
 
 
+def validate_product_pricing(price, discount_price) -> None:
+    if price is not None and discount_price is not None and discount_price >= price:
+        raise ValidationError({
+            "discount_price": (
+                "Discount price must be strictly lower than regular price."
+            ),
+        })
+
+
 class Category(BaseModel):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, unique=True)
@@ -274,14 +283,7 @@ class Product(BaseModel):
             validate_public_product_slug(self.slug)
         except ValidationError as exc:
             raise ValidationError({"slug": exc.messages}) from exc
-        if (
-            self.price is not None
-            and self.discount_price is not None
-            and self.discount_price >= self.price
-        ):
-            raise ValidationError({
-                "discount_price": "Discount price must be strictly lower than regular price.",
-            })
+        validate_product_pricing(self.price, self.discount_price)
 
     @property
     def final_price(self):

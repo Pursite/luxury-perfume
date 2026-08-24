@@ -16,6 +16,8 @@ from apps.products.services import (
     cleanup_product_image_original_after_rollback,
     create_product_image_in_transaction_service,
     delete_product_image_service,
+    delete_product_service,
+    delete_products_service,
     update_product_image_service,
 )
 
@@ -180,6 +182,14 @@ class ProductAdmin(admin.ModelAdmin):
             )
             request._created_product_images.append(created_image)
         formset.save_m2m()
+
+    def delete_model(self, request, obj):
+        delete_product_service(product=obj)
+
+    def delete_queryset(self, request, queryset):
+        delete_products_service(
+            product_ids=queryset.values_list("pk", flat=True),
+        )
 
     def get_readonly_fields(self, request, obj=None):
         if obj is None:

@@ -1,337 +1,276 @@
 # AGENTS.md
 
-## Project Priorities
+## Project Context
 
-This is a production-oriented Django/DRF backend.
+Luxury Perfume is a production-oriented perfume e-commerce backend built with
+Django and Django REST Framework.
+
+Main architecture:
+
+request
+→ view
+→ serializer
+→ service for mutations / selector for reads
+→ model / PostgreSQL
+→ response
+
+The project uses PostgreSQL, Redis, Celery, Simple JWT, django-filter, Pillow,
+Gunicorn, Docker Compose, and Pytest.
+
+`apps.users` owns authentication, OTP, JWT, profiles, and addresses.
+`apps.products` owns the fragrance catalogue, products, categories, brands,
+fragrance notes, images, filtering, caching, and thumbnail processing.
+`apps.lib` owns shared infrastructure.
+
+---
+
+## Priorities
 
 Priorities, in order:
 
 1. Correctness and data integrity
 2. Security
-3. Database and server performance
-4. Backward compatibility
-5. Maintainability
-6. Simplicity
+3. Reliability
+4. Performance
+5. API compatibility
+6. Maintainability
+7. Simplicity
 
-Never trade correctness or security for a premature optimization.
+Prefer the smallest complete fix for a verified root cause.
 
-Before making meaningful changes, inspect the relevant code path and
-understand its callers, database behavior, tests, and external API contract.
+Do not over-engineer theoretical edge cases with low practical impact.
 
-Do not guess about repository behavior when it can be verified from the code.
+Inspect actual repository code, callers, tests, constraints, and API contracts
+before making meaningful changes. Do not guess when behavior can be verified.
 
+---
 
-## Architecture
+## Architecture Rules
 
-The project uses Django and Django REST Framework with PostgreSQL-oriented
-application design, Redis, Celery, JWT authentication, django-filter,
-and pytest.
+Keep HTTP concerns in views.
 
-Respect the existing architecture and conventions.
+Use serializers for input validation and output representation.
 
-Prefer:
+Use services for meaningful state-changing workflows.
 
-request
-→ view/API boundary
-→ serializer/input validation
-→ service/domain operation where appropriate
-→ model/database
-→ background task for asynchronous side effects
+Use selectors for reusable read/query logic.
 
-Do not move business logic into views merely for convenience.
+Keep durable invariants in models and PostgreSQL constraints.
 
-Do not introduce new abstractions, dependencies, service layers, signals,
-or infrastructure unless they solve a concrete problem.
+Use Celery only for expensive or non-request-critical asynchronous work.
 
+Do not move business logic into views or introduce unnecessary abstractions.
 
-## Change Discipline
-
-For every change:
-
-- Inspect the affected code and its callers first.
-- Prefer the smallest complete change that fixes the root cause.
-- Do not patch symptoms when the root cause can be identified.
-- Avoid unrelated refactors.
-- Preserve public API behavior unless the task explicitly changes it.
-- Preserve database compatibility unless a migration is intentionally required.
-- Do not silently change response schemas, status codes, permissions,
-  pagination behavior, filtering semantics, URL contracts, or error formats.
-- Reuse existing project conventions before introducing a new pattern.
-
-If requirements conflict, call out the conflict instead of silently choosing
-a risky interpretation.
-
+---
 
 ## Security
 
-Security-sensitive changes require explicit review of the complete request
-and data flow.
+Always consider authentication, authorization, object ownership, validation,
+JWT/OTP handling, throttling, secrets, uploads, logging, cache isolation,
+CSRF/CORS, HTTPS/cookies, race conditions, and replay/idempotency where relevant.
 
-Always consider, when relevant:
+Never expose or log passwords, OTPs, JWTs, refresh tokens, credentials,
+secrets, or sensitive internal errors.
 
-- authentication
-- authorization
-- object-level permissions and IDOR
-- serializer input/output field exposure
-- mass-assignment risks
-- validation and normalization
-- JWT/token handling and revocation
-- secrets and credentials
-- password and OTP handling
-- rate limiting and abuse prevention
-- CSRF and CORS behavior
-- unsafe redirects
-- file upload validation
-- sensitive logging
-- information disclosure
-- cache isolation
-- database integrity
-- race conditions and replay/idempotency risks
+Never weaken authorization, validation, throttling, or security settings merely
+to make tests pass.
 
-Never:
+Prefer server-side and database-enforced guarantees.
 
-- expose or log passwords, OTPs, JWTs, refresh tokens, API keys,
-  credentials, secrets, or sensitive internal state
-- hard-code secrets
-- weaken authentication, authorization, throttling, validation,
-  or security settings merely to make a test pass
-- return internal exception details to API clients
-- trust client-provided ownership or permission-sensitive fields
-  without server-side validation
+---
 
-Prefer server-side and database-enforced security invariants over assumptions
-in application code.
+## Database and Concurrency
 
+PostgreSQL is the source of truth.
 
-## Database Integrity and Concurrency
+For multi-step or contended writes consider:
 
-Treat PostgreSQL/database correctness as authoritative.
+- `transaction.atomic()`
+- rollback behavior
+- concurrent requests
+- `select_for_update()`
+- `F()` expressions
+- conditional updates
+- database constraints
 
-For multi-step writes:
+Do not rely only on serializer validation or `model.clean()` for invariants
+that must survive concurrency.
 
-- determine whether transaction.atomic() is required
-- consider rollback behavior
-- consider concurrent requests
-- avoid check-then-write race conditions
-- use database constraints for invariants where practical
-- use select_for_update(), F expressions, conditional updates, or other
-  concurrency controls when the use case requires them
+Stock, cart, orders, and payments require explicit race-condition and lost-update
+analysis.
 
-Do not rely only on model clean() or serializer validation for invariants that
-must remain correct under concurrent requests.
+---
 
-Changes involving stock, payments, orders, counters, uniqueness, or other
-contended state must explicitly consider race conditions and lost updates.
+## ORM and Performance
 
-
-## Query and Server Performance
-
-For API and database changes, inspect query behavior.
-
-Actively look for:
+Check for:
 
 - N+1 queries
 - queries inside loops
-- unnecessary duplicate queries
-- unnecessary model hydration
-- missing select_related()
-- missing or excessive prefetch_related()
-- unbounded result sets
-- inefficient pagination
-- expensive annotations or subqueries
+- duplicate queries
+- missing `select_related()` / `prefetch_related()`
+- unbounded querysets
+- expensive filters/search/orderings
 - unnecessary database round trips
-- filters/orderings that may need an index
-- loading fields that are not needed
-- synchronous expensive work in request/response paths
+- serializer-triggered queries
 
-Do not add indexes blindly.
+Do not add indexes or caches blindly.
 
-Add or modify an index only when supported by the actual query pattern,
-constraint requirement, or a clearly justified production access path.
+Optimize from real query patterns or measured requirements.
 
-Do not optimize solely from intuition.
-Measure or reason from concrete query behavior.
+---
 
-When query count is important, add query-count regression tests where practical.
+## Redis
 
-Avoid introducing caches to hide inefficient database access.
-Fix the underlying query first when feasible.
+The ordinary catalogue cache is an optimization and may fail open when safe.
 
+The security cache protects OTPs, attempts, locks, leases, and authentication
+throttling and must not silently fail open.
 
-## API Design
+Before changing cache behavior consider key scope, TTL, invalidation,
+authorization boundaries, concurrency, and failure behavior.
 
-For DRF endpoints:
+Never treat Redis as the durable source of truth.
 
-- keep permissions explicit
-- validate all untrusted input
-- keep serializers intentional about writable and exposed fields
-- maintain pagination for potentially large collections
-- avoid leaking internal identifiers or fields unnecessarily
-- avoid changing endpoint contracts unintentionally
-- consider query counts introduced by serializer relations
+---
 
-Public URL identifiers and internal database identifiers are separate concerns.
+## Celery
 
-Do not replace a stable internal primary key merely because a different
-public URL identifier such as a slug is required.
+Celery tasks must use simple serializable identifiers rather than ORM instances.
 
-When using slugs publicly:
+Tasks should be safe under retry/redelivery and idempotent where duplicate
+delivery is possible.
 
-- enforce an appropriate uniqueness policy
-- consider indexing and lookup cost
-- define slug mutation behavior
-- consider URL stability and backward compatibility
+Use `transaction.on_commit()` when a task depends on committed database state.
 
+Do not send uploaded image binaries through Celery.
 
-## Celery and Background Tasks
+---
 
-Keep expensive or non-request-critical work out of synchronous request paths
-when the existing architecture uses Celery for it.
+## Product Images
 
-Celery tasks should be:
+Image handling spans PostgreSQL and non-transactional file storage.
 
-- safe to retry where practical
-- idempotent where retries can duplicate effects
-- explicit about failure behavior
-- bounded by reasonable timeout/retry policies
-- passed simple serializable identifiers rather than ORM model instances
+Consider upload validation, safe filenames, rollback cleanup, orphaned files,
+thumbnail retry/idempotency, corrupt or partial files, concurrent deletion,
+storage cleanup, API writes, and Django Admin writes.
 
-When a task depends on committed database state, enqueue it only after the
-transaction commits, using transaction.on_commit() where appropriate.
+All supported write paths must preserve the important ProductImage lifecycle
+invariants.
 
-Do not create background tasks for trivial operations that are cheaper and
-safer to execute synchronously.
+Prefer preserving valid referenced data over aggressive cleanup.
 
+---
 
-## Redis and Caching
+## API Compatibility
 
-Caching must never compromise correctness or authorization.
+Do not silently change:
 
-Before adding or changing caching:
+- URLs
+- permissions
+- authentication requirements
+- request or response schemas
+- status codes
+- pagination
+- filters
+- ordering
+- visibility rules
+- error semantics
 
-- define the cache key scope
-- define TTL behavior
-- define invalidation behavior
-- ensure user-specific or permission-sensitive data cannot leak between users
-- consider Redis failure behavior
-- avoid caching sensitive authentication material unnecessarily
+Products use internal database IDs, stable UUID response identifiers, and
+immutable lowercase public slugs.
 
-A cache is an optimization, not the source of truth.
+Do not reintroduce UUID product URLs unless explicitly requested.
 
+---
 
 ## Migrations
 
 Treat migrations as production operations.
 
-Before creating a migration:
+Inspect current migration history before creating or changing one.
 
-- inspect existing migrations
-- determine whether existing data is affected
-- preserve data whenever possible
-- consider uniqueness and nullability transitions
-- consider indexes and constraints
-- avoid unnecessary table rewrites or long blocking operations
+Consider existing data, constraints, indexes, locking, compatibility, and
+rollback implications.
 
-Never edit an already-applied migration merely to make the current state pass
-unless the repository explicitly treats that migration as unreleased.
+Do not create migrations when the database schema does not change.
 
+Documentation must describe the migration history that actually exists.
 
-## Testing
+---
 
-Every behavior change must be validated.
+## Testing and Verification
 
-For bug fixes:
+Every bug fix requires regression coverage.
 
-- add a regression test that would fail before the fix
+Use PostgreSQL/Redis integration tests for behavior SQLite or LocMem cannot
+represent correctly.
 
-For API changes:
+Before completion, run applicable checks:
 
-- test success behavior
-- test validation failures
-- test authentication/authorization where relevant
-- test response contract where relevant
+- focused tests
+- full pytest suite
+- integration tests
+- Ruff
+- Bandit
+- Django checks
+- migration drift check
+- `git diff --check`
 
-For database-sensitive behavior:
+Never claim a check passed unless it actually ran successfully.
 
-- test constraints and transaction behavior where relevant
-- add concurrency tests for race-condition fixes when practical
-- add query-count tests for meaningful query-performance regressions
+A green test suite does not replace architectural, security, concurrency, or
+API review.
 
-Use the repository's configured pytest suite.
-
-The default test configuration requires branch coverage and an overall
-coverage threshold of at least 85%.
-
-Do not reduce coverage thresholds or weaken tests to make a change pass.
-
-Run the smallest relevant tests while developing, then run the broader
-relevant suite before completion.
-
-Run integration tests when the change depends on PostgreSQL, Redis,
-Celery, or other integration behavior and the required environment is available.
-
-Never claim a test or check passed unless it was actually executed.
-
+---
 
 ## Documentation
 
-Update documentation when a change affects:
+Keep implementation synchronized with:
 
-- public API behavior
-- URLs
-- authentication
-- environment variables
-- deployment
-- migrations
-- architecture
-- operational behavior
-- background tasks
+- `README.md`
+- `docs/api.md`
+- `docs/architecture.md`
+- `docs/authentication.md`
+- `docs/security.md`
+- `docs/deployment.md`
 
-Documentation must describe the final implemented behavior, not the intended
-behavior if they differ.
+Update only documentation affected by the change.
 
+Do not preserve obsolete intended or historical behavior as if it were current.
 
-## Completion Checklist
+---
 
-Before declaring meaningful work complete:
+## Change Discipline
 
-1. Review the final diff.
-2. Remove accidental or unrelated changes.
-3. Check for security regressions.
-4. Check database/query performance.
-5. Check transaction and concurrency implications.
-6. Check API compatibility.
-7. Verify migrations if models changed.
-8. Run relevant tests and configured checks.
-9. Check that no secrets or debug artifacts were introduced.
-10. Update relevant documentation.
+For each task:
 
-Then report:
+1. Inspect the relevant implementation.
+2. Identify the root cause.
+3. Make the smallest complete change.
+4. Preserve unrelated behavior.
+5. Add regression coverage.
+6. Review security and concurrency impact.
+7. Review database/query impact.
+8. Review API compatibility.
+9. Run appropriate verification.
+10. Update affected documentation.
 
-- what changed
-- why it changed
-- important architectural decisions
-- security impact
-- performance impact
-- API compatibility impact
-- migrations created or modified
-- tests/checks actually executed and their results
-- remaining risks or follow-up work
+Avoid unrelated refactors.
 
+Distinguish verified defects from speculative risks.
+
+---
 
 ## Autonomy
 
-For requests to review, analyze, diagnose, explain, or plan:
+For review or analysis, inspect the repository and report verified findings
+without modifying code unless implementation was requested.
 
-- inspect the relevant repository code
-- report findings
-- do not modify code unless implementation was explicitly requested
+For implementation requests, make the requested local changes and run
+non-destructive verification without unnecessary confirmation.
 
-For requests to implement, fix, refactor, or change:
+Require explicit approval before production actions, destructive data changes,
+credential changes, external writes, force pushes, or major scope expansion.
 
-- make the requested in-scope local changes
-- run relevant non-destructive validation
-- do not ask for confirmation for ordinary local edits or test execution
-
-Require explicit confirmation before destructive operations, external writes,
-credential changes, production actions, or material expansion of scope.
+Do not commit or push unless explicitly requested.

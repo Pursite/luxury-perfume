@@ -427,6 +427,33 @@ def test_storage_cleanup_failure_is_contained_and_reported(
     error_log.assert_called_once()
 
 
+def test_storage_reference_check_failure_is_contained_and_preserves_file(
+    django_capture_on_commit_callbacks,
+    mocker,
+):
+    product_image = ProductImageFactory()
+    storage = product_image.image.storage
+    image_name = product_image.image.name
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        delete_product_image_service(product_image=product_image)
+
+    mocker.patch.object(
+        ProductImage.objects,
+        "filter",
+        side_effect=RuntimeError("database unavailable"),
+    )
+    error_log = mocker.patch("apps.products.services.AppLogger.log_system_error")
+
+    callbacks[-1]()
+
+    assert storage.exists(image_name) is True
+    error_log.assert_called_once_with(
+        msg="product_image.storage_reference_check_failed",
+        include_traceback=True,
+    )
+
+
 def test_thumbnail_enqueue_failure_does_not_reverse_committed_upload(mocker):
     delay = mocker.patch(
         "apps.products.services.generate_product_image_thumbnail.delay",
