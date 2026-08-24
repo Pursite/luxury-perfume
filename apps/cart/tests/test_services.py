@@ -1,4 +1,5 @@
 import pytest
+from django.db import IntegrityError
 
 from apps.cart.models import Cart, CartItem
 from apps.cart.services import (
@@ -75,6 +76,26 @@ def test_add_rejects_missing_product_without_creating_cart():
             quantity=1,
         )
 
+    assert Cart.objects.filter(user=user).exists() is False
+
+
+def test_add_does_not_translate_unrelated_integrity_error(mocker):
+    user = UserFactory()
+    product = ProductFactory(stock=5)
+    error = IntegrityError("unrelated constraint failure")
+    mocker.patch(
+        "apps.cart.services.CartItem.objects.create",
+        side_effect=error,
+    )
+
+    with pytest.raises(IntegrityError) as raised:
+        add_cart_item_service(
+            user=user,
+            product_slug=product.slug,
+            quantity=1,
+        )
+
+    assert raised.value is error
     assert Cart.objects.filter(user=user).exists() is False
 
 

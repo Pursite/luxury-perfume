@@ -1,14 +1,16 @@
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from threading import Barrier, Event
+from threading import Barrier, Event, current_thread
 from time import monotonic
 
 import pytest
 from django.db import IntegrityError, close_old_connections, connection, transaction
+from django.db.models.query import QuerySet
 
 from apps.cart.models import Cart, CartItem
-from apps.cart.services import add_cart_item_service
+from apps.cart.services import CartProductUnavailableError, add_cart_item_service
 from apps.cart.tests.factories import CartFactory, CartItemFactory
+from apps.products.services import delete_product_service
 from apps.products.tests.factories import ProductFactory
 from apps.users.models import CustomUser
 from apps.users.tests.factories import UserFactory
@@ -192,3 +194,53 @@ def test_blocked_user_mutation_does_not_serialize_another_user():
     assert unrelated_result == (1, True)
     assert CartItem.objects.filter(cart__user=first_user, product=product).exists()
     assert CartItem.objects.filter(cart__user=second_user, product=product).exists()
+
+
+def test_product_deleted_before_new_item_insert_becomes_unavailable(mocker):
+    user = UserFactory()
+    product = ProductFactory(stock=10)
+    item_lookup_finished = Event()
+    release_item_creation = Event()
+    add_thread = {}
+    original_first = QuerySet.first
+
+    def pause_after_missing_item_lookup(queryset):
+        result = original_first(queryset)
+        if (
+            current_thread() is add_thread.get("value")
+            and queryset.model is CartItem
+            and result is None
+        ):
+            item_lookup_finished.set()
+            if not release_item_creation.wait(timeout=20):
+                raise TimeoutError("CartItem creation was not released")
+        return result
+
+    mocker.patch.object(QuerySet, "first", pause_after_missing_item_lookup)
+
+    def add_item():
+        close_old_connections()
+        try:
+            add_thread["value"] = current_thread()
+            thread_user = CustomUser.objects.get(pk=user.pk)
+            return add_cart_item_service(
+                user=thread_user,
+                product_slug=product.slug,
+                quantity=1,
+            )
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(add_item)
+        assert item_lookup_finished.wait(timeout=10)
+        try:
+            assert delete_product_service(product=product) is True
+        finally:
+            release_item_creation.set()
+
+        with pytest.raises(CartProductUnavailableError):
+            future.result(timeout=20)
+
+    assert Cart.objects.filter(user=user).exists() is False
+    assert CartItem.objects.filter(cart__user=user).exists() is False

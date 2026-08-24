@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from apps.cart.models import Cart, CartItem
 from apps.products.models import Product
@@ -29,7 +29,6 @@ def _touch_cart(cart: Cart) -> None:
     cart.save(update_fields=("updated_at",))
 
 
-@transaction.atomic
 def add_cart_item_service(
     *,
     user: CustomUser,
@@ -37,39 +36,53 @@ def add_cart_item_service(
     quantity: int,
 ) -> tuple[CartItem, bool]:
     """Add quantity to one active product while serializing this user's writes."""
-    locked_user = _lock_user(user)
-    product = Product.objects.filter(slug=product_slug, is_active=True).first()
-    if product is None:
-        raise CartProductUnavailableError
-    if quantity > product.stock:
-        raise CartStockExceededError
+    product_id = None
+    try:
+        with transaction.atomic():
+            locked_user = _lock_user(user)
+            product = Product.objects.filter(
+                slug=product_slug,
+                is_active=True,
+            ).first()
+            if product is None:
+                raise CartProductUnavailableError
+            product_id = product.pk
+            if quantity > product.stock:
+                raise CartStockExceededError
 
-    cart = _get_locked_cart(user=locked_user)
-    if cart is None:
-        cart = Cart.objects.create(user=locked_user)
+            cart = _get_locked_cart(user=locked_user)
+            if cart is None:
+                cart = Cart.objects.create(user=locked_user)
 
-    item = (
-        CartItem.objects.select_for_update()
-        .filter(cart=cart, product=product)
-        .first()
-    )
-    if item is None:
-        item = CartItem.objects.create(
-            cart=cart,
-            product=product,
-            quantity=quantity,
-        )
-        created = True
-    else:
-        resulting_quantity = item.quantity + quantity
-        if resulting_quantity > product.stock:
-            raise CartStockExceededError
-        item.quantity = resulting_quantity
-        item.save(update_fields=("quantity", "updated_at"))
-        created = False
+            item = (
+                CartItem.objects.select_for_update()
+                .filter(cart=cart, product=product)
+                .first()
+            )
+            if item is None:
+                item = CartItem.objects.create(
+                    cart=cart,
+                    product=product,
+                    quantity=quantity,
+                )
+                created = True
+            else:
+                resulting_quantity = item.quantity + quantity
+                if resulting_quantity > product.stock:
+                    raise CartStockExceededError
+                item.quantity = resulting_quantity
+                item.save(update_fields=("quantity", "updated_at"))
+                created = False
 
-    _touch_cart(cart)
-    return item, created
+            _touch_cart(cart)
+            return item, created
+    except IntegrityError as error:
+        # PostgreSQL may defer the Product FK check until this transaction commits.
+        if product_id is not None and not Product.objects.filter(
+            pk=product_id
+        ).exists():
+            raise CartProductUnavailableError from error
+        raise
 
 
 @transaction.atomic
