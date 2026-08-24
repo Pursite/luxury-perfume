@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('phone_number', models.CharField(blank=True, max_length=11, null=True, unique=True, validators=[django.core.validators.RegexValidator(message="Phone number must be entered in the format: '0912345678'.", regex='^09[0-9]{9}$')])),
+                ('phone_number', models.CharField(blank=True, max_length=11, null=True, unique=True, validators=[django.core.validators.RegexValidator(message="Phone number must be entered in the format: '09123456789'.", regex='^09[0-9]{9}$')])),
                 ('username', models.CharField(blank=True, max_length=150, null=True)),
                 ('email', models.EmailField(blank=True, max_length=254, null=True)),
                 ('first_name', models.CharField(blank=True, max_length=50)),

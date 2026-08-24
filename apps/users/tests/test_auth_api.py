@@ -128,12 +128,14 @@ class TestAuthenticationAPI:
     def test_login_otp_request_rejects_invalid_phone_format(self, api_client):
         response = api_client.post(
             self.send_login_otp_url,
-            {"phone_number": "not-a-phone-number"},
+            {"phone_number": "invalid"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "phone_number" in response.data
+        assert response.data["phone_number"] == [
+            "Phone number must be entered in the format: '09123456789'."
+        ]
 
     def test_login_otp_verification_uses_real_service_and_consumes_code(
         self,

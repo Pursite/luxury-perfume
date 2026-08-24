@@ -285,35 +285,14 @@ collide. This is an immediate URL cutover: clients must construct product
 detail, mutation, and image-upload URLs from the response `slug`; UUID product
 URLs return 404 after deployment.
 
-The case-insensitive identity migration is a release gate: it first checks for
-legacy usernames or emails that collide after case-folding. If it aborts, it
-does not rewrite records or disclose their values. Stop the release, resolve
-the conflicts privately with a reviewed data procedure, then retry the same
-migration. Do not bypass it with manual constraint creation.
-
-The fragrance-domain migration preserves generic product, category, brand,
-pricing, stock, volume, country, visibility, and image data. It removes the
-incompatible legacy domain columns without attempting to reinterpret their
-values and adds neutral `unspecified` classifications to existing products.
-The ordered-note migration converts each former note-layer membership to a
-1-based position in note-name/UUID order, matching the former API's observable
-ordering. It normalizes any obsolete `body_splash` concentration to
-`unspecified` but does not invent or change a product category; staff must
-classify such a product with the existing Category model. Its database
-constraints reject duplicate notes, duplicate positions, invalid layers, and
-nonpositive positions. A new catalogue-cache namespace prevents pre-migration
-representations from being reused.
-
-The positive-volume constraint remains a release gate for existing generic
-data: if a stored volume is zero, PostgreSQL aborts the migration instead of
-rewriting it. Remediate such rows with an operator-reviewed data procedure and
-rerun the forward migration. The nullable introduction year is separately
-protected by a lower-bound database constraint and a current-year application
-validator. This deployment contract assumes no pre-refactor production
-containers are serving during the ordered-note migration. If an undisclosed
-older installation exists, use a reviewed maintenance window or a staged
-expand/contract release; applying the migration while old application
-containers still serve requests is not supported.
+The users and products migration histories have been reset and each currently
+starts with `0001_initial.py`. Those initial migrations define the current
+schema and constraints directly; there are no legacy identity,
+fragrance-domain, or ordered-note data migrations or release gates in this
+repository. This runbook therefore applies to the new-deployment database
+contract described above. Do not apply these initial migrations blindly to an
+older installation with a different migration history; such an installation
+requires an explicitly reviewed schema-reconciliation or data-import plan.
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
 image defaults to Gunicorn on container port `8000`, while Compose overrides

@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import pytest
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -45,7 +47,13 @@ def test_thumbnail_task_retains_existing_legacy_thumbnail():
     product_image = ProductImageFactory()
     storage = product_image.thumbnail.storage
     legacy_thumbnail_name = "products/thumbnails/example-thumbnail.webp"
-    storage.save(legacy_thumbnail_name, ContentFile(b"valid legacy thumbnail"))
+    legacy_thumbnail = BytesIO()
+    Image.new("RGB", (10, 10), color="blue").save(legacy_thumbnail, "WEBP")
+    legacy_thumbnail_content = legacy_thumbnail.getvalue()
+    storage.save(
+        legacy_thumbnail_name,
+        ContentFile(legacy_thumbnail_content),
+    )
     product_image.thumbnail.name = legacy_thumbnail_name
     product_image.save(update_fields=["thumbnail", "updated_at"])
 
@@ -56,7 +64,32 @@ def test_thumbnail_task_retains_existing_legacy_thumbnail():
         legacy_content = legacy_thumbnail.read()
 
     assert product_image.thumbnail.name == legacy_thumbnail_name
-    assert legacy_content == b"valid legacy thumbnail"
+    assert legacy_content == legacy_thumbnail_content
+
+
+def test_thumbnail_task_replaces_corrupt_legacy_thumbnail_after_commit(
+    django_capture_on_commit_callbacks,
+):
+    product_image = ProductImageFactory()
+    storage = product_image.thumbnail.storage
+    legacy_thumbnail_name = "products/thumbnails/corrupt-legacy-thumbnail.webp"
+    storage.save(legacy_thumbnail_name, ContentFile(b"partial legacy thumbnail"))
+    product_image.thumbnail.name = legacy_thumbnail_name
+    product_image.save(update_fields=["thumbnail", "updated_at"])
+
+    with django_capture_on_commit_callbacks(execute=True):
+        generate_product_image_thumbnail.run.__wrapped__(product_image.id)
+
+    product_image.refresh_from_db()
+    with storage.open(product_image.thumbnail.name, "rb") as thumbnail_file:
+        generated_image = Image.open(thumbnail_file)
+        generated_image.load()
+
+    assert product_image.thumbnail.name == (
+        f"products/thumbnails/by-image-id/{product_image.id}/thumbnail.webp"
+    )
+    assert generated_image.format == "WEBP"
+    assert storage.exists(legacy_thumbnail_name) is False
 
 
 def test_new_thumbnail_namespace_does_not_collide_with_legacy_thumbnail_key():
@@ -106,6 +139,46 @@ def test_thumbnail_task_replaces_stale_deterministic_worker_loss_file():
     assert product_image.thumbnail.name == thumbnail_name
     assert thumbnail_files == ["thumbnail.webp"]
     assert generated_image.format == "WEBP"
+
+
+def test_thumbnail_retry_replaces_partial_referenced_object(mocker):
+    product_image = ProductImageFactory()
+    storage = product_image.thumbnail.storage
+    thumbnail_name = (
+        f"products/thumbnails/by-image-id/{product_image.id}/thumbnail.webp"
+    )
+    product_image.thumbnail.name = thumbnail_name
+    product_image.save(update_fields=["thumbnail", "updated_at"])
+    storage_save = storage.save
+    save_attempts = 0
+
+    def write_partial_then_fail(name, content, max_length=None):
+        nonlocal save_attempts
+        save_attempts += 1
+        if save_attempts == 1:
+            storage_save(
+                name,
+                ContentFile(b"partial thumbnail"),
+                max_length=max_length,
+            )
+            raise OSError("simulated interrupted storage write")
+        return storage_save(name, content, max_length=max_length)
+
+    mocker.patch.object(storage, "save", side_effect=write_partial_then_fail)
+
+    with pytest.raises(OSError, match="interrupted storage write"):
+        generate_product_image_thumbnail.run.__wrapped__(product_image.id)
+
+    generate_product_image_thumbnail.run.__wrapped__(product_image.id)
+
+    product_image.refresh_from_db()
+    with storage.open(product_image.thumbnail.name, "rb") as thumbnail_file:
+        generated_image = Image.open(thumbnail_file)
+        generated_image.load()
+
+    assert product_image.thumbnail.name == thumbnail_name
+    assert generated_image.format == "WEBP"
+    assert save_attempts == 2
 
 
 def test_thumbnail_task_rejects_and_cleans_alternative_storage_name(mocker):

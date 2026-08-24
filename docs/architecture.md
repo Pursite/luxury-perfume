@@ -86,9 +86,10 @@ transaction. Database uniqueness constraints prevent a duplicate note or
 duplicate position within a product layer, while check constraints enforce
 valid layers and positive positions. Category hierarchy validation prevents
 cycles; image services schedule thumbnail generation after commit.
-Product-image creation assigns a collision-resistant object key and owns an
-outermost database transaction so a failed row write can compensate by deleting
-only the newly stored, unreferenced original.
+Product-image creation assigns a collision-resistant object key. API creation
+owns an outermost database transaction; the admin inline reuses the same
+lifecycle inside Django Admin's transaction and compensates stored originals
+if that outer transaction rolls back.
 Image deletion locks and reloads its rows before collecting file names, keeping
 storage cleanup consistent with concurrent thumbnail work.
 
@@ -101,21 +102,17 @@ Contains shared base models, cache helpers, the security-cache guards, logging h
 Celery is configured in `config/celery.py` and discovers application tasks.
 
 - User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The task currently logs a placeholder result; an SMS-provider client is not implemented.
-- Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and an existing-file check make Celery redelivery idempotent.
+- Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and validation of any referenced thumbnail make Celery redelivery idempotent.
 
 ## Data, cache, and authentication
 
 PostgreSQL stores durable users, addresses, fragrance catalogue records,
 reusable note relations, product images, and Simple JWT outstanding/blacklist
-records. The identity migration checks for legacy case-fold conflicts before
-adding its functional unique constraints, so it stops without rewriting data
-if remediation is required. The fragrance-domain migration preserves generic
-product data, assigns neutral classification defaults to existing products,
-and deliberately does not reinterpret incompatible legacy description fields
-as fragrance notes. The ordered-note migration preserves existing note
-memberships in the alphabetical order the former API exposed, and the
-catalogue cache uses a new schema namespace so stale representations cannot be
-reused.
+records. The users and products applications each have a current initial
+migration that defines the deployed schema and constraints directly. The
+repository does not contain legacy identity, fragrance-domain, or ordered-note
+data migrations. The catalogue cache uses a versioned schema namespace so
+stale representations cannot be reused.
 
 Redis has two configured cache aliases with separate URLs:
 

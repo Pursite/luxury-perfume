@@ -1,4 +1,5 @@
 from io import BytesIO
+import warnings
 
 from celery import shared_task
 from django.core.files.base import ContentFile
@@ -36,8 +37,12 @@ def generate_product_image_thumbnail(product_image_id: int) -> None:
 
             storage = product_image.thumbnail.storage
             current_thumbnail_name = product_image.thumbnail.name
-            if current_thumbnail_name and storage.exists(current_thumbnail_name):
+            if current_thumbnail_name and _stored_thumbnail_is_valid(
+                storage,
+                current_thumbnail_name,
+            ):
                 return
+            invalid_thumbnail_name = current_thumbnail_name or None
 
             with product_image.image.open("rb") as image_file:
                 image = Image.open(image_file)
@@ -78,6 +83,13 @@ def generate_product_image_thumbnail(product_image_id: int) -> None:
 
                     product_image.thumbnail.name = generated_thumbnail_name
                     product_image.save(update_fields=["thumbnail", "updated_at"])
+                    if invalid_thumbnail_name:
+                        transaction.on_commit(
+                            lambda: _delete_unreferenced_thumbnail(
+                                storage,
+                                invalid_thumbnail_name,
+                            )
+                        )
             except Exception:
                 if generated_thumbnail_name:
                     cleanup_attempted = True
@@ -95,6 +107,27 @@ def generate_product_image_thumbnail(product_image_id: int) -> None:
             include_traceback=True,
         )
         raise
+
+
+def _stored_thumbnail_is_valid(storage, thumbnail_name: str) -> bool:
+    if not storage.exists(thumbnail_name):
+        return False
+
+    try:
+        with storage.open(thumbnail_name, "rb") as thumbnail_file:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                image = Image.open(thumbnail_file)
+                image.load()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+        SyntaxError,
+        UnidentifiedImageError,
+    ):
+        return False
+    return image.format == "WEBP"
 
 
 def _delete_unreferenced_thumbnail(storage, thumbnail_name: str) -> None:

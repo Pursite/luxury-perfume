@@ -4,7 +4,7 @@
 
 DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users. Public and authenticated non-staff catalogue reads share a response cache because their output is identical; staff bypass it because they may inspect inactive products. `Product.is_active` is catalogue visibility only and does not alter `User.is_active` account-state behavior.
 
-Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. The accompanying migration refuses to proceed if legacy case conflicts exist, preserving records for private operator remediation.
+Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. These functional uniqueness constraints are declared directly in the users application's current initial migration.
 
 Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
 

@@ -123,6 +123,40 @@ def create_product_image_service(
     display_order: int,
 ) -> ProductImage:
     """Create an image while atomically enforcing one primary image per product."""
+    return _create_product_image_service(
+        product=product,
+        image_file=image_file,
+        is_primary=is_primary,
+        display_order=display_order,
+        durable=True,
+    )
+
+
+def create_product_image_in_transaction_service(
+    *,
+    product: Product,
+    image_file: Any,
+    is_primary: bool,
+    display_order: int,
+) -> ProductImage:
+    """Create an image inside a transaction owned by the caller."""
+    return _create_product_image_service(
+        product=product,
+        image_file=image_file,
+        is_primary=is_primary,
+        display_order=display_order,
+        durable=False,
+    )
+
+
+def _create_product_image_service(
+    *,
+    product: Product,
+    image_file: Any,
+    is_primary: bool,
+    display_order: int,
+    durable: bool,
+) -> ProductImage:
     product_image = ProductImage(
         product=product,
         image=image_file,
@@ -133,7 +167,7 @@ def create_product_image_service(
     image_was_committed = product_image.image._committed
 
     try:
-        with transaction.atomic(durable=True):
+        with transaction.atomic(durable=durable):
             if is_primary:
                 Product.objects.select_for_update().get(pk=product.pk)
                 ProductImage.objects.filter(product=product, is_primary=True).update(
@@ -144,7 +178,7 @@ def create_product_image_service(
             transaction.on_commit(lambda: _enqueue_thumbnail(product_image.id))
     except Exception:
         if not image_was_committed and product_image.image._committed:
-            _delete_unreferenced_original(product_image)
+            cleanup_product_image_original_after_rollback(product_image)
         raise
 
     return product_image
@@ -155,7 +189,9 @@ def _unique_original_name(original_name: str) -> str:
     return f"{uuid4().hex}{Path(original_name).suffix.lower()}"
 
 
-def _delete_unreferenced_original(product_image: ProductImage) -> None:
+def cleanup_product_image_original_after_rollback(
+    product_image: ProductImage,
+) -> None:
     image_name = product_image.image.name
     if not image_name:
         return
@@ -169,6 +205,31 @@ def _delete_unreferenced_original(product_image: ProductImage) -> None:
             msg="product_image.original_cleanup_failed",
             include_traceback=True,
         )
+
+
+@transaction.atomic
+def update_product_image_service(
+    *,
+    product_image: ProductImage,
+    is_primary: bool,
+    display_order: int,
+) -> ProductImage:
+    """Update editable image metadata while preserving primary-image integrity."""
+    Product.objects.select_for_update().get(pk=product_image.product_id)
+    locked_product_image = ProductImage.objects.select_for_update().get(
+        pk=product_image.pk
+    )
+    if is_primary:
+        ProductImage.objects.filter(
+            product_id=locked_product_image.product_id,
+            is_primary=True,
+        ).exclude(pk=locked_product_image.pk).update(is_primary=False)
+    locked_product_image.is_primary = is_primary
+    locked_product_image.display_order = display_order
+    locked_product_image.save(
+        update_fields=["is_primary", "display_order", "updated_at"]
+    )
+    return locked_product_image
 
 
 @transaction.atomic

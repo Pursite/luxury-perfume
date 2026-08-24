@@ -21,7 +21,7 @@ class NormalizedPhoneNumberSerializer(serializers.Serializer):
         value = CustomUser.normalize_phone_number(value)
         if not CustomUser.is_valid_phone_number(value):
             raise serializers.ValidationError(
-                "Phone number must be entered in the format: '0912345678'."
+                "Phone number must be entered in the format: '09123456789'."
             )
         return value
 

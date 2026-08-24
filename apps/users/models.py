@@ -46,7 +46,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
     phone_number_pattern = re.compile(r"^09[0-9]{9}$")
     phone_regex = RegexValidator(
         regex=r"^09[0-9]{9}$",
-        message="Phone number must be entered in the format: '0912345678'."
+        message="Phone number must be entered in the format: '09123456789'."
     )
     phone_number = models.CharField(
         validators=[phone_regex],

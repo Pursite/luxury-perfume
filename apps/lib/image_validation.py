@@ -12,7 +12,9 @@ class RestrictedImageField(serializers.ImageField):
     """Preserve the declared upload MIME type for content validation."""
 
     def to_internal_value(self, data):
-        declared_mime_type = getattr(data, "content_type", None)
+        declared_mime_type = getattr(data, "declared_mime_type", None)
+        if declared_mime_type is None:
+            declared_mime_type = getattr(data, "content_type", None)
         value = super().to_internal_value(data)
         value.declared_mime_type = declared_mime_type
         return value
