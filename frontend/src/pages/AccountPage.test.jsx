@@ -46,6 +46,7 @@ test("loads the current profile into the account ledger with backend-owned compl
 
   expect(screen.getByRole("status", { name: "Loading account details" })).toBeInTheDocument();
   expect(await screen.findByRole("heading", { name: "Account Details" })).toBeInTheDocument();
+  expect(document.title).toBe("Account Details — Luxury Perfume");
   expect(screen.getByText("Profile incomplete")).toBeInTheDocument();
   expect(screen.getByLabelText("Username")).toHaveValue("customer_name");
   expect(screen.getByLabelText("Email")).toHaveValue("customer@example.com");

@@ -31,6 +31,7 @@ test("renders discounted, regular-price, and out-of-stock API products", async (
   expect(screen.getByText("7,500,000 toman")).toHaveClass("price-original");
   expect(screen.getByRole("heading", { name: "Naxos" })).toBeInTheDocument();
   expect(screen.getByText("8,900,000 toman")).toBeInTheDocument();
+  expect(screen.getByLabelText("No image available for Naxos")).toHaveTextContent("Luxury Perfume");
   expect(screen.getByRole("heading", { name: "Aventus" })).toBeInTheDocument();
   expect(screen.getByText("Out of stock")).toBeInTheDocument();
 });

@@ -27,11 +27,11 @@ export default function ProductGallery({ images, productName, brandName }) {
         {selected && !selectedFailed ? (
           <img
             src={imageSource(selected)}
-            alt={`${productName} by ${brandName || "EXON+"} — image ${selectedIndex + 1}`}
+            alt={`${productName} by ${brandName || "Luxury Perfume"} — image ${selectedIndex + 1}`}
             onError={() => markFailed(selected.id)}
           />
         ) : (
-          <span className="image-fallback" aria-label={`No image available for ${productName}`}>EXON+</span>
+          <span className="image-fallback" aria-label={`No image available for ${productName}`}>Luxury Perfume</span>
         )}
       </div>
       {ordered.length > 1 ? (
@@ -46,7 +46,7 @@ export default function ProductGallery({ images, productName, brandName }) {
               onClick={() => setSelectedId(image.id)}
             >
               {failedIds.has(image.id) ? (
-                <span aria-hidden="true">EX+</span>
+                <span aria-hidden="true">LP</span>
               ) : (
                 <img src={imageSource(image, true)} alt="" onError={() => markFailed(image.id)} />
               )}

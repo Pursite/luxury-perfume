@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -155,7 +155,8 @@ test("links back to Sign In while preserving the return destination", async () =
   const user = userEvent.setup();
   renderSignup("/cart");
 
-  const loginLink = screen.getByRole("link", { name: "Sign in" });
+  const accountSwitch = screen.getByText(/Already have an account/).closest("p");
+  const loginLink = within(accountSwitch).getByRole("link", { name: "Sign in" });
   expect(loginLink).toHaveAttribute("href", "/login");
   await user.click(loginLink);
 

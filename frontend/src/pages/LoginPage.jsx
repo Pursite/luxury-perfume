@@ -77,7 +77,7 @@ export default function LoginPage() {
             describedBy={error ? "login-error login-help" : "login-help"}
             onChange={(event) => { setPassword(event.target.value); setError(""); }}
           />
-          <p id="login-help" className="form-help">Use the username and password registered with EXON+.</p>
+          <p id="login-help" className="form-help">Use the username and password registered with Luxury Perfume.</p>
           <button type="submit" className="button login-submit" disabled={submitting} aria-busy={submitting}>
             {submitting ? "Signing in…" : "Sign in"}
           </button>

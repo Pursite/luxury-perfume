@@ -36,9 +36,10 @@ test("keeps the development notice visible in the storefront shell", () => {
 
   expect(
     screen.getByText(
-      "This website is currently under development. SMS services and online payments are not available yet.",
+      "این وب‌سایت در حال توسعه است. خدمات پیامکی و پرداخت آنلاین در حال حاضر در دسترس نیستند.",
     ),
-  ).toBeInTheDocument();
+  ).toHaveAttribute("lang", "fa");
+  expect(screen.getByText(/این وب‌سایت/)).toHaveAttribute("dir", "rtl");
 });
 
 test("routes an anonymous Cart visit to Login", async () => {
@@ -58,5 +59,5 @@ test("renders a useful 404 page inside the storefront shell", () => {
   renderApp("/a-fragrance-that-does-not-exist");
   expect(screen.getByRole("heading", { name: "This trail ends here." })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Return to the collection" })).toHaveAttribute("href", "/");
-  expect(screen.getByText(/SMS services and online payments/)).toBeInTheDocument();
+  expect(screen.getByText(/خدمات پیامکی و پرداخت آنلاین/)).toBeInTheDocument();
 });

@@ -5,6 +5,7 @@ import ConfirmAction from "../components/ConfirmAction";
 import EmptyState from "../components/EmptyState";
 import ErrorState from "../components/ErrorState";
 import QuantityControl from "../components/QuantityControl";
+import UnavailableControl from "../components/UnavailableControl";
 import useCart from "../hooks/useCart";
 import useDocumentTitle from "../hooks/useDocumentTitle";
 import { formatMoney } from "../utils/currency";
@@ -27,7 +28,7 @@ function CartLine({ item, mutating, updateItem, removeItem }) {
       <Link className="cart-line-image" to={`/products/${item.product.slug}`}>
         {source && !imageFailed ? (
           <img src={source} alt={`${item.product.name} perfume`} onError={() => setImageFailed(true)} />
-        ) : <span className="image-fallback" aria-hidden="true">EX+</span>}
+        ) : <span className="image-fallback" aria-hidden="true">LP</span>}
       </Link>
       <div className="cart-line-copy">
         <p className="eyebrow">Selected fragrance</p>
@@ -114,10 +115,11 @@ export default function CartPage() {
           <div><dt>Total quantity</dt><dd>{cart.total_quantity}</dd></div>
           <div><dt>Total price</dt><dd>{formatMoney(cart.total_price)}</dd></div>
         </dl>
-        <div className="payment-tooltip-wrapper" tabIndex="0" data-payment-tooltip-trigger="true" aria-describedby="payment-tooltip">
-          <button type="button" className="button payment-button" disabled>Proceed to Payment</button>
-          <span id="payment-tooltip" className="payment-tooltip" role="tooltip">Currently unavailable</span>
-        </div>
+        <UnavailableControl
+          label="Proceed to Payment"
+          className="payment-tooltip-wrapper"
+          buttonClassName="button payment-button"
+        />
         <p className="payment-note">Online payments are currently unavailable. Your cart will remain a selection only.</p>
       </aside>
     </div>

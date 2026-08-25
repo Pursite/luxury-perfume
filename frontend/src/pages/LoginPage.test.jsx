@@ -93,6 +93,13 @@ test("reveals and remasks the password accessibly", async () => {
   expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
 });
 
+test("uses the Luxury Perfume customer-facing identity", () => {
+  renderLogin();
+
+  expect(screen.getByText("Use the username and password registered with Luxury Perfume.")).toBeInTheDocument();
+  expect(document.title).toBe("Sign in — Luxury Perfume");
+});
+
 test("links to Signup and preserves the intended return destination", async () => {
   const user = userEvent.setup();
   renderLogin();

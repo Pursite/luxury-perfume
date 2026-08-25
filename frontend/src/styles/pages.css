@@ -51,6 +51,11 @@
   position: relative;
 }
 
+.search-field {
+  width: 100%;
+  max-width: 44rem;
+}
+
 .search-control input,
 .filter-row select {
   width: 100%;
@@ -62,7 +67,8 @@
 }
 
 .search-control input {
-  padding: 0.75rem 3rem 0.75rem 0.9rem;
+  min-height: 2.75rem;
+  padding: 0.65rem 3rem 0.65rem 0.85rem;
 }
 
 .search-control input::-webkit-search-cancel-button {
@@ -791,29 +797,8 @@
 .cart-summary dt { color: var(--color-ivory-muted); font-size: 0.72rem; }
 .cart-summary dd { margin: 0; font-size: 0.8rem; font-weight: 600; }
 
-.payment-tooltip-wrapper { position: relative; }
+.payment-tooltip-wrapper { position: relative; width: 100%; }
 .payment-button { width: 100%; }
-.payment-tooltip {
-  position: absolute;
-  bottom: calc(100% + 0.6rem);
-  left: 50%;
-  z-index: var(--z-popover);
-  border: 1px solid var(--line-soft);
-  padding: 0.55rem 0.75rem;
-  color: var(--color-ivory);
-  background: var(--color-ink);
-  font-size: 0.68rem;
-  white-space: nowrap;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(-50%);
-  transition: opacity 160ms ease;
-}
-
-.payment-tooltip-wrapper:hover .payment-tooltip,
-.payment-tooltip-wrapper:focus .payment-tooltip,
-.payment-tooltip-wrapper:focus-within .payment-tooltip { opacity: 1; visibility: visible; }
-
 .payment-note { margin: 0.8rem 0 0; color: var(--color-ivory-muted); font-size: 0.68rem; line-height: 1.6; }
 
 .cart-loading {

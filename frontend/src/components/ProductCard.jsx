@@ -20,13 +20,13 @@ export default function ProductCard({ product }) {
           {source && !imageFailed ? (
             <img
               src={source}
-              alt={`${product.name} by ${product.brand?.name || "EXON+"}`}
+              alt={`${product.name} by ${product.brand?.name || "Luxury Perfume"}`}
               loading="lazy"
               onError={() => setImageFailed(true)}
             />
           ) : (
             <span className="image-fallback" aria-label={`No image available for ${product.name}`}>
-              EXON+
+              Luxury Perfume
             </span>
           )}
           {product.is_featured ? <span className="featured-mark">Featured</span> : null}

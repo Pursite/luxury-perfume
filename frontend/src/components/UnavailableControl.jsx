@@ -1,8 +1,8 @@
-import { useId, useState } from "react";
+import { forwardRef, useId, useState } from "react";
 
 export const UNAVAILABLE_TOOLTIP = "This feature will be available later.";
 
-export default function UnavailableControl({
+const UnavailableControl = forwardRef(function UnavailableControl({
   label,
   className = "",
   buttonClassName = "button button-outline",
@@ -10,12 +10,18 @@ export default function UnavailableControl({
   tabIndex = 0,
   ariaLabel = `${label}, unavailable`,
   onKeyDown,
-}) {
+  onFocus,
+  onBlur,
+  onMouseEnter,
+  onMouseLeave,
+  ...wrapperProps
+}, ref) {
   const tooltipId = useId();
   const [tooltipVisible, setTooltipVisible] = useState(false);
 
   return (
     <div
+      ref={ref}
       className={`unavailable-control ${className}`.trim()}
       role={role}
       aria-label={ariaLabel}
@@ -23,10 +29,23 @@ export default function UnavailableControl({
       aria-describedby={tooltipId}
       tabIndex={tabIndex}
       onKeyDown={onKeyDown}
-      onMouseEnter={() => setTooltipVisible(true)}
-      onMouseLeave={() => setTooltipVisible(false)}
-      onFocus={() => setTooltipVisible(true)}
-      onBlur={() => setTooltipVisible(false)}
+      onMouseEnter={(event) => {
+        setTooltipVisible(true);
+        onMouseEnter?.(event);
+      }}
+      onMouseLeave={(event) => {
+        setTooltipVisible(false);
+        onMouseLeave?.(event);
+      }}
+      onFocus={(event) => {
+        setTooltipVisible(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setTooltipVisible(false);
+        onBlur?.(event);
+      }}
+      {...wrapperProps}
     >
       <button type="button" className={buttonClassName} disabled tabIndex="-1">
         {label}
@@ -41,4 +60,6 @@ export default function UnavailableControl({
       </span>
     </div>
   );
-}
+});
+
+export default UnavailableControl;

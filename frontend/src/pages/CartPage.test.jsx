@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -146,17 +146,16 @@ test("keeps the clear confirmation open and exposes a mutation failure", async (
 });
 
 test("keeps payment disabled and explains it without issuing a request", async () => {
-  const user = userEvent.setup();
   cartApi.getCart.mockResolvedValue(cartResponse);
   renderCart();
 
   const payment = await screen.findByRole("button", { name: "Proceed to Payment" });
+  const wrapper = screen.getByRole("group", { name: "Proceed to Payment, unavailable" });
   expect(payment).toBeDisabled();
-  await user.tab();
-  while (document.activeElement?.getAttribute("data-payment-tooltip-trigger") !== "true") {
-    await user.tab();
-  }
-  expect(screen.getByRole("tooltip")).toHaveTextContent("Currently unavailable");
+  wrapper.focus();
+  await waitFor(() => {
+    expect(screen.getByRole("tooltip")).toHaveTextContent("This feature will be available later.");
+  });
   expect(cartApi.addCartItem).not.toHaveBeenCalled();
   expect(cartApi.updateCartItem).not.toHaveBeenCalled();
 });

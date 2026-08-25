@@ -2,6 +2,6 @@ import { useEffect } from "react";
 
 export default function useDocumentTitle(title) {
   useEffect(() => {
-    document.title = `${title} — EXON+`;
+    document.title = `${title} — Luxury Perfume`;
   }, [title]);
 }
