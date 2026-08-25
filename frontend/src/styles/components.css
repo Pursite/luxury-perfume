@@ -183,6 +183,40 @@
   cursor: pointer;
 }
 
+.unavailable-control {
+  position: relative;
+  width: fit-content;
+}
+
+.unavailable-control > button {
+  min-width: 12rem;
+}
+
+.unavailable-tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.6rem);
+  left: 50%;
+  z-index: var(--z-popover);
+  max-width: min(18rem, calc(100vw - 2rem));
+  border: 1px solid var(--line-soft);
+  padding: 0.55rem 0.75rem;
+  color: var(--color-ivory);
+  background: var(--color-ink);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%);
+  transition: opacity 160ms ease;
+}
+
+.unavailable-tooltip[aria-hidden="false"] {
+  opacity: 1;
+  visibility: visible;
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;

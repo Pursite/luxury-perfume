@@ -47,6 +47,13 @@ test("routes an anonymous Cart visit to Login", async () => {
   expect(fetch.mock.calls.filter(([url]) => url.startsWith("/api/v1/cart"))).toHaveLength(0);
 });
 
+test("routes an anonymous Account visit to Login", async () => {
+  renderApp("/account");
+
+  expect(await screen.findByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
+  expect(fetch.mock.calls.filter(([url]) => url.startsWith("/api/v1/users/profile"))).toHaveLength(0);
+});
+
 test("renders a useful 404 page inside the storefront shell", () => {
   renderApp("/a-fragrance-that-does-not-exist");
   expect(screen.getByRole("heading", { name: "This trail ends here." })).toBeInTheDocument();

@@ -140,3 +140,21 @@ export const cartResponse = {
   total_price: "12500000.00",
   has_unavailable_items: false,
 };
+
+export const profileResponse = {
+  id: "44444444-4444-4444-8444-444444444444",
+  phone_number: null,
+  username: "customer_name",
+  email: "customer@example.com",
+  first_name: "Customer",
+  last_name: "Name",
+  is_profile_complete: false,
+  addresses: [
+    {
+      id: "55555555-5555-4555-8555-555555555555",
+      title: "Home",
+      full_address: "12 Saffron Street",
+      postal_code: "1234567890",
+    },
+  ],
+};
