@@ -9,6 +9,7 @@ from apps.lib.cache import RedisCacheService
 from apps.lib.loggers import AppLogger
 from apps.lib.paginations import CustomPagination
 from apps.lib.permissions import IsAdmin
+from apps.lib.throttle import CatalogueReadRateThrottle
 from apps.products.cache import (
     PRODUCT_DETAIL_CACHE_TTL,
     PRODUCT_LIST_CACHE_TTL,
@@ -59,6 +60,11 @@ class ProductListCreateAPIView(APIView):
         "volume_ml",
     )
     ordering = ("-created_at",)
+
+    def get_throttles(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [CatalogueReadRateThrottle()]
+        return super().get_throttles()
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -112,6 +118,11 @@ class ProductDetailAPIView(APIView):
     """Public slug detail and administrator-only slug update/delete endpoints."""
 
     throttle_classes = (AnonRateThrottle, UserRateThrottle)
+
+    def get_throttles(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [CatalogueReadRateThrottle()]
+        return super().get_throttles()
 
     def get_permissions(self):
         if self.request.method in permissions.SAFE_METHODS:

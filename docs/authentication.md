@@ -34,7 +34,9 @@ by `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` and `JWT_REFRESH_TOKEN_LIFETIME_DAYS`.
 `POST token/refresh/` accepts `{"refresh": "<refresh-token>"}` and returns
 `{"access": "...", "refresh": "..."}`. Refresh rotation and blacklist-after-
 rotation are enabled: clients must replace the old refresh token after each
-successful response; replaying it is rejected.
+successful response; replaying it is rejected. Refresh attempts use a dedicated
+fail-closed security-cache throttle (`TOKEN_REFRESH_THROTTLE_RATE`, default
+`30/m`) rather than sharing the global anonymous API bucket.
 
 Tokens carry Simple JWT's password-hash revocation claim. A password change
 (profile update or OTP reset) locks the user record, blacklists all
@@ -69,9 +71,13 @@ IP; the endpoint also has the `login` anonymous-IP throttle.
 
 The React storefront exposes both direct username/password endpoints. Signup
 and Login feed the same centralized session handling: access tokens remain in
-memory and refresh tokens remain in `sessionStorage`. Its visible SMS signup
-and sign-in alternatives are genuinely disabled and make no OTP request while
-the external SMS service is unavailable.
+memory and refresh tokens remain in `sessionStorage`. On reload, a successful
+refresh restores `authenticated` state before the protected Cart provider
+mounts. An invalid or expired refresh returns the app to `anonymous` and clears
+tokens; transient refresh failures such as throttling, network errors, or 5xx
+responses preserve the refresh token and expose a retryable restoration-error
+state instead. Its visible SMS signup and sign-in alternatives are genuinely
+disabled and make no OTP request while the external SMS service is unavailable.
 
 Its protected `/account` route keeps profile data and drafts only in React
 memory. It reads the authenticated user from `GET profile/`, saves supported

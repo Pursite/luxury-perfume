@@ -21,7 +21,7 @@ below.
 | `POST /users/signup/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/signup/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 201; message and tokens |
 | `POST /users/login/userpass/` | Public; password-login throttle | `username`, `password` | 200; message and tokens |
-| `POST /users/token/refresh/` | Public | `refresh` | 200; rotated `access` and `refresh` tokens |
+| `POST /users/token/refresh/` | Public; dedicated security-cache refresh throttle | `refresh` | 200; rotated `access` and `refresh` tokens |
 | `POST /users/login/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
 | `POST /users/profile/phone/send-otp/` | Authenticated; phone + IP OTP-request throttles | `phone_number` | 200; generic message and `expires_in` |
@@ -53,12 +53,12 @@ The `address` accepted by profile completion has `title`, `full_address`, and op
 
 | Method and path | Access | Request / behavior | Success |
 | --- | --- | --- | --- |
-| `GET /products/` | Public | Lists active products | 200; paginated product list |
-| `POST /products/` | Authenticated staff only | Product write fields | 201; product detail |
-| `GET /products/<product_slug>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
-| `PUT /products/<product_slug>/` | Authenticated staff only | Complete product write fields | 200; product detail |
-| `PATCH /products/<product_slug>/` | Authenticated staff only | Partial product write fields | 200; product detail |
-| `DELETE /products/<product_slug>/` | Authenticated staff only | — | 204; no body |
+| `GET /products/` | Public; catalogue-read throttle | Lists active products | 200; paginated product list |
+| `POST /products/` | Authenticated staff only; existing user throttle | Product write fields | 201; product detail |
+| `GET /products/<product_slug>/` | Public; catalogue-read throttle | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
+| `PUT /products/<product_slug>/` | Authenticated staff only; existing user throttle | Complete product write fields | 200; product detail |
+| `PATCH /products/<product_slug>/` | Authenticated staff only; existing user throttle | Partial product write fields | 200; product detail |
+| `DELETE /products/<product_slug>/` | Authenticated staff only; existing user throttle | — | 204; no body |
 | `POST /products/<product_slug>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
 | `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
 

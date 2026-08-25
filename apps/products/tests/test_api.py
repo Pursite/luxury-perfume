@@ -1,6 +1,8 @@
 from io import BytesIO
+import time
 
 import pytest
+from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from PIL import Image
@@ -60,6 +62,71 @@ class TestProductListCreateAPIView:
             "taste_notes",
             "serving_temp",
         }.isdisjoint(result)
+
+    def test_anonymous_catalogue_reads_use_a_dedicated_throttle_scope(
+        self,
+        api_client,
+    ):
+        ProductFactory()
+        caches["default"].set(
+            "throttle_catalogue_198.51.100.10",
+            [time.time()] * 119,
+            timeout=60,
+        )
+
+        first_response = api_client.get(self.url, REMOTE_ADDR="198.51.100.10")
+        second_response = api_client.get(self.url, REMOTE_ADDR="198.51.100.10")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_global_anonymous_exhaustion_does_not_block_catalogue_reads(
+        self,
+        api_client,
+    ):
+        ProductFactory()
+        caches["default"].set(
+            "throttle_anon_198.51.100.11",
+            [time.time()] * 100,
+            timeout=86400,
+        )
+
+        response = api_client.get(self.url, REMOTE_ADDR="198.51.100.11")
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_authenticated_product_mutations_keep_user_throttling(
+        self,
+        api_client,
+        admin_user,
+    ):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+        caches["default"].set(
+            f"throttle_user_{admin_user.pk}",
+            [time.time()] * 999,
+            timeout=86400,
+        )
+
+        first_response = api_client.patch(
+            reverse(
+                "apps.products:product-detail",
+                kwargs={"product_slug": product.slug},
+            ),
+            {"name": "First update"},
+            format="json",
+        )
+        second_response = api_client.patch(
+            reverse(
+                "apps.products:product-detail",
+                kwargs={"product_slug": product.slug},
+            ),
+            {"name": "Second update"},
+            format="json",
+        )
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_list_filters_searches_and_orders(self, api_client):
         category = CategoryFactory()
@@ -311,6 +378,27 @@ class TestProductDetailAPIView:
             == status.HTTP_404_NOT_FOUND
         )
         assert api_client.get("/api/v1/products/1/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_anonymous_detail_reads_use_the_catalogue_throttle(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        caches["default"].set(
+            "throttle_catalogue_198.51.100.12",
+            [time.time()] * 119,
+            timeout=60,
+        )
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_slug": product.slug},
+        )
+
+        first_response = api_client.get(url, REMOTE_ADDR="198.51.100.12")
+        second_response = api_client.get(url, REMOTE_ADDR="198.51.100.12")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_put_patch_and_delete_require_admin(self, api_client, admin_user, normal_user):
         product = ProductFactory(name="Original")

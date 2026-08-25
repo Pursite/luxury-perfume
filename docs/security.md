@@ -49,13 +49,14 @@ Username/password failures remain generic for unknown, incorrect, inactive, and 
 
 ## Throttling and security cache
 
-The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, and two OTP dimensions. Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
+The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, catalogue-read, refresh, and two OTP dimensions. Public Product list/detail reads use the ordinary-cache `catalogue` scope (`PRODUCT_CATALOGUE_THROTTLE_RATE`, default `120/m`) so unrelated anonymous API traffic cannot exhaust catalogue availability. Product mutations retain the existing authenticated user throttle. Refresh uses the fail-closed security-cache `token_refresh` scope (`TOKEN_REFRESH_THROTTLE_RATE`, default `30/m`). Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
 
 OTP throttles, codes, failed-attempt counters, temporary locks, verification
-leases, the password-login guard, and password-login/signup throttle histories
-use only the `security` cache alias. It does not ignore errors: security-cache
-failures return 503 instead of allowing an unprotected request. The ordinary
-`default` cache is separate and may tolerate failures for catalogue caching.
+leases, the password-login guard, password-login/signup throttle histories, and
+refresh throttles use only the `security` cache alias. It does not ignore
+errors: security-cache failures return 503 instead of allowing an unprotected
+request. The ordinary `default` cache is separate and may tolerate failures
+for catalogue caching and catalogue-read throttling.
 Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can
 reach loopback Gunicorn; do not trust forwarded client IP headers in another
 topology without changing that setting.

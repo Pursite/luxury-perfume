@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from django.core.cache import caches
 from django.urls import reverse
@@ -290,6 +292,53 @@ class TestAuthenticationAPI:
         assert set(response.data) == {"access", "refresh"}
         assert response.data["refresh"] != original_refresh
         assert replay_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_refresh_is_not_blocked_by_the_global_anonymous_throttle(
+        self,
+        api_client,
+    ):
+        user = UserFactory()
+        refresh = str(RefreshToken.for_user(user))
+        caches["default"].set(
+            "throttle_anon_198.51.100.30",
+            [time.time()] * 100,
+            timeout=86400,
+        )
+
+        response = api_client.post(
+            reverse("users:token_refresh"),
+            {"refresh": refresh},
+            format="json",
+            REMOTE_ADDR="198.51.100.30",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.data) == {"access", "refresh"}
+
+    def test_refresh_keeps_its_own_rate_limit(self, api_client):
+        user = UserFactory()
+        first_refresh = str(RefreshToken.for_user(user))
+        caches["security"].set(
+            "throttle_token_refresh_198.51.100.31",
+            [time.time()] * 29,
+            timeout=60,
+        )
+
+        first_response = api_client.post(
+            reverse("users:token_refresh"),
+            {"refresh": first_refresh},
+            format="json",
+            REMOTE_ADDR="198.51.100.31",
+        )
+        second_response = api_client.post(
+            reverse("users:token_refresh"),
+            {"refresh": first_response.data["refresh"]},
+            format="json",
+            REMOTE_ADDR="198.51.100.31",
+        )
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_refresh_rejects_tokens_issued_before_a_password_change(self, api_client):
         user = UserFactory()

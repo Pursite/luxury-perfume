@@ -105,6 +105,8 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": env("AUTH_ANON_THROTTLE_RATE", default="100/day"),
         "user": env("AUTH_USER_THROTTLE_RATE", default="1000/day"),
+        "catalogue": env("PRODUCT_CATALOGUE_THROTTLE_RATE", default="120/m"),
+        "token_refresh": env("TOKEN_REFRESH_THROTTLE_RATE", default="30/m"),
         "otp": env("OTP_REQUEST_THROTTLE_RATE", default="1/m"),
         "otp_ip": env(
             "OTP_REQUEST_IP_THROTTLE_RATE",

@@ -146,10 +146,12 @@ Redis has two configured cache aliases with separate URLs:
   configured to ignore cache exceptions, so a cache failure can fall back to
   the database. Cart responses are never stored in this cache.
 - `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks,
-  leases, password-login guard and throttle state, signup-throttle state, and
-  OTP phone/IP throttle histories. Profile-phone codes use a purpose scoped to
-  the authenticated user. It does not suppress exceptions; security-cache
-  errors produce a 503 response instead of bypassing authentication protection.
+  leases, password-login guard and throttle state, signup-throttle state,
+  refresh throttles, and OTP phone/IP throttle histories. Profile-phone codes
+  use a purpose scoped to the authenticated user. It does not suppress
+  exceptions; security-cache errors produce a 503 response instead of bypassing
+  authentication protection. Catalogue-read throttling remains on the ordinary
+  `default` cache with catalogue caching.
 
 JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
 
