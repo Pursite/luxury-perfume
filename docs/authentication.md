@@ -73,6 +73,12 @@ memory and refresh tokens remain in `sessionStorage`. Its visible SMS signup
 and sign-in alternatives are genuinely disabled and make no OTP request while
 the external SMS service is unavailable.
 
+Its protected `/account` route keeps profile data and drafts only in React
+memory. It reads the authenticated user from `GET profile/`, saves supported
+personal and address changes through `PATCH profile/update/`, and replaces its
+displayed state from the returned `data`. It does not expose password changes
+or call phone-verification, OTP, or password-reset endpoints.
+
 ## Phone/OTP flows
 
 Each OTP flow requires canonical `phone_number`; verification also requires an
@@ -132,6 +138,10 @@ after `POST profile/phone/send-otp/` followed by successful
 `POST profile/phone/verify-otp/`; verification is bound to the authenticated
 account, is available only while that account has no verified phone, and
 refuses a number owned by another user without revealing that ownership.
+
+`GET profile/` returns only the authenticated user's serialized profile and
+ordered addresses. It accepts no user ID, requires authentication, and exposes
+no password, token, staff, group, or permission fields.
 
 `POST profile/complete/` is one-time onboarding: it requires the verified
 phone, sets username/email/name, and creates the first address. It neither

@@ -1,4 +1,4 @@
-# EXON+ React storefront
+# Luxury Perfume React storefront
 
 `frontend/` is the customer-facing React application for the Luxury Perfume
 API. It uses React 19, Vite, React Router, plain JavaScript, semantic JSX, and
@@ -63,7 +63,7 @@ src/
 ├── context/      Auth and Cart providers
 ├── hooks/        context access and document-title helpers
 ├── layouts/      persistent Header, page outlet, and development notice
-├── pages/        catalogue, Product Detail, Login, Signup, Cart, and 404 routes
+├── pages/        catalogue, Product Detail, Login, Signup, Account, Cart, and 404 routes
 ├── styles/       tokens, global rules, components, and page layouts
 ├── test/         test setup and API-shaped fixtures
 └── utils/        currency, image, and safe-navigation helpers
@@ -73,9 +73,10 @@ src/
 immutable Product slug and presents the ordered image gallery and real
 top/heart/base fragrance notes. `/login` and `/signup` expose the backend's
 username/password flows and share one centralized JWT session path. `/cart` is
-protected and synchronizes every mutation from the backend response. The
-application does not create a guest cart or implement SMS, Orders, checkout,
-or payments.
+protected and synchronizes every mutation from the backend response. `/account`
+is protected, reads the current profile, and updates personal details or owned
+addresses from separate forms. The application does not create a guest cart or
+implement SMS, password reset, Orders, Tickets, checkout, or payments.
 
 The catalogue exposes a deliberately compact subset of backend-supported
 filters. Search is debounced, IME composition is respected, and filters,
@@ -104,6 +105,13 @@ with authoritative API responses. DELETE operations are followed by a Cart
 GET because their successful responses have no body. Current prices, totals,
 stock, and availability are rendered from Django; unavailable lines are kept.
 
+Account profile data and form drafts remain component-local and memory-only;
+they are never written to `localStorage` or `sessionStorage`. The Account page
+uses `GET /users/profile/` as its initial authority and replaces displayed
+profile data from every successful `PATCH /users/profile/update/` response.
+It never exposes password mutation or calls profile-phone, OTP, or password-
+reset endpoints.
+
 ## Design and interaction contract
 
 The visual system is intentionally restrained: deep black surfaces, warm
@@ -112,14 +120,16 @@ type, thin borders, and low-motion transitions. CSS tokens live in
 `src/styles/tokens.css`; responsive behavior is implemented at component and
 page breakpoints rather than as a desktop-only layout.
 
-All customer-facing text is English. The layout includes a skip link, visible
+Customer controls and content are English; the development notice is the one
+locally marked Persian/RTL exception. The layout includes a skip link, visible
 focus states, semantic landmarks, labelled controls, live loading/error
 states, keyboard-operable navigation and confirmation, and reduced-motion
-support. Missing Product imagery uses a neutral EXON+ treatment rather than
+support. Missing Product imagery uses a neutral Luxury Perfume treatment rather than
 fake photography.
 
-The payment and SMS authentication controls are real disabled buttons.
+The payment, SMS authentication, Account phone, password-reset, Orders, and
+Tickets controls are real disabled buttons.
 Separate focusable wrappers own their accessible unavailable tooltips; they
 never navigate or call an API. Every route includes the understated
-development notice that SMS services and online payments are not available
-yet.
+development notice, in Persian, that SMS services and online payments are not
+available yet.

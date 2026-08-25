@@ -1,6 +1,6 @@
 # Luxury Perfume
 
-A Django REST Framework backend and EXON+ React storefront for a perfume,
+A Django REST Framework backend and Luxury Perfume React storefront for a perfume,
 cologne, and body-splash store. Django provides user authentication and profile
 management, a public fragrance catalogue with staff-only mutations, and
 authenticated carts; `frontend/` provides the customer experience.
@@ -23,10 +23,11 @@ authenticated carts; `frontend/` provides the customer experience.
 - Authenticated, owner-bound carts with live Product prices, stock, activity,
   and images. Cart writes are synchronous PostgreSQL transactions and never
   reserve stock or prices.
-- A responsive English React storefront with a server-filtered catalogue,
+- A responsive React storefront with a server-filtered catalogue,
   slug-addressed Product Detail gallery and fragrance pyramid,
-  username/password JWT login, and the real authenticated Cart. SMS and online
-  payments remain visibly unavailable and are not simulated.
+  username/password JWT login, an authenticated Account Details experience,
+  and the real authenticated Cart. SMS, password reset, Orders, Tickets, and
+  online payments remain visibly unavailable and are not simulated.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
 
@@ -133,6 +134,10 @@ ports.
 
 The API prefixes are `/api/v1/users/`, `/api/v1/products/`, and
 `/api/v1/cart/`.
+
+Authenticated customers can read their own serialized profile from
+`GET /api/v1/users/profile/`. The endpoint accepts no user identifier and
+returns the same safe user representation used by profile mutations.
 
 ### React storefront
 

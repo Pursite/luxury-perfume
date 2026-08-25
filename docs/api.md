@@ -26,6 +26,7 @@ below.
 | `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
 | `POST /users/profile/phone/send-otp/` | Authenticated; phone + IP OTP-request throttles | `phone_number` | 200; generic message and `expires_in` |
 | `POST /users/profile/phone/verify-otp/` | Authenticated; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; verified serialized user in `data` |
+| `GET /users/profile/` | Authenticated | No body or user identifier | 200; current serialized user in `data` |
 | `POST /users/profile/complete/` | Authenticated; requires a verified phone | `username`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
 | `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `email`, `first_name`, `last_name`, `password`, `address` | 200; message and serialized user in `data` |
 | `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
@@ -42,7 +43,11 @@ security behavior is in [authentication.md](authentication.md).
 Usernames supplied by signup, profile completion, or profile update must be
 5–150 ASCII letters, digits, or underscores.
 
-The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
+`GET /users/profile/` always resolves the authenticated user and does not accept
+a user ID. It returns `{"data": <serialized-user>}` and prefetches that user's
+addresses in creation order.
+
+The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`. Passwords, tokens, staff state, groups, and permissions are never present in this representation.
 
 ## Products
 
@@ -230,7 +235,7 @@ decrement, and price snapshots.
 
 ## React storefront consumption
 
-The EXON+ application in `frontend/` consumes these contracts without adding
+The Luxury Perfume application in `frontend/` consumes these contracts without adding
 frontend-only API assumptions. Catalogue search, the compact audience,
 concentration, fragrance-family and availability filters, ordering, and
 pagination are sent to `GET /products/`; results are never authoritatively
@@ -245,6 +250,14 @@ frontend JWT session. The frontend sends the access token as Bearer
 authentication and never sends user, Cart, or CartItem IDs. An unauthenticated
 Add-to-Cart action redirects to Login with a safe internal return path instead
 of intentionally generating a Cart 401.
+
+The protected `/account` route reads `/users/profile/` and uses only
+`PATCH /users/profile/update/` for changes. Personal saves send changed
+`username`, `email`, `first_name`, and `last_name` fields. Address saves either
+create the first address or include the explicit owned address `id`; returned
+`data` replaces the displayed profile. Profile data and drafts remain in React
+memory only. The page does not expose the backend password field and its phone,
+password-reset, Orders, and Tickets actions are disabled and make no request.
 
 The storefront displays disabled SMS signup and sign-in controls for future
 orientation, but they do not call the API's OTP endpoints.

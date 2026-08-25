@@ -38,6 +38,13 @@ in-flight refresh, retries once, and clears application authentication when
 refresh fails. Safe internal-path validation prevents a Login return target
 from becoming an external redirect.
 
+The protected Account page keeps profile responses and form drafts in React
+memory only; it does not persist profile PII in `localStorage` or
+`sessionStorage`. `GET /api/v1/users/profile/` derives ownership exclusively
+from the access token, accepts no user identifier, and uses the safe user
+output serializer. Disabled phone verification, password reset, Orders, and
+Tickets controls have no route or API side effect.
+
 Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.
 
 ## Throttling and security cache
