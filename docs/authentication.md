@@ -67,6 +67,12 @@ before returning, reducing practical timing enumeration. A separate security
 cache guard limits failed attempts by normalized username and trusted client
 IP; the endpoint also has the `login` anonymous-IP throttle.
 
+The React storefront exposes both direct username/password endpoints. Signup
+and Login feed the same centralized session handling: access tokens remain in
+memory and refresh tokens remain in `sessionStorage`. Its visible SMS signup
+and sign-in alternatives are genuinely disabled and make no OTP request while
+the external SMS service is unavailable.
+
 ## Phone/OTP flows
 
 Each OTP flow requires canonical `phone_number`; verification also requires an

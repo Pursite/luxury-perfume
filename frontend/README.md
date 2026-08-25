@@ -63,7 +63,7 @@ src/
 ├── context/      Auth and Cart providers
 ├── hooks/        context access and document-title helpers
 ├── layouts/      persistent Header, page outlet, and development notice
-├── pages/        catalogue, Product Detail, Login, Cart, and 404 routes
+├── pages/        catalogue, Product Detail, Login, Signup, Cart, and 404 routes
 ├── styles/       tokens, global rules, components, and page layouts
 ├── test/         test setup and API-shaped fixtures
 └── utils/        currency, image, and safe-navigation helpers
@@ -71,10 +71,11 @@ src/
 
 `/` is the server-filtered Product catalogue. `/products/:slug` uses the
 immutable Product slug and presents the ordered image gallery and real
-top/heart/base fragrance notes. `/login` supports the backend's
-username/password flow. `/cart` is protected and synchronizes every mutation
-from the backend response. The application does not create a guest cart or
-implement SMS, Orders, checkout, or payments.
+top/heart/base fragrance notes. `/login` and `/signup` expose the backend's
+username/password flows and share one centralized JWT session path. `/cart` is
+protected and synchronizes every mutation from the backend response. The
+application does not create a guest cart or implement SMS, Orders, checkout,
+or payments.
 
 The catalogue exposes a deliberately compact subset of backend-supported
 filters. Search is debounced, IME composition is respected, and filters,
@@ -91,6 +92,11 @@ JavaScript running after an XSS compromise. The application therefore keeps
 token handling centralized, never logs tokens, retries a protected request
 once after a single shared refresh, and returns the whole application to an
 anonymous state when refresh fails.
+
+Successful username/password signup establishes the same session as Login,
+loads the authenticated Cart, and honors only validated internal return paths.
+The Sign In and Create Account pages show disabled SMS alternatives so the
+future direction is visible, but those controls do not call any OTP endpoint.
 
 The Cart provider exists only for an authenticated session. It loads the real
 owner-bound Cart, blocks overlapping client mutations, and replaces its state
@@ -112,7 +118,8 @@ states, keyboard-operable navigation and confirmation, and reduced-motion
 support. Missing Product imagery uses a neutral EXON+ treatment rather than
 fake photography.
 
-The payment control is a real disabled button. A separate focusable wrapper
-owns the accessible “Currently unavailable” tooltip; it never navigates or
-calls an API. Every route includes the understated development notice that SMS
-services and online payments are not available yet.
+The payment and SMS authentication controls are real disabled buttons.
+Separate focusable wrappers own their accessible unavailable tooltips; they
+never navigate or call an API. Every route includes the understated
+development notice that SMS services and online payments are not available
+yet.

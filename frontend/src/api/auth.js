@@ -7,6 +7,13 @@ export function loginWithPassword(credentials) {
   });
 }
 
+export function signupWithPassword(credentials) {
+  return request("/api/v1/users/signup/", {
+    method: "POST",
+    body: credentials,
+  });
+}
+
 export function logoutSession(refresh) {
   return request("/api/v1/users/logout/", {
     method: "POST",

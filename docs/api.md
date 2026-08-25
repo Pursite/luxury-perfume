@@ -238,11 +238,16 @@ filtered in browser memory. Public Product links use response `slug` values.
 The Product Detail page renders the actual ordered `images`, `top_notes`,
 `middle_notes`, and `base_notes` arrays.
 
-Username/password login uses `/users/login/userpass/`, token renewal uses
-`/users/token/refresh/`, and sign-out uses `/users/logout/`. The frontend sends
-the access token as Bearer authentication and never sends user, Cart, or
-CartItem IDs. An unauthenticated Add-to-Cart action redirects to Login with a
-safe internal return path instead of intentionally generating a Cart 401.
+Username/password signup uses `/users/signup/`, login uses
+`/users/login/userpass/`, token renewal uses `/users/token/refresh/`, and
+sign-out uses `/users/logout/`. Signup and Login establish the same centralized
+frontend JWT session. The frontend sends the access token as Bearer
+authentication and never sends user, Cart, or CartItem IDs. An unauthenticated
+Add-to-Cart action redirects to Login with a safe internal return path instead
+of intentionally generating a Cart 401.
+
+The storefront displays disabled SMS signup and sign-in controls for future
+orientation, but they do not call the API's OTP endpoints.
 
 Cart POST and PATCH responses replace frontend Cart state. Because item and
 Cart DELETE endpoints correctly return no body, the frontend follows them with

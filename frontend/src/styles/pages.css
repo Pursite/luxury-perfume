@@ -95,9 +95,11 @@
 }
 
 .product-grid {
+  width: min(100%, 81rem);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(1.2rem, 3vw, 3rem) clamp(1rem, 2.4vw, 2.2rem);
+  gap: clamp(1.15rem, 2.8vw, 2.8rem) clamp(1rem, 2.5vw, 2.4rem);
+  margin-inline: auto;
   transition: opacity 180ms ease;
 }
 
@@ -117,7 +119,7 @@
 .product-card-media {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 4 / 4.9;
   border: 1px solid color-mix(in srgb, var(--color-gold) 22%, transparent);
   background: linear-gradient(145deg, #181714, #0d0d0d);
 }
@@ -161,7 +163,7 @@
 }
 
 .product-card-body {
-  padding: 1.2rem 0.1rem 0;
+  padding: 1.1rem 0.1rem 0;
 }
 
 .product-brand {
@@ -203,7 +205,7 @@
 }
 
 .skeleton-media {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 4 / 4.9;
   border: 1px solid var(--line-soft);
 }
 
@@ -582,6 +584,13 @@
   line-height: 1.6;
 }
 
+.field-help {
+  margin: 0.45rem 0 0;
+  color: var(--color-ivory-muted);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
 .form-error {
   min-height: 3rem;
   border-left: 2px solid var(--color-danger);
@@ -593,6 +602,84 @@
 }
 
 .login-submit { width: 100%; }
+
+.auth-secondary-option {
+  margin-top: 1.5rem;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+  color: var(--color-ivory-muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--line-soft);
+  content: "";
+}
+
+.auth-disabled-wrapper {
+  position: relative;
+}
+
+.auth-sms-button {
+  width: 100%;
+}
+
+.auth-disabled-tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.6rem);
+  left: 50%;
+  z-index: var(--z-popover);
+  border: 1px solid var(--line-soft);
+  padding: 0.55rem 0.75rem;
+  color: var(--color-ivory);
+  background: var(--color-ink);
+  font-size: 0.68rem;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%);
+  transition: opacity 160ms ease;
+}
+
+.auth-disabled-tooltip[aria-hidden="false"] {
+  opacity: 1;
+  visibility: visible;
+}
+
+.auth-unavailable-note {
+  margin: 0.65rem 0 0;
+  color: var(--color-ivory-muted);
+  font-size: 0.66rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.auth-account-switch {
+  margin: 1.4rem 0 0;
+  color: var(--color-ivory-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.auth-account-switch a {
+  color: var(--color-gold);
+  text-underline-offset: 0.2em;
+}
+
+.auth-account-switch a:hover {
+  color: var(--color-ivory);
+}
 
 @media (max-width: 46rem) {
   .login-panel { grid-template-columns: 1fr; }

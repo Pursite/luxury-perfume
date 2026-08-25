@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { loginWithPassword, logoutSession } from "../api/auth";
+import { loginWithPassword, logoutSession, signupWithPassword } from "../api/auth";
 import { refreshSession } from "../api/client";
 import { clearTokens, getRefreshToken, setTokens, subscribeToSessionClear } from "../api/tokenStore";
 import { AuthContext } from "./authContext";
@@ -19,14 +19,21 @@ export function AuthProvider({ children }) {
     return () => { active = false; };
   }, []);
 
-  async function login(credentials) {
-    const response = await loginWithPassword(credentials);
+  const establishSession = useCallback((response) => {
     setTokens(response.tokens);
     setStatus("authenticated");
     return response;
-  }
+  }, []);
 
-  async function logout() {
+  const login = useCallback(async (credentials) => {
+    return establishSession(await loginWithPassword(credentials));
+  }, [establishSession]);
+
+  const signup = useCallback(async (credentials) => {
+    return establishSession(await signupWithPassword(credentials));
+  }, [establishSession]);
+
+  const logout = useCallback(async () => {
     const refresh = getRefreshToken();
     try {
       if (refresh) await logoutSession(refresh);
@@ -34,14 +41,15 @@ export function AuthProvider({ children }) {
       clearTokens();
       setStatus("anonymous");
     }
-  }
+  }, []);
 
   const value = useMemo(() => ({
     status,
     isAuthenticated: status === "authenticated",
     login,
+    signup,
     logout,
-  }), [status]);
+  }), [login, logout, signup, status]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

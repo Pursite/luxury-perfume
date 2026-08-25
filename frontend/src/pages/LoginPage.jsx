@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
+import DisabledSmsOption from "../components/DisabledSmsOption";
+import PasswordField from "../components/PasswordField";
 import useAuth from "../hooks/useAuth";
 import useDocumentTitle from "../hooks/useDocumentTitle";
 import { safeInternalPath } from "../utils/navigation";
@@ -13,7 +15,6 @@ export default function LoginPage() {
   const usernameRef = useRef(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -68,30 +69,28 @@ export default function LoginPage() {
             onChange={(event) => { setUsername(event.target.value); setError(""); }}
           />
           <label htmlFor="password">Password</label>
-          <div className="password-control">
-            <input
-              id="password"
-              name="password"
-              type={showPassword ? "text" : "password"}
-              autoComplete="current-password"
-              value={password}
-              aria-invalid={Boolean(error)}
-              aria-describedby={error ? "login-error login-help" : "login-help"}
-              onChange={(event) => { setPassword(event.target.value); setError(""); }}
-            />
-            <button
-              type="button"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword((value) => !value)}
-            >
-              {showPassword ? "Hide" : "Show"}
-            </button>
-          </div>
+          <PasswordField
+            id="password"
+            autoComplete="current-password"
+            value={password}
+            invalid={Boolean(error)}
+            describedBy={error ? "login-error login-help" : "login-help"}
+            onChange={(event) => { setPassword(event.target.value); setError(""); }}
+          />
           <p id="login-help" className="form-help">Use the username and password registered with EXON+.</p>
           <button type="submit" className="button login-submit" disabled={submitting} aria-busy={submitting}>
             {submitting ? "Signing in…" : "Sign in"}
           </button>
+          <DisabledSmsOption label="Sign in with SMS" note="SMS sign-in is not available yet." />
+          <p className="auth-account-switch">
+            Don&apos;t have an account?{" "}
+            <Link
+              to="/signup"
+              state={{ returnTo: safeInternalPath(location.state?.returnTo) }}
+            >
+              Create one
+            </Link>
+          </p>
         </form>
       </section>
     </div>

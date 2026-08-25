@@ -4,6 +4,7 @@ export const anonymousAuth = {
   status: "anonymous",
   isAuthenticated: false,
   login: async () => {},
+  signup: async () => {},
   logout: async () => {},
 };
 
