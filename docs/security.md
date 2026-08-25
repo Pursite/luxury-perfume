@@ -27,6 +27,17 @@ tokens.
 
 Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
 
+The React storefront centralizes bearer-token handling. Its access token is
+memory-only and its rotating refresh token uses `sessionStorage`; no component
+logs or directly persists either token. `sessionStorage` limits persistence to
+the browser session compared with `localStorage`, but any browser-readable
+bearer token remains exposed to JavaScript after a successful XSS compromise.
+Consequently this is a usability/security trade-off within the existing JWT
+contract, not an HttpOnly-cookie security claim. A protected 401 shares one
+in-flight refresh, retries once, and clears application authentication when
+refresh fails. Safe internal-path validation prevents a Login return target
+from becoming an external redirect.
+
 Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.
 
 ## Throttling and security cache
@@ -91,6 +102,15 @@ snapshot.
 ## Configuration, logging, and transport
 
 Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Structured logs use allowlisted fields and redact common secret/PII patterns. Callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, email addresses, cache keys, or sensitive internal errors. Authentication and SMS-placeholder events use fixed generic names; system errors record an exception type, never an exception message or traceback.
+
+For local development Django allows only the documented Vite origins at ports
+5173. Production Django is hosted at `shop.exonplus.ir` and allows the
+`https://www.exonplus.ir` storefront origin. The public build-time
+`VITE_API_BASE_URL` contains only the Django origin; `VITE_*` values must never
+contain Django/JWT signing keys, database/Redis credentials, future payment
+credentials, or VPN credentials. `api.exonplus.ir` is unrelated VPN/3x-ui
+infrastructure and is not an allowed host, frontend API origin, or deployment
+target for this application.
 
 ## Verification and limitations
 

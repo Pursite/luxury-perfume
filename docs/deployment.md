@@ -2,8 +2,8 @@
 
 This deployment model is intended for one VPS. Docker Compose runs Django,
 Celery, PostgreSQL, and Redis. Nginx is installed and managed directly on the
-host; it terminates TLS, serves static/media files, and proxies Django only
-through `127.0.0.1:8000`.
+host; it terminates TLS, serves the React build plus Django static/media files,
+and proxies Django only through `127.0.0.1:8000`.
 
 No Nginx, certificate, or Certbot container is used or required.
 
@@ -52,6 +52,23 @@ configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
 
+Run the React storefront directly on the host with Node 24 LTS; it is not a
+Compose service:
+
+```bash
+cd frontend
+nvm install 24
+nvm use
+npm ci
+npm run dev
+```
+
+Vite serves `http://localhost:5173` and proxies relative `/api/` and `/media/`
+requests to Django at `http://localhost:8000`. The development environment
+template allows the `localhost:5173` and `127.0.0.1:5173` browser origins. Keep
+a correct private root `.env` intact rather than overwriting its unrelated
+values; never commit it.
+
 The development project uses named volumes. Docker does not rename or migrate
 volumes from a differently named Compose project. Recreate local volumes only
 when their data is known to be disposable; move valuable data with a separately
@@ -86,8 +103,9 @@ cp docker/env/.env.production.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and replace every `replace-with-*` value and example domain with
-deployment-specific values. Keep `DB_HOST=db`
+Edit `.env` and replace every `replace-with-*` value. Its tracked host/origin
+policy already assigns `shop.exonplus.ir` to Django and
+`https://www.exonplus.ir` to the storefront. Keep `DB_HOST=db`
 and the Redis service hostnames unchanged for this Compose layout. Then validate
 the selected production configuration with a non-secret image reference. The
 deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
@@ -338,6 +356,34 @@ Uploaded media is stored at `/srv/luxury-perfume/media`. Both directories are bi
 mounted into the application; Nginx reads them directly, so do not delete or
 replace them during routine deployments.
 
+## Production storefront build
+
+Production serves a static React build; it never runs Vite or a permanent Node
+process. From the exact reviewed release, use Node 24 LTS and the committed
+lockfile:
+
+```bash
+cd /srv/luxury-perfume/frontend
+nvm install 24
+nvm use
+npm ci
+VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
+```
+
+`VITE_API_BASE_URL` is public build configuration, not a secret. The build
+fails if it is absent or is not a path-free HTTPS origin. Never place Django,
+JWT, database, Redis, future payment, or VPN credentials in a `VITE_*`
+variable. Deploy the resulting `frontend/dist/` as a release directory readable
+by host Nginx; switch releases atomically (for example, through a reviewed
+`/srv/luxury-perfume/frontend-current` symlink) rather than copying partial
+assets over the live build.
+
+The current backend CD workflow builds and deploys the Django/Celery image; it
+does not yet copy or activate the React build on the VPS. Frontend CI does run
+`npm ci`, lint, tests, and this production build so a separately reviewed
+static-file release process can consume the same source. `frontend/dist/` is
+reproducible output and is not committed.
+
 ## Redis durability and capacity
 
 One Redis instance currently provides four logical databases: ordinary cache,
@@ -390,21 +436,58 @@ host operating system's security update process. The upstream is always
 `http://127.0.0.1:8000`; do not expose Docker's Gunicorn port on a public host
 interface.
 
-Example site configuration (replace the hostname and certificate paths):
+The public responsibilities are intentionally separate:
+
+- `www.exonplus.ir` serves only the React storefront and uses `index.html` as
+  the fallback for client routes such as `/products/<slug>` and `/cart`.
+- `shop.exonplus.ir` serves the Django API, health endpoints, Admin, static
+  assets, and uploaded Product media through the existing loopback Gunicorn
+  topology.
+- `api.exonplus.ir` remains the existing VPN/3x-ui service. Do not add it to
+  Django, proxy it to Gunicorn, or change its configuration for this project.
+
+Minimal example configuration (adjust certificate paths and the active
+frontend release path to match the host):
 
 ```nginx
 server {
     listen 80;
-    server_name api.example.com;
+    server_name www.exonplus.ir shop.exonplus.ir;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name api.example.com;
+    server_name www.exonplus.ir;
 
-    ssl_certificate     /etc/ssl/certs/api.example.com/fullchain.pem;
-    ssl_certificate_key /etc/ssl/private/api.example.com/privkey.pem;
+    ssl_certificate     /etc/ssl/certs/www.exonplus.ir/fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/www.exonplus.ir/privkey.pem;
+
+    root /srv/luxury-perfume/frontend-current;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        access_log off;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name shop.exonplus.ir;
+
+    ssl_certificate     /etc/ssl/certs/shop.exonplus.ir/fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/shop.exonplus.ir/privkey.pem;
     client_max_body_size 10m;
 
     location /static/ {
@@ -436,13 +519,16 @@ the forwarded address used by OTP limits. Restrict media further in Nginx if
 uploaded product images must not be public.
 
 After installing the site, validate and reload the host service using the
-operating system's Nginx commands, then verify both paths:
+operating system's Nginx commands, then verify the storefront SPA fallback and
+backend paths:
 
 ```bash
-curl --fail https://api.example.com/health/live
-curl --fail https://api.example.com/health/ready
-curl --fail https://api.example.com/health/startup
-curl --fail -I https://api.example.com/static/admin/css/base.css
+curl --fail -I https://www.exonplus.ir/
+curl --fail -I https://www.exonplus.ir/products/example-slug
+curl --fail https://shop.exonplus.ir/health/live
+curl --fail https://shop.exonplus.ir/health/ready
+curl --fail https://shop.exonplus.ir/health/startup
+curl --fail -I https://shop.exonplus.ir/static/admin/css/base.css
 ```
 
 Health endpoints are plain Django views, so DRF authentication and throttling

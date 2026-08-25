@@ -4,7 +4,8 @@
 
 Luxury Perfume is a Django 6 and Django REST Framework application. Its current
 Django applications are `apps.users`, `apps.products`, `apps.cart`, and
-`apps.lib`.
+`apps.lib`. The repository also contains an independent React customer
+storefront under `frontend/`.
 
 ```text
 luxury-perfume/
@@ -19,6 +20,7 @@ luxury-perfume/
 │   ├── Dockerfile
 │   └── docker-compose*.yml
 ├── docs/
+├── frontend/        # React/Vite EXON+ customer storefront
 ├── manage.py
 └── requirements/
     ├── requirements.txt
@@ -200,3 +202,38 @@ docker compose -f docker/docker-compose.integration.yml down
 ```
 
 Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.
+
+## Customer storefront
+
+The React application is deployed independently of Django and preserves the
+backend as the server-state authority:
+
+```text
+React route/page
+    ↓
+Domain API module
+    ↓
+Central request/JWT client
+    ↓
+Django API view → serializer → service/selector → PostgreSQL
+```
+
+`src/api/` owns URL construction, normalized API/network errors, Bearer access
+headers, one shared refresh operation, and one retry after an authenticated
+401. Pages do not scatter raw `fetch()` calls. `AuthContext` restores and ends
+the browser session; `CartContext` loads and synchronizes the authenticated
+owner's Cart. Product catalogue/detail data remains page-local because it is
+not shared application state.
+
+Routes are `/` for the catalogue, `/products/:slug` for Product Detail,
+`/login`, authenticated `/cart`, and a catch-all 404. The shared storefront
+layout owns the Header and development notice. Product filtering and
+pagination use backend query parameters and browser URL state; the frontend
+does not recreate authoritative catalogue filtering or price calculations.
+
+In development, Vite runs directly on the host at `127.0.0.1:5173` and proxies
+relative `/api/` and `/media/` requests to Docker-published Django at
+`localhost:8000`. PostgreSQL and Redis remain Docker-internal. Production
+builds require the public build-time `VITE_API_BASE_URL` and emit static files
+for host Nginx; there is no Vite server, Node runtime, or frontend Docker
+service in production.

@@ -1,8 +1,9 @@
-# Luxury Perfume API
+# Luxury Perfume
 
-A Django REST Framework backend for Luxury Perfume, a perfume, cologne, and
-body-splash store. It provides user authentication and profile management, a
-public fragrance catalogue with staff-only mutations, and authenticated carts.
+A Django REST Framework backend and EXON+ React storefront for a perfume,
+cologne, and body-splash store. Django provides user authentication and profile
+management, a public fragrance catalogue with staff-only mutations, and
+authenticated carts; `frontend/` provides the customer experience.
 
 ## Implemented features
 
@@ -22,6 +23,10 @@ public fragrance catalogue with staff-only mutations, and authenticated carts.
 - Authenticated, owner-bound carts with live Product prices, stock, activity,
   and images. Cart writes are synchronous PostgreSQL transactions and never
   reserve stock or prices.
+- A responsive English React storefront with a server-filtered catalogue,
+  slug-addressed Product Detail gallery and fragrance pyramid,
+  username/password JWT login, and the real authenticated Cart. SMS and online
+  payments remain visibly unavailable and are not simulated.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
 
@@ -30,6 +35,7 @@ See [authentication details](docs/authentication.md), the [API reference](docs/a
 - Python 3.12+, Django 6, Django REST Framework, and Simple JWT
 - PostgreSQL, Redis, Celery, and Gunicorn
 - Pytest, pytest-django, factory_boy, and Faker
+- Node 24 LTS, React 19, Vite, React Router, Vitest, Testing Library, and ESLint
 
 Runtime package versions are in
 [requirements/requirements.txt](requirements/requirements.txt); test-only
@@ -45,6 +51,11 @@ OTP-task and image-thumbnail background work. `apps.cart` remains entirely
 synchronous and database-backed. `apps.lib` contains shared infrastructure
 such as cache, security-cache, logging, pagination, permissions, throttles,
 and image validation.
+
+The independent `frontend/` application uses a centralized browser API client,
+React Context for authentication and Cart state, focused route/page components,
+and a plain-CSS black/ivory/gold design system. It does not run inside Django
+apps or require a Node container.
 
 For the complete design, see [architecture.md](docs/architecture.md).
 
@@ -123,6 +134,28 @@ ports.
 The API prefixes are `/api/v1/users/`, `/api/v1/products/`, and
 `/api/v1/cart/`.
 
+### React storefront
+
+Keep Django running at `http://localhost:8000`. Install Node 24 LTS, then run
+the Vite application on the host:
+
+```bash
+cd frontend
+nvm install 24
+nvm use
+npm ci
+npm run dev
+```
+
+The storefront opens at `http://localhost:5173`. Vite proxies relative
+`/api/...` and `/media/...` requests to Django, so backend origins are not
+scattered through components. The tracked development environment example
+already allows both `localhost:5173` and `127.0.0.1:5173`; do not overwrite a
+working private `.env` merely to copy the example.
+
+Frontend details, architecture, security trade-offs, and scripts are in
+[frontend/README.md](frontend/README.md).
+
 ## Tests and checks
 
 ```bash
@@ -160,10 +193,22 @@ creation and increment races, unrelated-user Cart lock isolation, Redis
 OTP-consumption races, and security-throttle keys. Never point integration
 tests at production databases or Redis databases.
 
+Run the frontend checks with Node 24 LTS:
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npm test
+VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
+```
+
 ## CI and production images
 
-The existing SQLite/LocMem and PostgreSQL/Redis jobs run for every pull
-request and push. After both succeed, the required `Application image` check
+The React storefront, SQLite/LocMem, and PostgreSQL/Redis jobs run for every
+pull request and push. Frontend CI explicitly uses Node 24 LTS and performs a
+clean install, lint, tests, and production build. After the backend jobs
+succeed, the required `Application image` check
 copies the safe production template to the ignored root `.env`, validates the
 production Compose merge, and builds the final application image without
 registry access. Pull requests and pushes stop there. On successful pushes to
@@ -188,6 +233,7 @@ limitations of code-only rollback.
 | [api.md](docs/api.md) | Verified endpoint contract |
 | [security.md](docs/security.md) | Implemented controls and limitations |
 | [deployment.md](docs/deployment.md) | Deployment guidance and template caveats |
+| [frontend/README.md](frontend/README.md) | React workflow, source map, design, and browser-state architecture |
 | [AGENTS.md](AGENTS.md) | Durable repository-change expectations |
 
 Update the relevant document whenever routes, configuration, authentication behavior, architecture, or deployment requirements change.
@@ -195,8 +241,8 @@ Update the relevant document whenever routes, configuration, authentication beha
 ## Project status and roadmap
 
 The users, authentication, profiles, fragrance products, categories, brands,
-reusable fragrance notes, product-image, and Cart domains are implemented. The
-project remains under active development.
+reusable fragrance notes, product-image, Cart domain, and first customer React
+storefront are implemented. The project remains under active development.
 
 Not implemented: a separate inventory system, orders, checkout, payments,
 shipping, reviews, object-storage integration, or an SMS-provider integration.

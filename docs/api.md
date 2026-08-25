@@ -228,6 +228,29 @@ prices, create Orders, perform checkout, call payments, or send notifications.
 Future checkout/Order code must own authoritative stock locking, stock
 decrement, and price snapshots.
 
+## React storefront consumption
+
+The EXON+ application in `frontend/` consumes these contracts without adding
+frontend-only API assumptions. Catalogue search, the compact audience,
+concentration, fragrance-family and availability filters, ordering, and
+pagination are sent to `GET /products/`; results are never authoritatively
+filtered in browser memory. Public Product links use response `slug` values.
+The Product Detail page renders the actual ordered `images`, `top_notes`,
+`middle_notes`, and `base_notes` arrays.
+
+Username/password login uses `/users/login/userpass/`, token renewal uses
+`/users/token/refresh/`, and sign-out uses `/users/logout/`. The frontend sends
+the access token as Bearer authentication and never sends user, Cart, or
+CartItem IDs. An unauthenticated Add-to-Cart action redirects to Login with a
+safe internal return path instead of intentionally generating a Cart 401.
+
+Cart POST and PATCH responses replace frontend Cart state. Because item and
+Cart DELETE endpoints correctly return no body, the frontend follows them with
+`GET /cart/` before updating the shared badge and page. It renders API decimal
+strings and live availability fields; it does not calculate an authoritative
+price, resize/delete unavailable lines, reserve stock, or attempt checkout.
+The visible payment control is disabled and makes no request.
+
 ## Status codes
 
 - `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, and Cart quantity-update operations.
