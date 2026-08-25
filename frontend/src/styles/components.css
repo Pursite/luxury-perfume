@@ -212,12 +212,17 @@
   color: var(--color-gold);
 }
 
-.account-menu-list {
+.account-menu-popup {
   position: absolute;
-  top: calc(100% + 0.45rem);
+  top: 100%;
   right: 0;
   z-index: var(--z-header);
   width: min(15rem, calc(100vw - 1rem));
+  padding-top: 0.45rem;
+}
+
+.account-menu-list {
+  width: 100%;
   border: 1px solid var(--line-soft);
   padding: 0.45rem;
   background: var(--color-ink-raised);

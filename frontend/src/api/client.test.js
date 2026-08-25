@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { request } from "./client";
+import { backendUrl, refreshSession, request } from "./client";
 import { clearTokens, setTokens } from "./tokenStore";
 
 function jsonResponse(data, status = 200) {
@@ -16,6 +16,10 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+test("keeps development API requests on the relative Vite path", () => {
+  expect(backendUrl("/api/v1/products/")).toBe("/api/v1/products/");
+});
 
 test("refreshes an expired access token once and retries the protected request", async () => {
   setTokens({ access: "expired-access", refresh: "old-refresh" });
@@ -44,6 +48,14 @@ test("clears the session when refresh fails", async () => {
 
   await expect(request("/api/v1/cart/", { auth: true })).rejects.toMatchObject({ status: 401 });
   expect(sessionStorage.getItem("exon.refreshToken")).toBeNull();
+});
+
+test("preserves the refresh token when restoration is throttled", async () => {
+  setTokens({ access: null, refresh: "old-refresh" });
+  fetch.mockResolvedValueOnce(jsonResponse({ detail: "try again later" }, 429));
+
+  await expect(refreshSession()).rejects.toMatchObject({ status: 429 });
+  expect(sessionStorage.getItem("exon.refreshToken")).toBe("old-refresh");
 });
 
 test("shares one refresh across concurrent protected requests", async () => {

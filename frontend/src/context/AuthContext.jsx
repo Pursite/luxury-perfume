@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { loginWithPassword, logoutSession, signupWithPassword } from "../api/auth";
 import { refreshSession } from "../api/client";
@@ -7,20 +7,56 @@ import { AuthContext } from "./authContext";
 
 export function AuthProvider({ children }) {
   const [status, setStatus] = useState(getRefreshToken() ? "initializing" : "anonymous");
+  const [sessionError, setSessionError] = useState("");
+  const restoreAttempt = useRef(null);
 
-  useEffect(() => subscribeToSessionClear(() => setStatus("anonymous")), []);
+  useEffect(() => subscribeToSessionClear(() => {
+    setSessionError("");
+    setStatus("anonymous");
+  }), []);
+
+  const restoreSession = useCallback(() => {
+    if (restoreAttempt.current) return restoreAttempt.current;
+    if (!getRefreshToken()) {
+      setSessionError("");
+      setStatus("anonymous");
+      return Promise.resolve(false);
+    }
+
+    setSessionError("");
+    setStatus("initializing");
+    restoreAttempt.current = refreshSession()
+      .then((access) => {
+        if (!access) {
+          setStatus("anonymous");
+          return false;
+        }
+        setStatus("authenticated");
+        return true;
+      })
+      .catch((error) => {
+        if (error.status === 401 || !getRefreshToken()) {
+          setSessionError("");
+          setStatus("anonymous");
+        } else {
+          setSessionError("Your session could not be restored. Check your connection and try again.");
+          setStatus("restoration_error");
+        }
+        return false;
+      })
+      .finally(() => {
+        restoreAttempt.current = null;
+      });
+    return restoreAttempt.current;
+  }, []);
 
   useEffect(() => {
-    if (!getRefreshToken()) return undefined;
-    let active = true;
-    refreshSession()
-      .then(() => { if (active) setStatus("authenticated"); })
-      .catch(() => { if (active) setStatus("anonymous"); });
-    return () => { active = false; };
-  }, []);
+    if (getRefreshToken()) Promise.resolve().then(restoreSession);
+  }, [restoreSession]);
 
   const establishSession = useCallback((response) => {
     setTokens(response.tokens);
+    setSessionError("");
     setStatus("authenticated");
     return response;
   }, []);
@@ -39,6 +75,7 @@ export function AuthProvider({ children }) {
       if (refresh) await logoutSession(refresh);
     } finally {
       clearTokens();
+      setSessionError("");
       setStatus("anonymous");
     }
   }, []);
@@ -46,10 +83,12 @@ export function AuthProvider({ children }) {
   const value = useMemo(() => ({
     status,
     isAuthenticated: status === "authenticated",
+    sessionError,
     login,
     signup,
     logout,
-  }), [login, logout, signup, status]);
+    retrySession: restoreSession,
+  }), [login, logout, restoreSession, sessionError, signup, status]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -145,63 +145,65 @@ export default function AccountMenu() {
         <AccountIcon />
       </button>
       {open ? (
-        <div
-          id="account-menu-list"
-          className="account-menu-list"
-          role="menu"
-          aria-label="Account menu"
-          onKeyDown={onMenuKeyDown}
-        >
-          <Link
-            ref={accountRef}
-            to="/account"
-            role="menuitem"
-            aria-label="Account Details"
-            tabIndex={activeIndex === 0 ? 0 : -1}
-            onFocus={() => setActiveIndex(0)}
-            onClick={() => closeMenu()}
+        <div className="account-menu-popup">
+          <div
+            id="account-menu-list"
+            className="account-menu-list"
+            role="menu"
+            aria-label="Account menu"
+            onKeyDown={onMenuKeyDown}
           >
-            Account Details
-          </Link>
-          <UnavailableControl
-            ref={ordersRef}
-            label="Orders"
-            role="menuitem"
-            ariaLabel="Orders"
-            className="account-menu-unavailable"
-            buttonClassName="account-menu-disabled-button"
-            tabIndex={activeIndex === 1 ? 0 : -1}
-            onFocus={() => setActiveIndex(1)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") event.preventDefault();
-            }}
-          />
-          <UnavailableControl
-            ref={ticketsRef}
-            label="Tickets"
-            role="menuitem"
-            ariaLabel="Tickets"
-            className="account-menu-unavailable"
-            buttonClassName="account-menu-disabled-button"
-            tabIndex={activeIndex === 2 ? 0 : -1}
-            onFocus={() => setActiveIndex(2)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") event.preventDefault();
-            }}
-          />
-          <button
-            ref={signOutRef}
-            type="button"
-            role="menuitem"
-            aria-label="Sign Out"
-            tabIndex={activeIndex === 3 ? 0 : -1}
-            disabled={signingOut}
-            aria-busy={signingOut}
-            onFocus={() => setActiveIndex(3)}
-            onClick={signOut}
-          >
-            Sign Out
-          </button>
+            <Link
+              ref={accountRef}
+              to="/account"
+              role="menuitem"
+              aria-label="Account Details"
+              tabIndex={activeIndex === 0 ? 0 : -1}
+              onFocus={() => setActiveIndex(0)}
+              onClick={() => closeMenu()}
+            >
+              Account Details
+            </Link>
+            <UnavailableControl
+              ref={ordersRef}
+              label="Orders"
+              role="menuitem"
+              ariaLabel="Orders"
+              className="account-menu-unavailable"
+              buttonClassName="account-menu-disabled-button"
+              tabIndex={activeIndex === 1 ? 0 : -1}
+              onFocus={() => setActiveIndex(1)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") event.preventDefault();
+              }}
+            />
+            <UnavailableControl
+              ref={ticketsRef}
+              label="Tickets"
+              role="menuitem"
+              ariaLabel="Tickets"
+              className="account-menu-unavailable"
+              buttonClassName="account-menu-disabled-button"
+              tabIndex={activeIndex === 2 ? 0 : -1}
+              onFocus={() => setActiveIndex(2)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") event.preventDefault();
+              }}
+            />
+            <button
+              ref={signOutRef}
+              type="button"
+              role="menuitem"
+              aria-label="Sign Out"
+              tabIndex={activeIndex === 3 ? 0 : -1}
+              disabled={signingOut}
+              aria-busy={signingOut}
+              onFocus={() => setActiveIndex(3)}
+              onClick={signOut}
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

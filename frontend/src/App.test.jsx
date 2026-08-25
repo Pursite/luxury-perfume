@@ -3,10 +3,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import App from "./App";
+import { productsPage } from "./test/fixtures";
 
-function jsonResponse(data) {
+function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -40,6 +41,26 @@ test("keeps the development notice visible in the storefront shell", () => {
     ),
   ).toHaveAttribute("lang", "fa");
   expect(screen.getByText(/این وب‌سایت/)).toHaveAttribute("dir", "rtl");
+});
+
+test("renders real paginated Product API results through the storefront client", async () => {
+  fetch.mockResolvedValueOnce(jsonResponse(productsPage));
+  renderApp();
+
+  expect(await screen.findByRole("heading", { name: "Sauvage Elixir" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Naxos" })).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledWith(
+    "/api/v1/products/",
+    expect.objectContaining({ method: "GET" }),
+  );
+});
+
+test("keeps Product API errors visible instead of rendering an empty catalogue", async () => {
+  fetch.mockResolvedValueOnce(jsonResponse({ detail: "try again later" }, 429));
+  renderApp();
+
+  expect(await screen.findByRole("heading", { name: "The collection could not be loaded" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Sauvage Elixir" })).not.toBeInTheDocument();
 });
 
 test("routes an anonymous Cart visit to Login", async () => {

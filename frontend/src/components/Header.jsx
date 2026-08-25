@@ -37,6 +37,12 @@ export default function Header() {
       <div className="header-account">
         {auth.isAuthenticated ? (
           <AccountMenu />
+        ) : auth.status === "initializing" ? (
+          <span className="sign-in-link session-status" role="status">Restoring session…</span>
+        ) : auth.status === "restoration_error" ? (
+          <button type="button" className="sign-in-link session-retry" onClick={auth.retrySession}>
+            Retry session
+          </button>
         ) : (
           <NavLink className="sign-in-link" to="/login">Sign in</NavLink>
         )}

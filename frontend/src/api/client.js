@@ -71,7 +71,7 @@ export async function refreshSession() {
       });
       const data = await parseResponse(response);
       if (!response.ok) {
-        clearTokens();
+        if (response.status === 401) clearTokens();
         throw responseError(response, data);
       }
       setTokens(data);

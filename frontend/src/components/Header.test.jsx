@@ -8,6 +8,7 @@ import Header from "./Header";
 const auth = vi.hoisted(() => ({
   status: "anonymous",
   isAuthenticated: false,
+  retrySession: vi.fn(),
   logout: vi.fn(),
 }));
 const cart = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ function renderHeader(initialEntry = "/") {
 beforeEach(() => {
   auth.status = "anonymous";
   auth.isAuthenticated = false;
+  auth.retrySession.mockReset();
   auth.logout.mockReset();
   cart.cart = { items: [], total_quantity: 0, total_price: "0.00", has_unavailable_items: false };
 });
@@ -47,6 +49,16 @@ test("renders compact direct storefront navigation for anonymous customers", () 
   expect(screen.getByRole("link", { name: "Cart" })).toHaveAttribute("href", "/cart");
   expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
   expect(screen.queryByRole("button", { name: "Menu" })).not.toBeInTheDocument();
+});
+
+test("exposes a retry action during transient session restoration failure", async () => {
+  auth.status = "restoration_error";
+  const user = userEvent.setup();
+  renderHeader();
+
+  await user.click(screen.getByRole("button", { name: "Retry session" }));
+  expect(auth.retrySession).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
 });
 
 test("replaces textual authenticated state with the account icon and stable Cart badge", () => {
@@ -169,7 +181,7 @@ test("closes after the pointer moves outside the account menu", async () => {
   await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
 });
 
-test("keeps pointer travel open and closes outside without stealing outside focus", async () => {
+test("keeps pointer travel open so Account Details remains clickable", async () => {
   auth.status = "authenticated";
   auth.isAuthenticated = true;
   const user = userEvent.setup();
@@ -178,13 +190,13 @@ test("keeps pointer travel open and closes outside without stealing outside focu
 
   await user.hover(trigger);
   const menu = screen.getByRole("menu", { name: "Account menu" });
+  const popup = menu.parentElement;
+  expect(popup).toHaveClass("account-menu-popup");
+  fireEvent.pointerOver(popup);
   await user.hover(menu);
   expect(menu).toBeInTheDocument();
-  const outside = screen.getByRole("button", { name: "Outside target" });
-  await user.click(outside);
-
-  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  expect(outside).toHaveFocus();
+  await user.click(screen.getByRole("menuitem", { name: "Account Details" }));
+  expect(screen.getByRole("heading", { name: "Account destination" })).toBeInTheDocument();
 });
 
 test("lets Tab leave the menu through normal document focus order", async () => {

@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 
+import ErrorState from "./ErrorState";
 import useAuth from "../hooks/useAuth";
 
 export default function ProtectedRoute({ children }) {
@@ -7,6 +8,15 @@ export default function ProtectedRoute({ children }) {
   const location = useLocation();
   if (auth.status === "initializing") {
     return <div className="route-loading" role="status" aria-label="Restoring your session" />;
+  }
+  if (auth.status === "restoration_error") {
+    return (
+      <ErrorState
+        title="Your session could not be restored"
+        message={auth.sessionError}
+        onRetry={auth.retrySession}
+      />
+    );
   }
   if (!auth.isAuthenticated) {
     return <Navigate to="/login" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
