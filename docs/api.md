@@ -8,7 +8,10 @@ All routes are under `/api/v1/`. Normal bodies are JSON. Send an access token fo
 Authorization: Bearer <access-token>
 ```
 
-User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`. Examples with placeholder tokens, UUIDs, or product values are illustrative unless their fields are explicitly listed below.
+User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`;
+Cart routes begin `/api/v1/cart/`. Examples with placeholder tokens, UUIDs, or
+product values are illustrative unless their fields are explicitly listed
+below.
 
 ## Users
 
@@ -156,14 +159,83 @@ account state. Cache behavior does not change visibility rules.
 
 The server checks declared MIME type, decoded image format, MIME/content consistency, corruption, decompression-bomb warnings, a 5 MB maximum size, and a 6000 × 6000 maximum dimension. It generates a safe filename. The image ID returned by this endpoint is the integer needed for the image-delete route.
 
+## Cart
+
+Every Cart endpoint requires authentication but does not require a complete
+profile. Cart ownership always comes from the access token; requests and URLs
+never accept a user ID. There are no anonymous or session carts and no
+pagination.
+
+| Method and path | Request / behavior | Success |
+| --- | --- | --- |
+| `GET /cart/` | Read the current user's Cart; never creates one | 200; full Cart |
+| `DELETE /cart/` | Clear all items; retain an existing empty Cart | 204; no body |
+| `POST /cart/items/` | `product_slug`, `quantity`; add quantity to an existing item | 201 for a new item or 200 for an increment; full Cart |
+| `PATCH /cart/items/<product_slug>/` | `quantity`; set the absolute owned-item quantity | 200; full Cart |
+| `DELETE /cart/items/<product_slug>/` | Remove the owned item | 204; no body |
+
+`quantity` must be at least 1. A POST product must currently be active, and
+the resulting quantity may not exceed current stock. Missing and inactive POST
+products both return 404. PATCH uses current stock and returns 404 when the
+user does not own an item with that exact, case-sensitive Product slug.
+Existing inactive items remain visible and may be patched when current stock
+covers the requested quantity; they remain unavailable. Deleting or clearing
+a missing Cart is respectively 404 for an item and idempotent 204 for the
+whole Cart.
+
+A full Cart has this shape:
+
+```json
+{
+  "items": [
+    {
+      "product": {
+        "uuid": "550e8400-e29b-41d4-a716-446655440000",
+        "slug": "example-perfume",
+        "name": "Example Perfume",
+        "primary_image": {
+          "id": 1,
+          "image": "https://example.test/media/products/example.jpg",
+          "thumbnail": "https://example.test/media/products/thumbnails/example.webp",
+          "is_primary": true,
+          "display_order": 0
+        }
+      },
+      "quantity": 2,
+      "unit_price": "80.00",
+      "line_total": "160.00",
+      "available_stock": 5,
+      "available": true
+    }
+  ],
+  "total_quantity": 2,
+  "total_price": "160.00",
+  "has_unavailable_items": false
+}
+```
+
+`primary_image` is null when the Product has no images. Prices and line/cart
+totals use decimal strings. `unit_price` is the current Product `final_price`;
+no price or stock snapshot is stored. `available` is true only when the Product
+is active and current stock covers the full line quantity. Stock reductions,
+zero stock, and deactivation never silently remove or resize an item.
+`total_quantity` and `total_price` include all retained items, including
+unavailable ones, while `has_unavailable_items` lets clients block or qualify
+checkout UI.
+
+Cart is purchase intent only. It does not reserve or decrement stock, freeze
+prices, create Orders, perform checkout, call payments, or send notifications.
+Future checkout/Order code must own authoritative stock locking, stock
+decrement, and price snapshots.
+
 ## Status codes
 
-- `200 OK` — successful reads, login, profile, logout, and password-reset operations.
-- `201 Created` — direct signup, OTP signup verification, product creation, and image upload.
-- `204 No Content` — product or product-image deletion.
-- `400 Bad Request` — serializer validation, generic identity/OTP errors, or a logout refresh that is not owned by the requester.
+- `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, and Cart quantity-update operations.
+- `201 Created` — direct signup, OTP signup verification, product/image creation, or a newly created CartItem.
+- `204 No Content` — product, product-image, or Cart item deletion and Cart clearing.
+- `400 Bad Request` — serializer validation, Cart stock limits, generic identity/OTP errors, or a logout refresh that is not owned by the requester.
 - `401 Unauthorized` — missing, invalid, or stale JWT credentials on a protected endpoint; failed username/password authentication; or invalid/replayed refresh tokens.
 - `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation.
-- `404 Not Found` — unknown or non-visible product/image.
+- `404 Not Found` — unknown or non-visible product/image, inactive or missing Cart-add Product, or missing owned CartItem.
 - `429 Too Many Requests` — a configured throttle, temporary OTP lock, password-login lock, or active verification lease.
 - `503 Service Unavailable` — authentication protection cannot access the security cache safely.

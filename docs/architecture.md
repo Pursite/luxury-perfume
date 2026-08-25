@@ -3,12 +3,14 @@
 ## Overview
 
 Luxury Perfume is a Django 6 and Django REST Framework application. Its current
-Django applications are `apps.users`, `apps.products`, and `apps.lib`.
+Django applications are `apps.users`, `apps.products`, `apps.cart`, and
+`apps.lib`.
 
 ```text
 luxury-perfume/
 ├── apps/
 │   ├── lib/          # shared infrastructure
+│   ├── cart/         # authenticated purchase-intent carts
 │   ├── products/     # catalogue domain
 │   └── users/        # identity and profile domain
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
@@ -47,7 +49,8 @@ Output serializer and HTTP response
   constraints add final protection for active-user identities,
   case-insensitive username/email uniqueness, product discount prices,
   positive fragrance volume, introduction-year bounds, unique barcodes, and
-  primary product images.
+  primary product images, one Cart per user, one CartItem per Cart/Product,
+  and positive CartItem quantities.
 
 ## Applications
 
@@ -93,6 +96,23 @@ if that outer transaction rolls back.
 Image deletion locks and reloads its rows before collecting file names, keeping
 storage cleanup consistent with concurrent thumbnail work.
 
+### `apps.cart`
+
+Owns authenticated purchase-intent carts and CartItems. Views never accept a
+user identifier: every read and mutation is scoped to `request.user`, and
+incomplete profiles may use the Cart. Input serializers validate request
+shape, services own synchronous mutations, and the selector returns current
+Product and image data without per-item queries.
+
+Cart stores only its owner and each Product/quantity pair. Product
+`final_price`, stock, activity, and images are read live, so price changes are
+visible on the next response and unavailable items remain in the Cart.
+Mutations lock the user row, then Cart, then CartItem, serializing only one
+user's Cart. This prevents duplicate first carts and lost increments without
+locking Product rows. Clearing retains the empty Cart container; GET never
+creates one. Cart has no Redis cache, Celery tasks, async paths, stock/price
+reservation, checkout, Order, payment, or notification responsibility.
+
 ### `apps.lib`
 
 Contains shared base models, cache helpers, the security-cache guards, logging helpers, pagination, permissions, throttles, and reusable catalogue-image validation. It is for cross-application or project-wide infrastructure, not domain-specific business logic.
@@ -107,12 +127,12 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 ## Data, cache, and authentication
 
 PostgreSQL stores durable users, addresses, fragrance catalogue records,
-reusable note relations, product images, and Simple JWT outstanding/blacklist
-records. The users and products applications each have a current initial
-migration that defines the deployed schema and constraints directly. The
-repository does not contain legacy identity, fragrance-domain, or ordered-note
-data migrations. The catalogue cache uses a versioned schema namespace so
-stale representations cannot be reused.
+reusable note relations, product images, carts, and Simple JWT
+outstanding/blacklist records. The users, products, and Cart applications each
+have a current initial migration that defines their schema and constraints.
+The repository does not contain legacy identity, fragrance-domain, or
+ordered-note data migrations. The catalogue cache uses a versioned schema
+namespace so stale representations cannot be reused.
 
 Redis has two configured cache aliases with separate URLs:
 
@@ -120,7 +140,7 @@ Redis has two configured cache aliases with separate URLs:
   versioned product list/detail responses are shared by anonymous and
   authenticated non-staff users, while staff bypass the shared cache. It is
   configured to ignore cache exceptions, so a cache failure can fall back to
-  the database.
+  the database. Cart responses are never stored in this cache.
 - `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks,
   leases, password-login guard and throttle state, signup-throttle state, and
   OTP phone/IP throttle histories. Profile-phone codes use a purpose scoped to
@@ -164,9 +184,10 @@ venv/bin/python manage.py makemigrations --check --dry-run \
 ```
 
 PostgreSQL row locking, case-insensitive identity constraints, concurrent
-signup, real transaction behavior, Redis security-cache state, normalized
-phone/IP throttle keys, and concurrent OTP consumption are covered by tests
-explicitly marked `integration`. `config.settings.integration` reads test service endpoints from
+signup, concurrent first Cart creation and same-item increments, unrelated-user
+Cart lock isolation, real transaction behavior, Redis security-cache state,
+normalized phone/IP throttle keys, and concurrent OTP consumption are covered
+by tests explicitly marked `integration`. `config.settings.integration` reads test service endpoints from
 the environment; `docker/docker-compose.integration.yml` supplies isolated
 local defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
 

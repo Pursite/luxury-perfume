@@ -2,7 +2,16 @@
 
 ## Implemented controls
 
-DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use `AllowAny`. Product reads permit anonymous access, while product and image mutations require authenticated staff users. Public and authenticated non-staff catalogue reads share a response cache because their output is identical; staff bypass it because they may inspect inactive products. `Product.is_active` is catalogue visibility only and does not alter `User.is_active` account-state behavior.
+DRF defaults to `IsAuthenticated`; user-authentication routes explicitly use
+`AllowAny`. Product reads permit anonymous access, while product and image
+mutations require authenticated staff users. Every Cart route explicitly
+requires authentication but not profile completion, derives ownership from
+`request.user`, and exposes no user or CartItem identifier in its URLs.
+Public and authenticated non-staff catalogue reads share a response cache
+because their output is identical; staff bypass it because they may inspect
+inactive products. Cart responses are never cached. `Product.is_active` is
+catalogue visibility only and does not alter `User.is_active` account-state
+behavior.
 
 Passwords use Django's hash API and one 12-character-minimum Django validator policy. Username and email values are case-insensitively unique at the database layer. These functional uniqueness constraints are declared directly in the users application's current initial migration.
 
@@ -11,8 +20,10 @@ actual model access still requires Django model permissions. Delegated,
 non-superuser staff may manage customer accounts but cannot view or modify
 staff or superuser accounts or their addresses, assign groups or direct
 permissions, or manage permission groups. Superusers retain those management
-capabilities. Admin password changes and customer deactivation blacklist all
-outstanding refresh tokens.
+capabilities. The Cart admin is read-only and applies the same owner boundary:
+delegated staff cannot inspect carts owned by staff or superusers. Admin
+password changes and customer deactivation blacklist all outstanding refresh
+tokens.
 
 Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
 
@@ -51,6 +62,14 @@ authentication gate. The authenticated profile-phone flow only stores a phone
 after OTP success and uses a locked user row plus the unique database
 constraint to reject ownership races.
 
+Cart mutations lock the authenticated user's PostgreSQL row before the Cart
+and CartItem. This serializes only one user's Cart, preventing duplicate lazy
+Cart creation and lost same-item increments without a global lock or Product
+row lock. Database uniqueness and quantity checks remain authoritative. Cart
+does not reserve inventory, so stock may change immediately after Cart
+validation; future Order/checkout code must perform the final stock lock and
+decrement.
+
 ## Data and upload integrity
 
 The custom user model requires active users to have a username or phone
@@ -64,6 +83,10 @@ product layer. Decimal validation uses `Decimal` bounds, avoiding float
 coercion warnings. Category saves reject cycles. Product uploads are
 staff-only and restrict MIME/content pairs, file size, dimensions, corruption,
 decompression bombs, and generated filenames.
+Each user has at most one Cart, each Product appears at most once in that Cart,
+and CartItem quantity is at least one. Product deletion may cascade temporary
+CartItems. Cart stores no price, stock, availability, status, or expiration
+snapshot.
 
 ## Configuration, logging, and transport
 
@@ -71,7 +94,11 @@ Runtime configuration is loaded from the ignored root `.env`. Production require
 
 ## Verification and limitations
 
-CI runs pytest with warnings as errors, Ruff, Bandit, Django checks, and migration-drift checks. The marked PostgreSQL/Redis suite covers persistent case-fold constraints, concurrent signup, Redis throttle keys, and concurrent OTP consumption.
+CI runs pytest with warnings as errors, Ruff, Bandit, Django checks, and
+migration-drift checks. The marked PostgreSQL/Redis suite covers persistent
+case-fold constraints, concurrent signup, Cart creation/increment races and
+unrelated-user lock isolation, Redis throttle keys, and concurrent OTP
+consumption.
 
 - OTP delivery remains a Celery placeholder; no SMS provider is implemented.
 - OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
