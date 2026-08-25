@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getCurrentProfile } from "../api/profile";
+import { getCurrentProfile, updateProfile } from "../api/profile";
 import AccountDetailsForm from "../components/AccountDetailsForm";
 import AddressEditor from "../components/AddressEditor";
 import ErrorState from "../components/ErrorState";
@@ -24,6 +24,7 @@ export default function AccountPage() {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
   const [requestVersion, setRequestVersion] = useState(0);
+  const mutationQueue = useRef(Promise.resolve());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -41,6 +42,12 @@ export default function AccountPage() {
     setError("");
     setProfile(null);
     setRequestVersion((current) => current + 1);
+  }, []);
+
+  const saveProfile = useCallback((payload) => {
+    const request = mutationQueue.current.then(() => updateProfile(payload));
+    mutationQueue.current = request.catch(() => undefined);
+    return request;
   }, []);
 
   if (error && !profile) {
@@ -82,7 +89,7 @@ export default function AccountPage() {
         </aside>
       ) : null}
 
-      <AccountDetailsForm profile={profile} onProfileChange={setProfile} />
+      <AccountDetailsForm profile={profile} onProfileChange={setProfile} saveProfile={saveProfile} />
 
       <section className="account-ledger-section" aria-labelledby="address-heading">
         <div className="account-section-heading">
@@ -91,9 +98,14 @@ export default function AccountPage() {
         </div>
         <div className="address-list">
           {profile.addresses.length ? profile.addresses.map((address) => (
-            <AddressEditor key={address.id} address={address} onProfileChange={setProfile} />
+            <AddressEditor
+              key={address.id}
+              address={address}
+              onProfileChange={setProfile}
+              saveProfile={saveProfile}
+            />
           )) : (
-            <AddressEditor key="new-address" onProfileChange={setProfile} />
+            <AddressEditor key="new-address" onProfileChange={setProfile} saveProfile={saveProfile} />
           )}
         </div>
       </section>

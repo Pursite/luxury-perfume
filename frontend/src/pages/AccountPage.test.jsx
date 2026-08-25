@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -213,6 +213,40 @@ test("updates addresses by explicit ID without discarding other drafts", async (
   expect(firstName).toHaveValue("Unsaved personal draft");
   expect(screen.queryByRole("button", { name: /add another/i })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
+});
+
+test("serializes saves from independent forms so older responses cannot replace newer state", async () => {
+  const personalUpdate = deferred();
+  const addressUpdate = deferred();
+  const confirmedPersonal = { ...profileResponse, first_name: "Alexandra" };
+  const confirmedAddress = {
+    ...confirmedPersonal,
+    addresses: [{ ...profileResponse.addresses[0], full_address: "88 Cedar Avenue" }],
+  };
+  fetch
+    .mockResolvedValueOnce(jsonResponse({ data: profileResponse }))
+    .mockImplementationOnce(() => personalUpdate.promise)
+    .mockImplementationOnce(() => addressUpdate.promise);
+  const user = userEvent.setup();
+
+  renderAccount();
+  const firstName = await screen.findByLabelText("First name");
+  await user.clear(firstName);
+  await user.type(firstName, "Alex");
+  await user.click(screen.getByRole("button", { name: "Save personal information" }));
+
+  const fullAddress = screen.getByLabelText("Full address");
+  await user.clear(fullAddress);
+  await user.type(fullAddress, "88 Cedar Avenue");
+  await user.click(screen.getByRole("button", { name: "Save address" }));
+
+  expect(fetch).toHaveBeenCalledTimes(2);
+  personalUpdate.resolve(jsonResponse({ data: confirmedPersonal }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+  addressUpdate.resolve(jsonResponse({ data: confirmedAddress }));
+
+  await waitFor(() => expect(firstName).toHaveValue("Alexandra"));
+  await waitFor(() => expect(fullAddress).toHaveValue("88 Cedar Avenue"));
 });
 
 test("keeps phone and password actions genuinely unavailable without making requests", async () => {

@@ -60,7 +60,7 @@ test("adds a Product through the real authenticated Cart contract", async () => 
   const addRequest = fetch.mock.calls.find(([url, options]) => url === "/api/v1/cart/items/" && options.method === "POST");
   expect(JSON.parse(addRequest[1].body)).toEqual({ product_slug: "sauvage-elixir", quantity: 1 });
   expect(addRequest[1].headers.Authorization).toBe("Bearer new-access");
-  expect(screen.getByLabelText("2 items in cart")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Cart, 2 items" })).toBeInTheDocument();
 });
 
 test("routes an anonymous add interaction to Login without calling Cart", async () => {

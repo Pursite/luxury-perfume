@@ -18,11 +18,17 @@ export default function Header() {
           <span className="navigation-icon"><ProductsIcon /></span>
           <span className="navigation-label">Products</span>
         </NavLink>
-        <NavLink className="navigation-link cart-navigation-link" to="/cart" aria-label="Cart">
+        <NavLink
+          className="navigation-link cart-navigation-link"
+          to="/cart"
+          aria-label={auth.isAuthenticated && cart.total_quantity > 0
+            ? `Cart, ${cart.total_quantity} items`
+            : "Cart"}
+        >
           <span className="navigation-icon"><CartIcon /></span>
           <span className="navigation-label">Cart</span>
           {auth.isAuthenticated && cart.total_quantity > 0 ? (
-            <span className="cart-badge" aria-label={`${cart.total_quantity} items in cart`}>
+            <span className="cart-badge" aria-hidden="true">
               {cart.total_quantity > 99 ? "99+" : cart.total_quantity}
             </span>
           ) : null}

@@ -30,6 +30,16 @@ html::-webkit-scrollbar-thumb,
   border-radius: 999px;
 }
 
+html::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+html::-webkit-scrollbar-thumb:active,
+*::-webkit-scrollbar-thumb:active {
+  background: var(--color-ivory-muted);
+}
+
 body {
   margin: 0;
   min-width: 20rem;

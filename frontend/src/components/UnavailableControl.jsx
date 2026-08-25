@@ -47,7 +47,7 @@ const UnavailableControl = forwardRef(function UnavailableControl({
       }}
       {...wrapperProps}
     >
-      <button type="button" className={buttonClassName} disabled tabIndex="-1">
+      <button type="button" className={buttonClassName} disabled tabIndex="-1" aria-hidden={role === "menuitem"}>
         {label}
       </button>
       <span

@@ -1,7 +1,5 @@
 import { useId, useRef, useState } from "react";
 
-import { updateProfile } from "../api/profile";
-
 function values(address) {
   return {
     title: address?.title || "",
@@ -16,7 +14,7 @@ function message(value) {
   return "";
 }
 
-export default function AddressEditor({ address, onProfileChange }) {
+export default function AddressEditor({ address, onProfileChange, saveProfile }) {
   const prefix = useId();
   const creating = !address?.id;
   const [baseline, setBaseline] = useState(() => values(address));
@@ -85,7 +83,7 @@ export default function AddressEditor({ address, onProfileChange }) {
     setFormError("");
     setStatus("");
     try {
-      const response = await updateProfile({ address: addressPayload });
+      const response = await saveProfile({ address: addressPayload });
       const confirmed = creating
         ? response.data.addresses[0]
         : response.data.addresses.find((item) => item.id === address.id);
@@ -130,7 +128,11 @@ export default function AddressEditor({ address, onProfileChange }) {
     return (
       <div className={`account-field ${textarea ? "account-field-wide" : ""}`}>
         <label htmlFor={id}>{label}</label>
-        {textarea ? <textarea {...common} rows="5" /> : <input {...common} maxLength={field === "title" ? 50 : 10} />}
+        {textarea ? (
+          <textarea {...common} className="resize-none" rows="5" />
+        ) : (
+          <input {...common} maxLength={field === "title" ? 50 : 10} />
+        )}
         {errors[field] ? <p id={errorId} className="field-error">{errors[field]}</p> : null}
       </div>
     );
@@ -146,7 +148,7 @@ export default function AddressEditor({ address, onProfileChange }) {
     >
       <h3>{creating ? "Add your first address" : address.title}</h3>
       <div className="account-field-grid">
-        {input({ field: "title", label: "Address title", autoComplete: "address-level1" })}
+        {input({ field: "title", label: "Address title", autoComplete: "off" })}
         {input({ field: "postal_code", label: "Postal code", autoComplete: "postal-code" })}
         {input({ field: "full_address", label: "Full address", textarea: true, autoComplete: "street-address" })}
       </div>

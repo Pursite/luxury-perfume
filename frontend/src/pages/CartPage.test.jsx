@@ -102,7 +102,7 @@ test("sets an absolute quantity and synchronizes the Header badge", async () => 
   await user.click(screen.getByRole("button", { name: "Update Sauvage Elixir quantity" }));
 
   expect(cartApi.updateCartItem).toHaveBeenCalledWith("sauvage-elixir", 3);
-  expect(await screen.findByLabelText("3 items in cart")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "Cart, 3 items" })).toBeInTheDocument();
 });
 
 test("removes an item and refreshes authoritative Cart state", async () => {

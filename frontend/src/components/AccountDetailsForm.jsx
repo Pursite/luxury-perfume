@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 
-import { updateProfile } from "../api/profile";
 import UnavailableControl from "./UnavailableControl";
 
 const FIELD_ORDER = ["username", "email", "first_name", "last_name"];
@@ -20,7 +19,7 @@ function firstMessage(value) {
   return "";
 }
 
-export default function AccountDetailsForm({ profile, onProfileChange }) {
+export default function AccountDetailsForm({ profile, onProfileChange, saveProfile }) {
   const [baseline, setBaseline] = useState(() => personalValues(profile));
   const [draft, setDraft] = useState(() => personalValues(profile));
   const [errors, setErrors] = useState({});
@@ -93,7 +92,7 @@ export default function AccountDetailsForm({ profile, onProfileChange }) {
     setFormError("");
     setStatus("");
     try {
-      const response = await updateProfile(payload);
+      const response = await saveProfile(payload);
       const confirmed = personalValues(response.data);
       setBaseline(confirmed);
       setDraft(confirmed);

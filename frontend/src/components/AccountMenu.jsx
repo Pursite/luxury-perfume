@@ -21,25 +21,37 @@ export default function AccountMenu() {
   const itemRefs = [accountRef, ordersRef, ticketsRef, signOutRef];
   const signOutInFlight = useRef(false);
   const restoringTriggerFocus = useRef(false);
+  const clickOpened = useRef(false);
 
   useEffect(() => {
     if (!open) return undefined;
     function closeFromOutside(event) {
-      if (!wrapperRef.current?.contains(event.target)) setOpen(false);
+      if (!wrapperRef.current?.contains(event.target)) closeMenu();
+    }
+    function closeFromOutsidePointer(event) {
+      if (
+        !wrapperRef.current?.contains(event.target)
+        && !wrapperRef.current?.contains(document.activeElement)
+      ) closeMenu();
     }
     document.addEventListener("pointerdown", closeFromOutside);
-    return () => document.removeEventListener("pointerdown", closeFromOutside);
+    document.addEventListener("pointerover", closeFromOutsidePointer);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside);
+      document.removeEventListener("pointerover", closeFromOutsidePointer);
+    };
   }, [open]);
 
   function openMenu(focusIndex = null) {
+    if (!open) setActiveIndex(focusIndex ?? 0);
     if (focusIndex !== null) {
-      setActiveIndex(focusIndex);
       requestAnimationFrame(() => itemRefs[focusIndex].current?.focus());
     }
     setOpen(true);
   }
 
   function closeMenu({ restoreFocus = false } = {}) {
+    clickOpened.current = false;
     setOpen(false);
     if (restoreFocus) {
       restoringTriggerFocus.current = true;
@@ -59,6 +71,9 @@ export default function AccountMenu() {
     if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       openMenu(0);
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      closeMenu();
     }
   }
 
@@ -103,7 +118,7 @@ export default function AccountMenu() {
       className="account-menu"
       onMouseEnter={() => openMenu()}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) closeMenu();
       }}
     >
       <button
@@ -117,7 +132,14 @@ export default function AccountMenu() {
         onFocus={() => {
           if (!restoringTriggerFocus.current) openMenu();
         }}
-        onClick={() => openMenu()}
+        onClick={(event) => {
+          if (event.detail === 0) return;
+          if (clickOpened.current && open) closeMenu();
+          else {
+            clickOpened.current = true;
+            openMenu();
+          }
+        }}
         onKeyDown={onTriggerKeyDown}
       >
         <AccountIcon />
@@ -137,7 +159,7 @@ export default function AccountMenu() {
             aria-label="Account Details"
             tabIndex={activeIndex === 0 ? 0 : -1}
             onFocus={() => setActiveIndex(0)}
-            onClick={() => setOpen(false)}
+            onClick={() => closeMenu()}
           >
             Account Details
           </Link>
