@@ -52,6 +52,7 @@ services:
               'http://127.0.0.1:8000/health/ready',
               headers={'X-Forwarded-Proto': 'https'},
           );
+          request.add_header('Host', 'shop.exonplus.ir');
           urllib.request.urlopen(request, timeout=3)
       interval: 30s
       timeout: 5s
