@@ -51,6 +51,11 @@ frontend/.env
 frontend/.env.*
 !frontend/.env.production.example
 
+# Production frontend release state is managed outside Git.
+frontend-releases/
+frontend-current
+.frontend-current.*
+
 
 *.sqlite3
 *.db

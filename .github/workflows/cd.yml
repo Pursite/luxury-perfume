@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Full commit SHA for an already published application image
+        description: Full commit SHA for an already published backend and frontend release
         required: false
         type: string
 
@@ -22,17 +22,18 @@ jobs:
       group: production-deploy
       cancel-in-progress: false
     env:
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_PORT: ${{ secrets.VPS_PORT }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-      GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
       GHCR_USERNAME: ${{ github.repository_owner }}
 
     steps:
       - name: Validate deployment configuration
         shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
           : "${VPS_HOST:?Configure the production VPS_HOST environment secret.}"
@@ -62,6 +63,9 @@ jobs:
       - name: Configure strict SSH host verification
         id: ssh
         shell: bash
+        env:
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
           set -Eeuo pipefail
           ssh_directory="$RUNNER_TEMP/luxury-perfume-deploy-ssh"
@@ -77,14 +81,15 @@ jobs:
         env:
           DEPLOY_SHA: ${{ inputs.commit_sha || github.sha }}
           SSH_DIRECTORY: ${{ steps.ssh.outputs.directory }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "The workflow did not provide a full commit SHA." >&2
             exit 1
           }
-
-          trap 'rm -f "$SSH_DIRECTORY/id_ed25519" "$SSH_DIRECTORY/known_hosts"; rmdir "$SSH_DIRECTORY"' EXIT
 
           {
             printf '%s\0' "$GHCR_READ_TOKEN"
@@ -96,16 +101,31 @@ jobs:
           cd "$project_directory"
           test -f .env
 
+          exec 9>"$project_directory/.git/deploy.lock"
+          if ! flock -n 9; then
+            echo "Another production deployment is already running." >&2
+            exit 1
+          fi
+
           if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
             echo "The deployment checkout contains local source changes; refusing to overwrite it." >&2
             exit 1
           fi
 
-          git fetch --no-tags --depth=1 origin "$DEPLOY_SHA"
+          main_ref=refs/remotes/origin/main
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin "+refs/heads/main:$main_ref"
+          else
+            git fetch --no-tags origin "+refs/heads/main:$main_ref"
+          fi
+          git fetch --no-tags origin "$DEPLOY_SHA"
+          resolved_sha="$(git rev-parse "$DEPLOY_SHA^{commit}")"
+          [ "$resolved_sha" = "$DEPLOY_SHA" ]
           git cat-file -e "$DEPLOY_SHA^{commit}"
-          git checkout --detach "$DEPLOY_SHA"
+          git merge-base --is-ancestor "$DEPLOY_SHA" "$main_ref"
 
-          image_tag="ghcr.io/pursite/luxury-perfume:${DEPLOY_SHA}"
+          backend_tag="ghcr.io/pursite/luxury-perfume:${DEPLOY_SHA}"
+          frontend_tag="ghcr.io/pursite/luxury-perfume-frontend:${DEPLOY_SHA}"
           docker_config_directory="$(mktemp -d)"
           cleanup_registry_auth() {
             unset GHCR_READ_TOKEN
@@ -115,15 +135,25 @@ jobs:
 
           printf '%s' "$GHCR_READ_TOKEN" | DOCKER_CONFIG="$docker_config_directory" \
             docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null
-          DOCKER_CONFIG="$docker_config_directory" docker pull "$image_tag"
-          APP_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_tag")"
-          [[ "$APP_IMAGE" =~ ^ghcr\.io/pursite/luxury-perfume@sha256:[0-9a-f]{64}$ ]] || {
-            echo "The pulled application image did not resolve to the expected digest." >&2
-            exit 1
-          }
-          export APP_IMAGE
+          DOCKER_CONFIG="$docker_config_directory" docker pull "$backend_tag"
+          DOCKER_CONFIG="$docker_config_directory" docker pull "$frontend_tag"
+
+          backend_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$backend_tag")"
+          frontend_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$frontend_tag")"
+          [[ "$backend_image" =~ ^ghcr\.io/pursite/luxury-perfume@sha256:[0-9a-f]{64}$ ]]
+          [[ "$frontend_image" =~ ^ghcr\.io/pursite/luxury-perfume-frontend@sha256:[0-9a-f]{64}$ ]]
+
+          backend_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$backend_tag")"
+          frontend_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$frontend_tag")"
+          [ "$backend_revision" = "$DEPLOY_SHA" ]
+          [ "$frontend_revision" = "$DEPLOY_SHA" ]
+
           cleanup_registry_auth
           trap - EXIT
+          export APP_IMAGE="$backend_image"
+
+          git checkout --detach "$DEPLOY_SHA"
+          ./scripts/frontend-release.sh prepare "$project_directory" "$DEPLOY_SHA" "$frontend_image"
 
           compose=(docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml)
           "${compose[@]}" config -q
@@ -146,18 +176,41 @@ jobs:
           "${compose[@]}" run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
           "${compose[@]}" run --rm --no-deps web python manage.py migrate --noinput
           "${compose[@]}" run --rm --no-deps web python manage.py collectstatic --noinput
-          "${compose[@]}" up -d --no-build --no-deps --force-recreate web celery
+          "${compose[@]}" up -d --no-build --no-deps --force-recreate web
 
+          web_ready=false
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 5 \
               -H 'X-Forwarded-Proto: https' \
               http://127.0.0.1:8000/health/ready >/dev/null; then
-              exit 0
+              web_ready=true
+              break
             fi
             sleep 5
           done
-          echo "The application did not pass its readiness check in time." >&2
-          exit 1
+          if [ "$web_ready" != true ]; then
+            echo "The application did not pass its readiness check in time." >&2
+            exit 1
+          fi
+
+          "${compose[@]}" up -d --no-build --no-deps --force-recreate celery
+          celery_container_id="$("${compose[@]}" ps -q celery)"
+          test -n "$celery_container_id"
+          for sample in 1 2 3 4 5; do
+            current_container_id="$("${compose[@]}" ps -q celery)"
+            test "$current_container_id" = "$celery_container_id"
+            celery_state="$(docker inspect --format '{{.State.Status}} {{.State.Running}} {{.State.Restarting}} {{.RestartCount}}' "$celery_container_id")"
+            read -r status running restarting restart_count <<<"$celery_state"
+            test "$status" = running
+            test "$running" = true
+            test "$restarting" = false
+            test "$restart_count" = 0
+            if [ "$sample" -lt 5 ]; then
+              sleep 2
+            fi
+          done
+
+          exec ./scripts/frontend-release.sh activate "$project_directory" "$DEPLOY_SHA" "$frontend_image"
           REMOTE_SCRIPT
           } | ssh \
             -i "$SSH_DIRECTORY/id_ed25519" \
@@ -168,3 +221,15 @@ jobs:
             -p "$VPS_PORT" \
             "$VPS_USER@$VPS_HOST" \
             "DEPLOY_SHA=$DEPLOY_SHA GHCR_USERNAME=$GHCR_USERNAME bash -c 'IFS= read -r -d \"\" GHCR_READ_TOKEN; export GHCR_READ_TOKEN; source /dev/stdin'"
+
+      - name: Remove temporary SSH material
+        if: always()
+        shell: bash
+        env:
+          SSH_DIRECTORY: ${{ steps.ssh.outputs.directory }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$SSH_DIRECTORY" && -d "$SSH_DIRECTORY" ]]; then
+            rm -f -- "$SSH_DIRECTORY/id_ed25519" "$SSH_DIRECTORY/known_hosts"
+            rmdir -- "$SSH_DIRECTORY" || true
+          fi

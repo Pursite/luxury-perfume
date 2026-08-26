@@ -51,8 +51,17 @@ VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
 `npm run build` deliberately fails without an explicit HTTPS
 `VITE_API_BASE_URL`. Production uses the public setting
 `https://shop.exonplus.ir`; it is supplied at build time and is not hard-coded
-as an application fallback. Build output is written to ignored `dist/` and is
-intended for host-managed Nginx at `https://www.exonplus.ir`.
+as an application fallback. Build output is written to ignored `dist/`.
+
+In CI, the release gate runs this build from the reviewed commit, stamps and
+validates the output, and packages it in the immutable
+`ghcr.io/pursite/luxury-perfume-frontend:<commit-sha>` scratch carrier. The
+production CD workflow consumes that exact SHA artifact, extracts it without
+starting a Node/Vite process, validates the expected files and API origin, and
+atomically activates `/srv/luxury-perfume/frontend-current`. Normal production
+deployment therefore does not require Node or npm on the VPS. Older
+SHA-addressed frontend releases remain available for explicit rollback; CI's
+short-lived intermediate upload is not the rollback store.
 
 ## Source map
 

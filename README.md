@@ -212,22 +212,27 @@ VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
 
 The React storefront, SQLite/LocMem, and PostgreSQL/Redis jobs run for every
 pull request and push. Frontend CI explicitly uses Node 24 LTS and performs a
-clean install, lint, tests, and production build. After the backend jobs
-succeed, the required `Application image` check
-copies the safe production template to the ignored root `.env`, validates the
-production Compose merge, and builds the final application image without
-registry access. Pull requests and pushes stop there. On successful pushes to
-`main`, the separate `Publish application image` job verifies that the SHA tag
-does not already exist, then promotes the archived build artifact—without a
-second Docker build—to exactly `ghcr.io/pursite/luxury-perfume:<commit SHA>` with
-OCI source and revision labels.
+clean install, lint, tests, and production build. The complete release gate
+also requires the backend unit/integration checks, production Compose
+validation, and read-only backend and frontend image builds. Pull requests and
+pushes stop after those checks. On successful pushes to `main`, the backend and
+frontend publication jobs both depend on that gate, verify that their SHA tags
+do not already exist, then promote the archived build artifacts—without a
+second Docker build—to `ghcr.io/pursite/luxury-perfume:<commit SHA>` and
+`ghcr.io/pursite/luxury-perfume-frontend:<commit SHA>`, each with OCI source and
+revision labels. The backend jobs are named `Application image` and `Publish application image`; the corresponding frontend publication job is
+`Publish frontend image`. The frontend image is only a scratch filesystem
+carrier; it is not a production runtime.
 
-Production deploys the same image for Django and Celery, pinned to its resolved
-content digest. The image contains application code and dependencies only;
-the VPS keeps the production `.env`, PostgreSQL data, Redis data, static files,
-and media at runtime. See [deployment.md](docs/deployment.md) for the required
-protected GHCR pull token, first deployment, normal deployment, and the
-limitations of code-only rollback.
+Production deploys the same backend image for Django and Celery, pinned to its
+resolved content digest, alongside the matching frontend carrier artifact. The
+VPS extracts that artifact into an immutable SHA-addressed release and
+atomically switches `frontend-current`; no Node/npm build occurs on the VPS.
+The backend image contains application code and dependencies only; the VPS
+keeps the production `.env`, PostgreSQL data, Redis data, static files, and
+media at runtime. See [deployment.md](docs/deployment.md) for the protected
+GHCR pull token, release ordering, first deployment, normal deployment, and
+the limitations of code-only rollback.
 
 ## Documentation
 

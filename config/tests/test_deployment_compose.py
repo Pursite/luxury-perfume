@@ -61,7 +61,9 @@ def test_ci_application_image_job_is_read_only_and_publish_is_immutable():
     assert "cp docker/env/.env.production.example .env" in application_image_job
     assert "docker compose --env-file .env" in application_image_job
     assert "packages: write" not in application_image_job
-    assert application_image_job.count("docker/build-push-action@v6") == 1
+    assert application_image_job.count(
+        "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8"
+    ) == 1
     assert "cache-from: type=gha" in application_image_job
     assert "cache-to: type=gha,mode=max" in application_image_job
     assert "push: false" in application_image_job
@@ -70,22 +72,55 @@ def test_ci_application_image_job_is_read_only_and_publish_is_immutable():
         in application_image_job
     )
     assert "APP_IMAGE: ghcr.io/pursite/luxury-perfume" in application_image_job
-    assert "actions/upload-artifact@v4" in application_image_job
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in application_image_job
     assert "name: luxury-perfume-image-${{ github.sha }}" in application_image_job
 
     assert "name: Publish application image" in publish_job
-    assert "needs: image" in publish_job
+    assert "needs: [release-gate]" in publish_job
     assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in publish_job
     assert "group: ghcr-publish-${{ github.sha }}" in publish_job
     assert "packages: write" in publish_job
-    assert "docker/login-action@v3" in publish_job
+    assert "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9" in publish_job
     assert "docker buildx imagetools inspect \"$IMAGE_TAG\"" in publish_job
-    assert "actions/download-artifact@v4" in publish_job
+    assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" in publish_job
     assert "name: luxury-perfume-image-${{ github.sha }}" in publish_job
     assert "docker load --input /tmp/luxury-perfume-application.tar" in publish_job
     assert "docker tag luxury-perfume:application \"$IMAGE_TAG\"" in publish_job
     assert "docker push \"$IMAGE_TAG\"" in publish_job
     assert "docker/build-push-action@v6" not in publish_job
+
+
+def test_frontend_release_is_gated_and_published_from_the_ci_artifact():
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+    assert "release-gate:" in workflow
+    assert "needs: [frontend, default-tests, integration-tests, image]" in workflow
+    assert "permissions: {}" in workflow
+    assert "name: Publish frontend image" in workflow
+    assert "needs: [release-gate]" in workflow
+    assert "ghcr.io/pursite/luxury-perfume-frontend:${{ github.sha }}" in workflow
+    assert "luxury-perfume-frontend-image-${{ github.sha }}" in workflow
+    assert "docker load --input /tmp/luxury-perfume-frontend-application.tar" in workflow
+    assert "test \"$revision\" = \"$GITHUB_SHA\"" in workflow
+    assert "docker push \"$IMAGE_TAG\"" in workflow
+    assert "retention-days: 1" in workflow
+    assert "Dockerfile.frontend" in workflow
+    assert "VITE_API_BASE_URL: https://shop.exonplus.ir" in workflow
+
+
+def test_frontend_carrier_and_release_state_are_source_controlled_safely():
+    dockerfile = (REPOSITORY_ROOT / "docker" / "Dockerfile.frontend").read_text()
+    release_script = (REPOSITORY_ROOT / "scripts" / "frontend-release.sh").read_text()
+    dockerignore = (REPOSITORY_ROOT / ".dockerignore").read_text()
+    gitignore = (REPOSITORY_ROOT / ".gitignore").read_text()
+
+    assert dockerfile == "FROM scratch\n\nCOPY . /frontend/\n"
+    assert 'docker create "$image_digest" /frontend/index.html' in release_script
+    assert 'docker cp "$container_id:/frontend/." "$staging_directory/"' in release_script
+    assert 'docker rm -f "$container_id"' in release_script
+    assert "frontend/\n" in dockerignore
+    assert "frontend-releases/" in gitignore
+    assert "frontend-current" in gitignore
 
 
 def test_cd_pulls_digest_pinned_image_with_ephemeral_credentials():
@@ -108,10 +143,17 @@ def test_cd_pulls_digest_pinned_image_with_ephemeral_credentials():
     assert "@sha256:" in workflow
     assert "python manage.py check --deploy --settings=config.settings.production" in workflow
     assert '"${compose[@]}" up -d --no-build --no-recreate db redis' in workflow
-    assert (
-        '"${compose[@]}" up -d --no-build --no-deps --force-recreate web celery'
-        in workflow
-    )
+    assert '"${compose[@]}" up -d --no-build --no-deps --force-recreate web' in workflow
+    assert '"${compose[@]}" up -d --no-build --no-deps --force-recreate celery' in workflow
+    assert 'exec 9>"$project_directory/.git/deploy.lock"' in workflow
+    assert 'flock -n 9' in workflow
+    assert 'git fetch --no-tags --unshallow origin "+refs/heads/main:$main_ref"' in workflow
+    assert 'git fetch --no-tags origin "+refs/heads/main:$main_ref"' in workflow
+    assert 'git fetch --no-tags origin "$DEPLOY_SHA"' in workflow
+    assert 'git merge-base --is-ancestor "$DEPLOY_SHA" "$main_ref"' in workflow
+    assert 'frontend-release.sh prepare' in workflow
+    assert 'frontend-release.sh activate' in workflow
+    assert 'docker inspect --format' in workflow
     assert '"${compose[@]}" build' not in workflow
 
 

@@ -248,5 +248,7 @@ In development, Vite runs directly on the host at `127.0.0.1:5173` and proxies
 relative `/api/` and `/media/` requests to Docker-published Django at
 `localhost:8000`. PostgreSQL and Redis remain Docker-internal. Production
 builds require the public build-time `VITE_API_BASE_URL` and emit static files
-for host Nginx; there is no Vite server, Node runtime, or frontend Docker
-service in production.
+for host Nginx. CI packages that output in a SHA-labeled `FROM scratch` carrier
+image; deployment extracts it into an immutable release directory and
+atomically switches the active symlink. There is no Vite server or Node runtime
+in production, and the carrier image is never run as a frontend service.
