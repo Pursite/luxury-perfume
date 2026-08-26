@@ -11,6 +11,7 @@ from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
 from .services.profile_phone_service import ProfilePhoneVerificationService
 from .jwt import issue_tokens_for_user
+from .selectors import UserSelector
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
 from ..lib.loggers import AppLogger
@@ -209,6 +210,17 @@ class CompleteProfileAPIView(APIView):
             "message": "your profile is successfully updated, and your account is registered",
             "data": output_serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class CurrentUserProfileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = UserSelector.get_current_profile(user=request.user)
+        return Response(
+            {"data": UserOutputSerializer(user).data},
+            status=status.HTTP_200_OK,
+        )
 
 
 class UserProfileUpdateAPIView(APIView):

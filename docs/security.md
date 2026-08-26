@@ -27,17 +27,36 @@ tokens.
 
 Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
 
+The React storefront centralizes bearer-token handling. Its access token is
+memory-only and its rotating refresh token uses `sessionStorage`; no component
+logs or directly persists either token. `sessionStorage` limits persistence to
+the browser session compared with `localStorage`, but any browser-readable
+bearer token remains exposed to JavaScript after a successful XSS compromise.
+Consequently this is a usability/security trade-off within the existing JWT
+contract, not an HttpOnly-cookie security claim. A protected 401 shares one
+in-flight refresh, retries once, and clears application authentication when
+refresh fails. Safe internal-path validation prevents a Login return target
+from becoming an external redirect.
+
+The protected Account page keeps profile responses and form drafts in React
+memory only; it does not persist profile PII in `localStorage` or
+`sessionStorage`. `GET /api/v1/users/profile/` derives ownership exclusively
+from the access token, accepts no user identifier, and uses the safe user
+output serializer. Disabled phone verification, password reset, Orders, and
+Tickets controls have no route or API side effect.
+
 Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.
 
 ## Throttling and security cache
 
-The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, and two OTP dimensions. Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
+The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, catalogue-read, refresh, and two OTP dimensions. Public Product list/detail reads use the ordinary-cache `catalogue` scope (`PRODUCT_CATALOGUE_THROTTLE_RATE`, default `120/m`) so unrelated anonymous API traffic cannot exhaust catalogue availability. Product mutations retain the existing authenticated user throttle. Refresh uses the fail-closed security-cache `token_refresh` scope (`TOKEN_REFRESH_THROTTLE_RATE`, default `30/m`). Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
 
 OTP throttles, codes, failed-attempt counters, temporary locks, verification
-leases, the password-login guard, and password-login/signup throttle histories
-use only the `security` cache alias. It does not ignore errors: security-cache
-failures return 503 instead of allowing an unprotected request. The ordinary
-`default` cache is separate and may tolerate failures for catalogue caching.
+leases, the password-login guard, password-login/signup throttle histories, and
+refresh throttles use only the `security` cache alias. It does not ignore
+errors: security-cache failures return 503 instead of allowing an unprotected
+request. The ordinary `default` cache is separate and may tolerate failures
+for catalogue caching and catalogue-read throttling.
 Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can
 reach loopback Gunicorn; do not trust forwarded client IP headers in another
 topology without changing that setting.
@@ -91,6 +110,15 @@ snapshot.
 ## Configuration, logging, and transport
 
 Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Structured logs use allowlisted fields and redact common secret/PII patterns. Callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, email addresses, cache keys, or sensitive internal errors. Authentication and SMS-placeholder events use fixed generic names; system errors record an exception type, never an exception message or traceback.
+
+For local development Django allows only the documented Vite origins at ports
+5173. Production Django is hosted at `shop.exonplus.ir` and allows the
+`https://www.exonplus.ir` storefront origin. The public build-time
+`VITE_API_BASE_URL` contains only the Django origin; `VITE_*` values must never
+contain Django/JWT signing keys, database/Redis credentials, future payment
+credentials, or VPN credentials. `api.exonplus.ir` is unrelated VPN/3x-ui
+infrastructure and is not an allowed host, frontend API origin, or deployment
+target for this application.
 
 ## Verification and limitations
 

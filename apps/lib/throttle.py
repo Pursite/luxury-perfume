@@ -1,5 +1,5 @@
 from django.core.cache import caches
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 
 from apps.lib.security_cache import SecurityCacheUnavailable
 from apps.users.models import CustomUser
@@ -17,6 +17,24 @@ class SecurityCacheRateThrottle(SimpleRateThrottle):
             return super().allow_request(request, view)
         except Exception as exc:
             raise SecurityCacheUnavailable from exc
+
+
+class CatalogueReadRateThrottle(UserRateThrottle):
+    """Isolate public catalogue reads from unrelated anonymous API traffic."""
+
+    scope = "catalogue"
+
+
+class TokenRefreshRateThrottle(SecurityCacheRateThrottle):
+    """Rate-limit refresh attempts independently in the security cache."""
+
+    scope = "token_refresh"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }
 
 
 class OTPPhoneNumberRateThrottle(SecurityCacheRateThrottle):

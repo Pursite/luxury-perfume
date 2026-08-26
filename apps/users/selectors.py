@@ -1,9 +1,10 @@
 from typing import Optional
 from uuid import UUID
 from django.contrib.auth.hashers import check_password, make_password
+from django.db.models import Prefetch
 from rest_framework.exceptions import AuthenticationFailed
 
-from .models import CustomUser
+from .models import Address, CustomUser
 
 
 # This is deliberately not a usable credential. Hashing against it gives absent
@@ -12,6 +13,15 @@ DUMMY_PASSWORD_HASH = make_password("not-a-user-password")
 
 
 class UserSelector:
+
+    @staticmethod
+    def get_current_profile(*, user: CustomUser) -> CustomUser:
+        return CustomUser.objects.prefetch_related(
+            Prefetch(
+                "addresses",
+                queryset=Address.objects.order_by("created_at", "id"),
+            )
+        ).get(pk=user.pk)
 
     @staticmethod
     def check_user_exists_by_phone(phone_number: str) -> bool:

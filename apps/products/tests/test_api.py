@@ -1,12 +1,18 @@
 from io import BytesIO
+import time
 
 import pytest
+from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from apps.products.models import Product, ProductFragranceNote, ProductImage
+from apps.products.selectors import get_public_products_queryset
 from apps.products.tests.factories import (
     BrandFactory,
     CategoryFactory,
@@ -14,6 +20,7 @@ from apps.products.tests.factories import (
     ProductFactory,
     ProductImageFactory,
 )
+from apps.products.views import ProductListCreateAPIView
 from apps.users.tests.factories import UserFactory
 
 
@@ -29,6 +36,97 @@ def _add_note(product, note, layer, position=1):
 @pytest.mark.django_db
 class TestProductListCreateAPIView:
     url = reverse("apps.products:product-list")
+
+    def _get_public_queryset(self):
+        view = ProductListCreateAPIView()
+        request = view.initialize_request(APIRequestFactory().get(self.url))
+        return get_public_products_queryset(request=request, view=view)
+
+    def test_list_prefetches_and_returns_the_primary_image_for_each_product(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        ProductImageFactory(product=product, display_order=1)
+        primary = ProductImageFactory(
+            product=product,
+            is_primary=True,
+            display_order=2,
+        )
+        ProductImageFactory(product=product, display_order=3)
+
+        listed_product = self._get_public_queryset().get(id=product.id)
+        response = api_client.get(self.url)
+
+        assert [image.id for image in listed_product._list_image] == [primary.id]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["results"][0]["primary_image"]["id"] == primary.id
+
+    def test_list_prefetches_and_returns_the_first_image_when_no_primary_exists(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        first = ProductImageFactory(product=product, display_order=1)
+        ProductImageFactory(product=product, display_order=2)
+
+        listed_product = self._get_public_queryset().get(id=product.id)
+        response = api_client.get(self.url)
+
+        assert [image.id for image in listed_product._list_image] == [first.id]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["results"][0]["primary_image"]["id"] == first.id
+
+    def test_list_uses_a_stable_three_query_read_path(self, api_client):
+        products = ProductFactory.create_batch(2)
+        for product in products:
+            ProductImageFactory.create_batch(3, product=product)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = api_client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(queries) == 3
+
+    def test_list_response_schema_is_unchanged(self, api_client):
+        product = ProductFactory()
+        ProductImageFactory(product=product)
+
+        response = api_client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.data["results"][0]
+        assert set(result) == {
+            "uuid",
+            "name",
+            "slug",
+            "sku",
+            "price",
+            "discount_price",
+            "final_price",
+            "stock",
+            "concentration",
+            "target_audience",
+            "fragrance_family",
+            "introduction_year",
+            "suitable_season",
+            "suitable_usage_time",
+            "volume_ml",
+            "category",
+            "brand",
+            "primary_image",
+            "is_featured",
+            "created_at",
+        }
+        assert set(result["category"]) == {"uuid", "name", "slug"}
+        assert set(result["brand"]) == {"uuid", "name", "slug", "country"}
+        assert set(result["primary_image"]) == {
+            "id",
+            "image",
+            "thumbnail",
+            "is_primary",
+            "display_order",
+        }
 
     def test_list_is_paginated_and_hides_inactive_products(self, api_client):
         products = ProductFactory.create_batch(15, is_active=True)
@@ -60,6 +158,71 @@ class TestProductListCreateAPIView:
             "taste_notes",
             "serving_temp",
         }.isdisjoint(result)
+
+    def test_anonymous_catalogue_reads_use_a_dedicated_throttle_scope(
+        self,
+        api_client,
+    ):
+        ProductFactory()
+        caches["default"].set(
+            "throttle_catalogue_198.51.100.10",
+            [time.time()] * 119,
+            timeout=60,
+        )
+
+        first_response = api_client.get(self.url, REMOTE_ADDR="198.51.100.10")
+        second_response = api_client.get(self.url, REMOTE_ADDR="198.51.100.10")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_global_anonymous_exhaustion_does_not_block_catalogue_reads(
+        self,
+        api_client,
+    ):
+        ProductFactory()
+        caches["default"].set(
+            "throttle_anon_198.51.100.11",
+            [time.time()] * 100,
+            timeout=86400,
+        )
+
+        response = api_client.get(self.url, REMOTE_ADDR="198.51.100.11")
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_authenticated_product_mutations_keep_user_throttling(
+        self,
+        api_client,
+        admin_user,
+    ):
+        product = ProductFactory()
+        api_client.force_authenticate(user=admin_user)
+        caches["default"].set(
+            f"throttle_user_{admin_user.pk}",
+            [time.time()] * 999,
+            timeout=86400,
+        )
+
+        first_response = api_client.patch(
+            reverse(
+                "apps.products:product-detail",
+                kwargs={"product_slug": product.slug},
+            ),
+            {"name": "First update"},
+            format="json",
+        )
+        second_response = api_client.patch(
+            reverse(
+                "apps.products:product-detail",
+                kwargs={"product_slug": product.slug},
+            ),
+            {"name": "Second update"},
+            format="json",
+        )
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_list_filters_searches_and_orders(self, api_client):
         category = CategoryFactory()
@@ -311,6 +474,27 @@ class TestProductDetailAPIView:
             == status.HTTP_404_NOT_FOUND
         )
         assert api_client.get("/api/v1/products/1/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_anonymous_detail_reads_use_the_catalogue_throttle(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        caches["default"].set(
+            "throttle_catalogue_198.51.100.12",
+            [time.time()] * 119,
+            timeout=60,
+        )
+        url = reverse(
+            "apps.products:product-detail",
+            kwargs={"product_slug": product.slug},
+        )
+
+        first_response = api_client.get(url, REMOTE_ADDR="198.51.100.12")
+        second_response = api_client.get(url, REMOTE_ADDR="198.51.100.12")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_put_patch_and_delete_require_admin(self, api_client, admin_user, normal_user):
         product = ProductFactory(name="Original")

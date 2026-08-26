@@ -1,4 +1,5 @@
-from django.db.models import Prefetch, QuerySet
+from django.db.models import F, Prefetch, QuerySet, Window
+from django.db.models.functions import RowNumber
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -7,12 +8,68 @@ from apps.products.filters import ProductFilter
 from apps.products.models import Product, ProductFragranceNote, ProductImage
 
 
+_PRODUCT_LIST_ONLY_FIELDS = (
+    "uuid",
+    "name",
+    "slug",
+    "sku",
+    "price",
+    "discount_price",
+    "stock",
+    "concentration",
+    "target_audience",
+    "fragrance_family",
+    "introduction_year",
+    "suitable_season",
+    "suitable_usage_time",
+    "volume_ml",
+    "category_id",
+    "brand_id",
+    "is_featured",
+    "created_at",
+    "category__id",
+    "category__name",
+    "category__slug",
+    "brand__id",
+    "brand__name",
+    "brand__slug",
+    "brand__country",
+)
+
+_PRODUCT_LIST_IMAGE_ONLY_FIELDS = (
+    "id",
+    "product_id",
+    "image",
+    "thumbnail",
+    "is_primary",
+    "display_order",
+)
+
+
 def get_public_products_queryset(*, request, view) -> QuerySet[Product]:
     """Return a filtered, searched, ordered, N+1-safe public catalogue query."""
+    list_image_queryset = (
+        ProductImage.objects.only(*_PRODUCT_LIST_IMAGE_ONLY_FIELDS)
+        .annotate(
+            _list_image_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("product_id")],
+                order_by=[F("is_primary").desc(), "display_order", "id"],
+            )
+        )
+        .filter(_list_image_rank=1)
+    )
     queryset = (
         Product.objects.filter(is_active=True)
         .select_related("category", "brand")
-        .prefetch_related("images")
+        .only(*_PRODUCT_LIST_ONLY_FIELDS)
+        .prefetch_related(
+            Prefetch(
+                "images",
+                queryset=list_image_queryset,
+                to_attr="_list_image",
+            )
+        )
     )
     filterset = ProductFilter(
         data=request.query_params,

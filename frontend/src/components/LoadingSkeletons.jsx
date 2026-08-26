@@ -1,0 +1,31 @@
+export function CatalogueSkeleton() {
+  return (
+    <div className="product-grid skeleton-grid" role="status" aria-label="Loading fragrances">
+      <span className="sr-only">Loading fragrances</span>
+      {Array.from({ length: 6 }, (_, index) => (
+        <div className="product-skeleton" key={index} aria-hidden="true">
+          <div className="skeleton-media" />
+          <div className="skeleton-line skeleton-line-short" />
+          <div className="skeleton-line" />
+          <div className="skeleton-line skeleton-line-price" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function AccountSkeleton() {
+  return (
+    <div className="account-skeleton" role="status" aria-label="Loading account details">
+      <span className="sr-only">Loading account details</span>
+      <div className="account-skeleton-title" aria-hidden="true" />
+      {Array.from({ length: 4 }, (_, index) => (
+        <div className="account-skeleton-section" key={index} aria-hidden="true">
+          <div className="account-skeleton-label" />
+          <div className="account-skeleton-field" />
+          <div className="account-skeleton-field" />
+        </div>
+      ))}
+    </div>
+  );
+}

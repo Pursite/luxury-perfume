@@ -16,6 +16,8 @@ from rest_framework_simplejwt.token_blacklist.models import (
 from rest_framework_simplejwt.utils import get_md5_hash_password
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.lib.throttle import TokenRefreshRateThrottle
+
 
 def issue_tokens_for_user(user) -> dict[str, str]:
     """Issue the project-standard access and refresh token pair."""
@@ -64,3 +66,4 @@ class PasswordRevocationTokenRefreshSerializer(TokenRefreshSerializer):
 
 class PasswordRevocationTokenRefreshView(TokenRefreshView):
     serializer_class = PasswordRevocationTokenRefreshSerializer
+    throttle_classes = (TokenRefreshRateThrottle,)

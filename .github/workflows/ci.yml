@@ -8,6 +8,68 @@ permissions:
   contents: read
 
 jobs:
+  frontend:
+    name: React storefront
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend source
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build production storefront
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://shop.exonplus.ir
+        run: npm run build
+
+      - name: Stamp and validate frontend release
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: bash scripts/frontend-release.sh stamp frontend/dist "$COMMIT_SHA"
+
+      - name: Build and export frontend image
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          docker build \
+            --file docker/Dockerfile.frontend \
+            --label "org.opencontainers.image.source=$IMAGE_SOURCE" \
+            --label "org.opencontainers.image.revision=$COMMIT_SHA" \
+            --tag luxury-perfume-frontend:application \
+            frontend/dist
+          docker image save \
+            --output /tmp/luxury-perfume-frontend-application.tar \
+            luxury-perfume-frontend:application
+
+      - name: Upload frontend image artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: luxury-perfume-frontend-image-${{ github.sha }}
+          path: /tmp/luxury-perfume-frontend-application.tar
+          if-no-files-found: error
+          retention-days: 1
+
   default-tests:
     name: SQLite and LocMem
     runs-on: ubuntu-latest
@@ -15,10 +77,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -85,10 +147,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -125,10 +187,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Prepare production Compose environment
         run: cp docker/env/.env.production.example .env
@@ -143,7 +205,7 @@ jobs:
           config -q
 
       - name: Build and export application image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/Dockerfile
@@ -158,16 +220,27 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Upload application image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: luxury-perfume-image-${{ github.sha }}
           path: /tmp/luxury-perfume-application.tar
           if-no-files-found: error
           retention-days: 1
 
+  release-gate:
+    name: Release gate
+    needs: [frontend, default-tests, integration-tests, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      - name: Confirm complete release gate
+        run: echo "complete release gate passed"
+
   publish:
     name: Publish application image
-    needs: image
+    needs: [release-gate]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -179,10 +252,10 @@ jobs:
 
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -198,7 +271,7 @@ jobs:
           fi
 
       - name: Download application image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: luxury-perfume-image-${{ github.sha }}
           path: /tmp
@@ -209,4 +282,52 @@ jobs:
         run: |
           docker load --input /tmp/luxury-perfume-application.tar
           docker tag luxury-perfume:application "$IMAGE_TAG"
+          docker push "$IMAGE_TAG"
+
+  publish-frontend:
+    name: Publish frontend image
+    needs: [release-gate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ghcr-frontend-publish-${{ github.sha }}
+      cancel-in-progress: false
+    permissions:
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reject an existing frontend image tag
+        env:
+          IMAGE_TAG: ghcr.io/pursite/luxury-perfume-frontend:${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing frontend image tag." >&2
+            exit 1
+          fi
+
+      - name: Download frontend image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: luxury-perfume-frontend-image-${{ github.sha }}
+          path: /tmp
+
+      - name: Load and publish frontend image artifact
+        env:
+          IMAGE_TAG: ghcr.io/pursite/luxury-perfume-frontend:${{ github.sha }}
+        run: |
+          docker load --input /tmp/luxury-perfume-frontend-application.tar
+          revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' luxury-perfume-frontend:application)"
+          test "$revision" = "$GITHUB_SHA"
+          docker tag luxury-perfume-frontend:application "$IMAGE_TAG"
           docker push "$IMAGE_TAG"

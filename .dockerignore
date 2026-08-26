@@ -29,6 +29,8 @@ __pycache__/
 logs/
 media/
 staticfiles/
+frontend/
+scripts/frontend-release.sh
 postgres_data/
 redis_data/
 

@@ -2,6 +2,7 @@
 .env.*
 !docker/env/.env.development.example
 !docker/env/.env.production.example
+!frontend/.env.production.example
 auth_key.json
 secrets.json
 logs
@@ -41,6 +42,19 @@ share/wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# React/Vite storefront dependencies and build output.
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.env
+frontend/.env.*
+!frontend/.env.production.example
+
+# Production frontend release state is managed outside Git.
+frontend-releases/
+frontend-current
+.frontend-current.*
 
 
 *.sqlite3

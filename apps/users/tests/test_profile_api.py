@@ -8,8 +8,96 @@ from apps.users.models import Address
 
 @pytest.mark.django_db
 class TestProfileFlow:
+    CURRENT_PROFILE_URL = "/api/v1/users/profile/"
     COMPLETE_PROFILE_URL = reverse('users:complete_profile')
     UPDATE_PROFILE_URL = reverse('users:update_profile')
+
+    def test_current_profile_requires_authentication(self, api_client):
+        response = api_client.get(self.CURRENT_PROFILE_URL)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_current_profile_returns_only_the_authenticated_users_safe_fields(
+        self,
+        api_client,
+    ):
+        user = UserFactory(
+            username="current_customer",
+            email="current@example.com",
+            first_name="Current",
+            last_name="Customer",
+            is_staff=True,
+            is_superuser=True,
+        )
+        first_address = Address.objects.create(
+            user=user,
+            title="Home",
+            full_address="First address",
+            postal_code="1234567890",
+        )
+        second_address = Address.objects.create(
+            user=user,
+            title="Office",
+            full_address="Second address",
+            postal_code=None,
+        )
+        other_user = UserFactory(username="other_customer")
+        Address.objects.create(
+            user=other_user,
+            title="Other home",
+            full_address="Must not be returned",
+        )
+        api_client.force_authenticate(user=user)
+
+        response = api_client.get(self.CURRENT_PROFILE_URL)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.data) == {"data"}
+        assert set(response.data["data"]) == {
+            "id",
+            "phone_number",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "is_profile_complete",
+            "addresses",
+        }
+        assert response.data["data"]["id"] == str(user.pk)
+        assert response.data["data"]["username"] == "current_customer"
+        assert [address["id"] for address in response.data["data"]["addresses"]] == [
+            str(first_address.pk),
+            str(second_address.pk),
+        ]
+        assert all(
+            set(address) == {"id", "title", "full_address", "postal_code"}
+            for address in response.data["data"]["addresses"]
+        )
+        serialized = repr(response.data).lower()
+        for unsafe_field in (
+            "password",
+            "token",
+            "refresh",
+            "is_staff",
+            "is_superuser",
+            "permissions",
+            "groups",
+        ):
+            assert unsafe_field not in serialized
+
+    def test_current_profile_uses_two_queries_for_user_and_addresses(
+        self,
+        api_client,
+        django_assert_num_queries,
+    ):
+        user = UserFactory()
+        Address.objects.create(user=user, title="Home", full_address="Address")
+        api_client.force_authenticate(user=user)
+
+        with django_assert_num_queries(2):
+            response = api_client.get(self.CURRENT_PROFILE_URL)
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_complete_profile_success_does_not_change_password_or_account_status(self, api_client):
         """Onboarding fills customer data without changing credentials or activation."""

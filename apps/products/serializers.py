@@ -105,9 +105,13 @@ class ProductListOutputSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_primary_image(self, product: Product):
-        images = list(product.images.all())
-        image = next((item for item in images if item.is_primary), None)
-        image = image or (images[0] if images else None)
+        list_images = getattr(product, "_list_image", None)
+        if list_images is not None:
+            image = list_images[0] if list_images else None
+        else:
+            images = list(product.images.all())
+            image = next((item for item in images if item.is_primary), None)
+            image = image or (images[0] if images else None)
         if image is None:
             return None
         return ProductImageOutputSerializer(image, context=self.context).data

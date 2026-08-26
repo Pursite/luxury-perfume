@@ -14,6 +14,7 @@ urlpatterns = [
     path('token/refresh/', PasswordRevocationTokenRefreshView.as_view(), name='token_refresh'),
     path('profile/phone/send-otp/', views.SendProfilePhoneOTPAPIView.as_view(), name='profile_phone_send_otp'),
     path('profile/phone/verify-otp/', views.VerifyProfilePhoneOTPAPIView.as_view(), name='profile_phone_verify_otp'),
+    path('profile/', views.CurrentUserProfileAPIView.as_view(), name='current_profile'),
     path('profile/complete/', views.CompleteProfileAPIView.as_view(), name='complete_profile'),
     path('profile/update/', views.UserProfileUpdateAPIView.as_view(), name='update_profile'),
     path('logout/', views.LogoutAPIView.as_view(), name='logout'),

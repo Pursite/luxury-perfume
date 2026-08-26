@@ -2,8 +2,8 @@
 
 This deployment model is intended for one VPS. Docker Compose runs Django,
 Celery, PostgreSQL, and Redis. Nginx is installed and managed directly on the
-host; it terminates TLS, serves static/media files, and proxies Django only
-through `127.0.0.1:8000`.
+host; it terminates TLS, serves the React build plus Django static/media files,
+and proxies Django only through `127.0.0.1:8000`.
 
 No Nginx, certificate, or Certbot container is used or required.
 
@@ -52,6 +52,23 @@ configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
 reachable directly from the LAN. Source bind mounts exist only in this
 development override.
 
+Run the React storefront directly on the host with Node 24 LTS; it is not a
+Compose service:
+
+```bash
+cd frontend
+nvm install 24
+nvm use
+npm ci
+npm run dev
+```
+
+Vite serves `http://localhost:5173` and proxies relative `/api/` and `/media/`
+requests to Django at `http://localhost:8000`. The development environment
+template allows the `localhost:5173` and `127.0.0.1:5173` browser origins. Keep
+a correct private root `.env` intact rather than overwriting its unrelated
+values; never commit it.
+
 The development project uses named volumes. Docker does not rename or migrate
 volumes from a differently named Compose project. Recreate local volumes only
 when their data is known to be disposable; move valuable data with a separately
@@ -86,8 +103,9 @@ cp docker/env/.env.production.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and replace every `replace-with-*` value and example domain with
-deployment-specific values. Keep `DB_HOST=db`
+Edit `.env` and replace every `replace-with-*` value. Its tracked host/origin
+policy already assigns `shop.exonplus.ir` to Django and
+`https://www.exonplus.ir` to the storefront. Keep `DB_HOST=db`
 and the Redis service hostnames unchanged for this Compose layout. Then validate
 the selected production configuration with a non-secret image reference. The
 deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
@@ -161,20 +179,24 @@ administrator must do it and then update development and VPS checkout remotes:
 git remote set-url origin git@github.com:Pursite/luxury-perfume.git
 ```
 
-The GHCR package is `ghcr.io/pursite/luxury-perfume`. Before the first
-deployment, publish the selected commit and verify that the protected
-`GHCR_READ_TOKEN` account can read it. The repository does not migrate images,
-VPS paths, or Docker volumes from a differently named installation.
+The GHCR packages are `ghcr.io/pursite/luxury-perfume` (Django/Celery) and
+`ghcr.io/pursite/luxury-perfume-frontend` (the static React carrier image).
+Before the first deployment, publish the selected commit and verify that the
+protected `GHCR_READ_TOKEN` account can read both packages. The repository does
+not migrate images, VPS paths, or Docker volumes from a differently named
+installation.
 
 ## Manual GitHub Actions deployment
 
-`.github/workflows/cd.yml` is deliberately manual-only. The required
-`Application image` CI check first copies the safe production template to the
-ignored root `.env`, validates the production Compose merge, and builds without
-registry write permission. For a push to `main`, its dependent `Publish
-application image` job then checks that the SHA tag does not already exist and
-promotes that archived build artifact without rebuilding it to
-`ghcr.io/pursite/luxury-perfume:<commit SHA>`. Run **Deploy production** from that
+`.github/workflows/cd.yml` is deliberately manual-only. The complete release
+gate requires the frontend install/lint/tests/build, the backend unit and
+integration checks, production Compose validation, and both read-only image
+builds. The backend jobs are named `Application image` and `Publish application image`; the frontend publication job is `Publish frontend image`. For a push to
+`main`, the backend and frontend publication jobs both depend on that gate,
+reject an existing SHA tag, and promote the archived artifacts without
+rebuilding them to their matching GHCR packages. The
+frontend image is a `FROM scratch` carrier containing only the stamped static
+release; it is never run as a service. Run **Deploy production** from that
 reviewed `main` commit for a normal release. Its empty **Commit SHA** input
 defaults to that workflow run's `github.sha`.
 
@@ -218,22 +240,32 @@ called. Do not run `docker login` manually or persist GHCR credentials on the
 VPS.
 
 For the first deployment, complete the production preparation, create the
-protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for its
-`Application image` and `Publish application image` checks, then dispatch
-**Deploy production** from that commit. Normal deployments follow the same
-process; no application image is built on the VPS.
+protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for the
+complete release gate and both image publication jobs, then dispatch **Deploy
+production** from that commit. Normal deployments follow the same process; no
+application or frontend image is built on the VPS and Node/npm is not required
+there.
 
-Within `/srv/luxury-perfume`, the workflow rejects a dirty checkout, fetches and
-checks out the exact source commit, pulls the matching image, validates the
-merged production Compose configuration, and starts the existing `db` and
-`redis` services without recreating them. After those dependencies are healthy,
-it runs `python manage.py check --deploy` with the production settings and VPS
-runtime environment, then runs forward migrations and `collectstatic`. Finally
-it force-recreates only `web` and `celery` with `--no-build`, then calls the
-local readiness endpoint with the same trusted-proxy header that host Nginx
-sends. It never runs `docker compose down`, removes volumes, prunes Docker
-resources, uses `git clean`, or modifies Nginx, VPN services, database data,
-media, static files, or the server's `.env`.
+Within `/srv/luxury-perfume`, the workflow acquires the non-blocking
+`/srv/luxury-perfume/.git/deploy.lock` for the entire operation, rejects a dirty
+checkout, fetches sufficient history for `origin/main` and the selected SHA,
+and verifies that the SHA is an ancestor of `origin/main`. It pulls both
+matching images, resolves and validates their immutable digests and OCI
+revision labels, checks out the exact source commit, and prepares the frontend
+release in `frontend-releases/<commit-sha>/` through a stopped scratch carrier
+container. The artifact is structurally and origin validated before activation.
+The existing `db` and `redis` services are started without recreating them;
+after they are healthy, `check --deploy`, forward migrations, and `collectstatic`
+run. Only then is `web` recreated and its readiness endpoint checked. Celery is
+recreated separately and must remain running, with no restart, for five samples
+over eight seconds. Finally `frontend-current` is switched with one atomic
+symlink rename. It never runs `docker compose down`, removes volumes, prunes
+Docker resources, uses `git clean`, or modifies Nginx, VPN services, database
+data, media, static files, or the server's `.env`. A failure before the symlink
+switch leaves the previous frontend release active; a backend failure leaves
+the previous containers and frontend symlink active unless migrations or a
+container recreation had already changed runtime state, which is why rollback
+is an explicit deployment of a compatible prior SHA.
 
 ## Published images, migrations, static files, and startup
 
@@ -248,17 +280,22 @@ an already published release and keep it out of `.env`:
 ```bash
 cd /srv/luxury-perfume
 export APP_IMAGE=ghcr.io/pursite/luxury-perfume@sha256:<published-image-digest>
+export FRONTEND_IMAGE=ghcr.io/pursite/luxury-perfume-frontend@sha256:<matching-frontend-digest>
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q
+./scripts/frontend-release.sh prepare /srv/luxury-perfume <matching-commit-sha> "$FRONTEND_IMAGE"
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build db redis
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py migrate --noinput
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py collectstatic --noinput
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build --no-deps --force-recreate web celery
+./scripts/frontend-release.sh activate /srv/luxury-perfume <matching-commit-sha> "$FRONTEND_IMAGE"
 ```
 
-Obtain the image using the same ephemeral-token procedure as CD. Do not
-configure a persistent `docker login` on the VPS, and do not place the token
-or `APP_IMAGE` in `.env`.
+Obtain both images using the same ephemeral-token procedure as CD. Do not
+configure a persistent `docker login` on the VPS, and do not place either
+digest or token in `.env`. The emergency sequence is operator-controlled and
+must preserve the same frontend readiness and Celery stability checks as the
+normal workflow before switching `frontend-current`.
 
 Before deploying the product slug URL cutover, audit the target database with
 these read-only queries:
@@ -338,6 +375,26 @@ Uploaded media is stored at `/srv/luxury-perfume/media`. Both directories are bi
 mounted into the application; Nginx reads them directly, so do not delete or
 replace them during routine deployments.
 
+## Production storefront artifact
+
+Production serves a static React build; it never runs Vite, npm, or a permanent
+Node process. The release gate runs Node 24 LTS, `npm ci`, lint, tests, and
+`VITE_API_BASE_URL=https://shop.exonplus.ir npm run build` from the reviewed
+commit. CI stamps the output with the commit SHA and public API origin,
+validates that it contains only the expected build files, and packages it in a
+`FROM scratch` OCI carrier labeled with that same SHA. CD pulls the exact
+frontend SHA tag, resolves its digest, extracts it with `docker create` and
+`docker cp` without starting the container, and validates it again before
+placing it in the immutable `frontend-releases/<commit-sha>/` directory.
+
+The active release is `/srv/luxury-perfume/frontend-current`, an atomic symlink
+to one immutable release directory. The deployment never copies partial files
+over the live build. `VITE_API_BASE_URL` is public build configuration, not a
+secret; never place Django, JWT, database, Redis, future payment, or VPN
+credentials in a `VITE_*` variable. `frontend/dist/` is reproducible CI output
+and is not committed. Releases are retained for rollback according to the
+operator's disk policy; CD does not automatically delete old releases.
+
 ## Redis durability and capacity
 
 One Redis instance currently provides four logical databases: ordinary cache,
@@ -390,21 +447,58 @@ host operating system's security update process. The upstream is always
 `http://127.0.0.1:8000`; do not expose Docker's Gunicorn port on a public host
 interface.
 
-Example site configuration (replace the hostname and certificate paths):
+The public responsibilities are intentionally separate:
+
+- `www.exonplus.ir` serves only the React storefront and uses `index.html` as
+  the fallback for client routes such as `/products/<slug>` and `/cart`.
+- `shop.exonplus.ir` serves the Django API, health endpoints, Admin, static
+  assets, and uploaded Product media through the existing loopback Gunicorn
+  topology.
+- `api.exonplus.ir` remains the existing VPN/3x-ui service. Do not add it to
+  Django, proxy it to Gunicorn, or change its configuration for this project.
+
+Minimal example configuration (adjust certificate paths and the active
+frontend release path to match the host):
 
 ```nginx
 server {
     listen 80;
-    server_name api.example.com;
+    server_name www.exonplus.ir shop.exonplus.ir;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name api.example.com;
+    server_name www.exonplus.ir;
 
-    ssl_certificate     /etc/ssl/certs/api.example.com/fullchain.pem;
-    ssl_certificate_key /etc/ssl/private/api.example.com/privkey.pem;
+    ssl_certificate     /etc/ssl/certs/www.exonplus.ir/fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/www.exonplus.ir/privkey.pem;
+
+    root /srv/luxury-perfume/frontend-current;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        access_log off;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name shop.exonplus.ir;
+
+    ssl_certificate     /etc/ssl/certs/shop.exonplus.ir/fullchain.pem;
+    ssl_certificate_key /etc/ssl/private/shop.exonplus.ir/privkey.pem;
     client_max_body_size 10m;
 
     location /static/ {
@@ -436,13 +530,16 @@ the forwarded address used by OTP limits. Restrict media further in Nginx if
 uploaded product images must not be public.
 
 After installing the site, validate and reload the host service using the
-operating system's Nginx commands, then verify both paths:
+operating system's Nginx commands, then verify the storefront SPA fallback and
+backend paths:
 
 ```bash
-curl --fail https://api.example.com/health/live
-curl --fail https://api.example.com/health/ready
-curl --fail https://api.example.com/health/startup
-curl --fail -I https://api.example.com/static/admin/css/base.css
+curl --fail -I https://www.exonplus.ir/
+curl --fail -I https://www.exonplus.ir/products/example-slug
+curl --fail https://shop.exonplus.ir/health/live
+curl --fail https://shop.exonplus.ir/health/ready
+curl --fail https://shop.exonplus.ir/health/startup
+curl --fail -I https://shop.exonplus.ir/static/admin/css/base.css
 ```
 
 Health endpoints are plain Django views, so DRF authentication and throttling
@@ -476,12 +573,17 @@ on production because it removes PostgreSQL and Redis volumes.
 
 For a code-only rollback, dispatch **Deploy production** with an already
 published, previously tested full commit SHA. The workflow checks out that
-revision, pulls its matching image, runs `collectstatic`, and recreates the
-application containers without rebuilding. It never automatically reverses
-database migrations. A rollback is therefore safe only when the older code is
-compatible with the current database schema and data. Assess reversibility,
-data loss, and operational recovery manually; reverse migrations and restore
-logic are intentionally not implemented by this workflow.
+revision, pulls both matching backend and frontend images, extracts or reuses
+the SHA-addressed frontend release, runs `collectstatic`, recreates the
+application containers without rebuilding, and atomically switches the
+frontend symlink. It never automatically reverses database migrations. A
+rollback is therefore safe only when the older code is compatible with the
+current database schema and data. Assess reversibility, data loss, and
+operational recovery manually; reverse migrations and restore logic are
+intentionally not implemented by this workflow. GHCR Actions artifacts are
+short-lived build intermediates; the immutable SHA image tags are the rollback
+retention boundary, so do not delete a release image that may be needed for
+rollback.
 
 In particular, application images from before the fragrance-domain migration
 expect columns that the forward migration removes and are not valid code-only

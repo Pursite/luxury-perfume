@@ -21,11 +21,12 @@ below.
 | `POST /users/signup/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/signup/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 201; message and tokens |
 | `POST /users/login/userpass/` | Public; password-login throttle | `username`, `password` | 200; message and tokens |
-| `POST /users/token/refresh/` | Public | `refresh` | 200; rotated `access` and `refresh` tokens |
+| `POST /users/token/refresh/` | Public; dedicated security-cache refresh throttle | `refresh` | 200; rotated `access` and `refresh` tokens |
 | `POST /users/login/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
 | `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
 | `POST /users/profile/phone/send-otp/` | Authenticated; phone + IP OTP-request throttles | `phone_number` | 200; generic message and `expires_in` |
 | `POST /users/profile/phone/verify-otp/` | Authenticated; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; verified serialized user in `data` |
+| `GET /users/profile/` | Authenticated | No body or user identifier | 200; current serialized user in `data` |
 | `POST /users/profile/complete/` | Authenticated; requires a verified phone | `username`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
 | `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `email`, `first_name`, `last_name`, `password`, `address` | 200; message and serialized user in `data` |
 | `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
@@ -42,18 +43,22 @@ security behavior is in [authentication.md](authentication.md).
 Usernames supplied by signup, profile completion, or profile update must be
 5–150 ASCII letters, digits, or underscores.
 
-The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`.
+`GET /users/profile/` always resolves the authenticated user and does not accept
+a user ID. It returns `{"data": <serialized-user>}` and prefetches that user's
+addresses in creation order.
+
+The `address` accepted by profile completion has `title`, `full_address`, and optional `postal_code`. Profile update accepts the same shape; when the user already has an address it must include that address's owned `id`, then may include only the fields being changed. Without an ID, profile update creates an address only for a user that has none and requires `title` and `full_address`. The serialized user contains `id`, `phone_number`, `username`, `email`, `first_name`, `last_name`, `is_profile_complete`, and `addresses`; an address has `id`, `title`, `full_address`, and `postal_code`. Passwords, tokens, staff state, groups, and permissions are never present in this representation.
 
 ## Products
 
 | Method and path | Access | Request / behavior | Success |
 | --- | --- | --- | --- |
-| `GET /products/` | Public | Lists active products | 200; paginated product list |
-| `POST /products/` | Authenticated staff only | Product write fields | 201; product detail |
-| `GET /products/<product_slug>/` | Public | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
-| `PUT /products/<product_slug>/` | Authenticated staff only | Complete product write fields | 200; product detail |
-| `PATCH /products/<product_slug>/` | Authenticated staff only | Partial product write fields | 200; product detail |
-| `DELETE /products/<product_slug>/` | Authenticated staff only | — | 204; no body |
+| `GET /products/` | Public; catalogue-read throttle | Lists active products | 200; paginated product list |
+| `POST /products/` | Authenticated staff only; existing user throttle | Product write fields | 201; product detail |
+| `GET /products/<product_slug>/` | Public; catalogue-read throttle | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
+| `PUT /products/<product_slug>/` | Authenticated staff only; existing user throttle | Complete product write fields | 200; product detail |
+| `PATCH /products/<product_slug>/` | Authenticated staff only; existing user throttle | Partial product write fields | 200; product detail |
+| `DELETE /products/<product_slug>/` | Authenticated staff only; existing user throttle | — | 204; no body |
 | `POST /products/<product_slug>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
 | `DELETE /products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
 
@@ -227,6 +232,42 @@ Cart is purchase intent only. It does not reserve or decrement stock, freeze
 prices, create Orders, perform checkout, call payments, or send notifications.
 Future checkout/Order code must own authoritative stock locking, stock
 decrement, and price snapshots.
+
+## React storefront consumption
+
+The Luxury Perfume application in `frontend/` consumes these contracts without adding
+frontend-only API assumptions. Catalogue search, the compact audience,
+concentration, fragrance-family and availability filters, ordering, and
+pagination are sent to `GET /products/`; results are never authoritatively
+filtered in browser memory. Public Product links use response `slug` values.
+The Product Detail page renders the actual ordered `images`, `top_notes`,
+`middle_notes`, and `base_notes` arrays.
+
+Username/password signup uses `/users/signup/`, login uses
+`/users/login/userpass/`, token renewal uses `/users/token/refresh/`, and
+sign-out uses `/users/logout/`. Signup and Login establish the same centralized
+frontend JWT session. The frontend sends the access token as Bearer
+authentication and never sends user, Cart, or CartItem IDs. An unauthenticated
+Add-to-Cart action redirects to Login with a safe internal return path instead
+of intentionally generating a Cart 401.
+
+The protected `/account` route reads `/users/profile/` and uses only
+`PATCH /users/profile/update/` for changes. Personal saves send changed
+`username`, `email`, `first_name`, and `last_name` fields. Address saves either
+create the first address or include the explicit owned address `id`; returned
+`data` replaces the displayed profile. Profile data and drafts remain in React
+memory only. The page does not expose the backend password field and its phone,
+password-reset, Orders, and Tickets actions are disabled and make no request.
+
+The storefront displays disabled SMS signup and sign-in controls for future
+orientation, but they do not call the API's OTP endpoints.
+
+Cart POST and PATCH responses replace frontend Cart state. Because item and
+Cart DELETE endpoints correctly return no body, the frontend follows them with
+`GET /cart/` before updating the shared badge and page. It renders API decimal
+strings and live availability fields; it does not calculate an authoritative
+price, resize/delete unavailable lines, reserve stock, or attempt checkout.
+The visible payment control is disabled and makes no request.
 
 ## Status codes
 

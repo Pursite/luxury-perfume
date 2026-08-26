@@ -4,7 +4,8 @@
 
 Luxury Perfume is a Django 6 and Django REST Framework application. Its current
 Django applications are `apps.users`, `apps.products`, `apps.cart`, and
-`apps.lib`.
+`apps.lib`. The repository also contains an independent React customer
+storefront under `frontend/`.
 
 ```text
 luxury-perfume/
@@ -19,6 +20,7 @@ luxury-perfume/
 │   ├── Dockerfile
 │   └── docker-compose*.yml
 ├── docs/
+├── frontend/        # React/Vite Luxury Perfume customer storefront
 ├── manage.py
 └── requirements/
     ├── requirements.txt
@@ -58,7 +60,9 @@ Output serializer and HTTP response
 
 Owns the custom user and address models, user serializers and views, selectors,
 and services for username/password and phone/OTP authentication, password
-reset, profile-phone verification, profile onboarding/update, and logout.
+reset, profile-phone verification, profile onboarding/update, and logout. Its
+current-profile selector scopes the read to the authenticated user and
+prefetches ordered addresses for the safe output serializer.
 `is_active` is account state, while `is_profile_complete` is a derived customer
 readiness property. The opt-in `IsProfileComplete` permission is available for
 future sensitive operations but does not restrict ordinary authenticated use.
@@ -142,10 +146,12 @@ Redis has two configured cache aliases with separate URLs:
   configured to ignore cache exceptions, so a cache failure can fall back to
   the database. Cart responses are never stored in this cache.
 - `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks,
-  leases, password-login guard and throttle state, signup-throttle state, and
-  OTP phone/IP throttle histories. Profile-phone codes use a purpose scoped to
-  the authenticated user. It does not suppress exceptions; security-cache
-  errors produce a 503 response instead of bypassing authentication protection.
+  leases, password-login guard and throttle state, signup-throttle state,
+  refresh throttles, and OTP phone/IP throttle histories. Profile-phone codes
+  use a purpose scoped to the authenticated user. It does not suppress
+  exceptions; security-cache errors produce a 503 response instead of bypassing
+  authentication protection. Catalogue-read throttling remains on the ordinary
+  `default` cache with catalogue caching.
 
 JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
 
@@ -200,3 +206,49 @@ docker compose -f docker/docker-compose.integration.yml down
 ```
 
 Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.
+
+## Customer storefront
+
+The React application is deployed independently of Django and preserves the
+backend as the server-state authority:
+
+```text
+React route/page
+    ↓
+Domain API module
+    ↓
+Central request/JWT client
+    ↓
+Django API view → serializer → service/selector → PostgreSQL
+```
+
+`src/api/` owns URL construction, normalized API/network errors, Bearer access
+headers, one shared refresh operation, and one retry after an authenticated
+401. Pages do not scatter raw `fetch()` calls. `AuthContext` restores and ends
+the browser session; `CartContext` loads and synchronizes the authenticated
+owner's Cart. Product catalogue/detail data remains page-local because it is
+not shared application state. Account profile data and independent form drafts
+also remain page-local and memory-only; no profile context or browser-storage
+PII cache is introduced.
+
+Routes are `/` for the catalogue, `/products/:slug` for Product Detail,
+`/login`, `/signup`, authenticated `/account`, authenticated `/cart`, and a
+catch-all 404. The shared storefront layout owns the direct compact Header and
+Persian development notice. Product filtering and
+pagination use backend query parameters and browser URL state; the frontend
+does not recreate authoritative catalogue filtering or price calculations.
+
+The Account page reads the current user through the profile selector endpoint
+and uses the existing profile-update service contract for mutations. Server
+responses remain authoritative for fields and `is_profile_complete`. Phone
+verification, password reset, Orders, and Tickets are visibly disabled and do
+not have frontend routes or request handlers.
+
+In development, Vite runs directly on the host at `127.0.0.1:5173` and proxies
+relative `/api/` and `/media/` requests to Docker-published Django at
+`localhost:8000`. PostgreSQL and Redis remain Docker-internal. Production
+builds require the public build-time `VITE_API_BASE_URL` and emit static files
+for host Nginx. CI packages that output in a SHA-labeled `FROM scratch` carrier
+image; deployment extracts it into an immutable release directory and
+atomically switches the active symlink. There is no Vite server or Node runtime
+in production, and the carrier image is never run as a frontend service.
