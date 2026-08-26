@@ -12,7 +12,10 @@ export default function Header() {
   return (
     <header className="site-header">
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <Link className="wordmark" to="/" aria-label="Luxury Perfume home">Luxury Perfume</Link>
+      <div className="header-brand-group">
+        <span className="header-brand-kicker">Private collection</span>
+        <Link className="wordmark" to="/" aria-label="Luxury Perfume home">Luxury Perfume</Link>
+      </div>
       <nav className="store-navigation" aria-label="Storefront">
         <NavLink className="navigation-link" to="/" aria-label="Products">
           <span className="navigation-icon"><ProductsIcon /></span>
@@ -35,6 +38,7 @@ export default function Header() {
         </NavLink>
       </nav>
       <div className="header-account">
+        <span className="header-account-label">Client access</span>
         {auth.isAuthenticated ? (
           <AccountMenu />
         ) : auth.status === "initializing" ? (

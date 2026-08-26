@@ -15,11 +15,14 @@ function displayValue(value) {
   return String(value).replaceAll("_", " ");
 }
 
-function Notes({ title, notes }) {
+function Notes({ title, notes, index }) {
   if (!notes?.length) return null;
   return (
-    <section className="note-tier">
-      <h3>{title}</h3>
+    <section className={`note-tier note-tier-${index}`}>
+      <div className="note-tier-heading">
+        <span className="note-tier-index">0{index}</span>
+        <h3>{title}</h3>
+      </div>
       <ul>{notes.map((note) => <li key={note.uuid}>{note.name}</li>)}</ul>
     </section>
   );
@@ -166,13 +169,36 @@ export default function ProductDetailPage() {
       <div className="product-detail-hero">
         <ProductGallery images={product.images} productName={product.name} brandName={product.brand?.name} />
         <section className="product-detail-copy" aria-labelledby="product-title">
-          <p className="eyebrow">{product.brand?.name || product.category?.name}</p>
-          <h1 id="product-title">{product.name}</h1>
-          <p className="product-detail-category">{product.category?.name}</p>
-          <Price price={product.price} finalPrice={product.final_price} discountPrice={product.discount_price} />
-          <Availability stock={product.stock} />
-          <ProductPurchase product={product} />
-          {product.description ? <p className="product-description">{product.description}</p> : null}
+          <div className="product-detail-identity">
+            <p className="eyebrow">{product.brand?.name || product.category?.name}</p>
+            <h1 id="product-title">{product.name}</h1>
+            <p className="product-detail-category">{product.category?.name}</p>
+            <p className="product-detail-facts">
+              {displayValue(product.concentration)}
+              {product.volume_ml ? <span>{product.volume_ml} ml</span> : null}
+            </p>
+          </div>
+          <div className="product-detail-commerce">
+            <div className="product-detail-price-row">
+              <span className="product-detail-price-label">Current price</span>
+              <Price price={product.price} finalPrice={product.final_price} discountPrice={product.discount_price} />
+            </div>
+            <Availability stock={product.stock} />
+            <ProductPurchase product={product} />
+          </div>
+        </section>
+      </div>
+      <div className="product-detail-story">
+        {product.description ? (
+          <section className="product-detail-description" aria-labelledby="description-title">
+            <p className="eyebrow">The impression</p>
+            <h2 id="description-title">A lasting first impression.</h2>
+            <p className="product-description">{product.description}</p>
+          </section>
+        ) : null}
+        <section className="product-specification-section" aria-labelledby="specifications-title">
+          <p className="eyebrow">The particulars</p>
+          <h2 id="specifications-title">Details</h2>
           <dl className="product-specifications">
             {details.map(([name, value]) => (
               <div key={name}><dt>{name}</dt><dd>{value}</dd></div>
@@ -187,9 +213,9 @@ export default function ProductDetailPage() {
             <h2 id="pyramid-title">The fragrance pyramid</h2>
           </div>
           <div className="note-tiers">
-            <Notes title="Top notes" notes={product.top_notes} />
-            <Notes title="Heart notes" notes={product.middle_notes} />
-            <Notes title="Base notes" notes={product.base_notes} />
+            <Notes title="Top notes" notes={product.top_notes} index={1} />
+            <Notes title="Heart notes" notes={product.middle_notes} index={2} />
+            <Notes title="Base notes" notes={product.base_notes} index={3} />
           </div>
         </section>
       ) : null}

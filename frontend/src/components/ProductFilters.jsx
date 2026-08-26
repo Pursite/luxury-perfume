@@ -68,7 +68,12 @@ export default function ProductFilters() {
           ) : null}
         </div>
       </div>
-      <div className="filter-row">
+      <div className="filter-band">
+        <div className="filter-band-heading">
+          <span className="filter-band-kicker">Refine the collection</span>
+          <span className="filter-band-note">Five quiet filters</span>
+        </div>
+        <div className="filter-row">
         {FILTERS.map(([name, title, options]) => (
           <label key={name}>
             <span>{title}</span>
@@ -92,6 +97,7 @@ export default function ProductFilters() {
             <option value="-name">Name Z–A</option>
           </select>
         </label>
+        </div>
       </div>
     </form>
   );

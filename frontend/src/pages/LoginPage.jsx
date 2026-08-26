@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import DisabledSmsOption from "../components/DisabledSmsOption";
+import AuthLayout from "../components/AuthLayout";
 import PasswordField from "../components/PasswordField";
 import useAuth from "../hooks/useAuth";
 import useDocumentTitle from "../hooks/useDocumentTitle";
@@ -48,14 +49,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-page page-frame">
-      <section className="login-panel" aria-labelledby="login-title">
-        <div className="login-introduction">
-          <p className="eyebrow">Private collection</p>
-          <h1 id="login-title">Welcome back.</h1>
-          <p>Sign in to keep your selected fragrances together.</p>
-        </div>
-        <form className="login-form" noValidate onSubmit={handleSubmit}>
+    <AuthLayout
+      titleId="login-title"
+      eyebrow="Private collection"
+      title="Welcome back."
+      description="Sign in to keep your selected fragrances together."
+    >
+      <form className="login-form" noValidate onSubmit={handleSubmit}>
           {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
           <label htmlFor="username">Username</label>
           <input
@@ -91,8 +91,7 @@ export default function LoginPage() {
               Create one
             </Link>
           </p>
-        </form>
-      </section>
-    </div>
+      </form>
+    </AuthLayout>
   );
 }

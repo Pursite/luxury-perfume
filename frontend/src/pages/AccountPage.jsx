@@ -70,13 +70,17 @@ export default function AccountPage() {
   return (
     <section className="account-page page-frame" aria-labelledby="account-title">
       <header className="account-masthead">
-        <div>
+        <div className="account-identity">
           <p className="eyebrow">Your profile</p>
           <h1 id="account-title">Account Details</h1>
+          <p className="account-deck">A private ledger for the details that make your collection yours.</p>
         </div>
-        <span className={`profile-completion ${profile.is_profile_complete ? "is-complete" : "is-incomplete"}`}>
-          {profile.is_profile_complete ? "Profile complete" : "Profile incomplete"}
-        </span>
+        <div className="account-status-block">
+          <span className="account-status-label">Profile status</span>
+          <span className={`profile-completion ${profile.is_profile_complete ? "is-complete" : "is-incomplete"}`}>
+            {profile.is_profile_complete ? "Profile complete" : "Profile incomplete"}
+          </span>
+        </div>
       </header>
 
       {!profile.is_profile_complete && missing.length ? (

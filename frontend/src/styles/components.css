@@ -397,3 +397,80 @@
   .sign-in-link,
   .account-menu-trigger { min-width: 2.6rem; padding-inline: 0.35rem; }
 }
+
+/* Second-pass composition: the global system stays quiet while each surface
+   gains a more intentional editorial hierarchy. */
+.site-header {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto minmax(12rem, 1fr);
+  min-height: 5.6rem;
+  gap: clamp(1rem, 3vw, 3rem);
+}
+
+.header-brand-group,
+.header-account {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+}
+
+.header-brand-kicker,
+.header-account-label {
+  color: var(--color-ivory-subtle);
+  font-size: 0.57rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.header-brand-group { justify-self: start; }
+.store-navigation { margin: 0; justify-self: center; }
+.header-account { justify-self: end; }
+.header-account-label { color: var(--color-gold-muted); }
+
+.navigation-link,
+.sign-in-link,
+.account-menu-trigger { min-height: 3rem; }
+
+.navigation-link.active {
+  position: relative;
+}
+
+.navigation-link.active::after {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 0.2rem;
+  left: 0.65rem;
+  height: 1px;
+  background: var(--color-gold);
+  content: "";
+}
+
+.auth-disabled-wrapper {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.auth-disabled-wrapper > .auth-sms-button {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+@media (max-width: 24rem) {
+  .site-header { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .wordmark { font-size: 1.05rem; }
+  .navigation-link,
+  .sign-in-link,
+  .account-menu-trigger { min-width: 2.55rem; }
+}
+
+@media (max-width: 52rem) {
+  .site-header { grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.25rem; }
+  .header-brand-kicker,
+  .header-account-label { display: none; }
+  .header-brand-group { min-width: 0; }
+  .store-navigation { grid-column: 2; grid-row: 1; gap: 0; }
+  .header-account { grid-column: 3; grid-row: 1; }
+  .navigation-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .navigation-link { padding-inline: 0.45rem; }
+}

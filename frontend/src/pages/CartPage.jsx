@@ -97,31 +97,33 @@ export default function CartPage() {
           One or more fragrances are no longer available in the selected quantity. They remain in your cart for review.
         </div>
       ) : null}
-      <section className="cart-lines" aria-label="Cart items">
-        {cart.items.map((item) => (
-          <CartLine
-            key={`${item.product.uuid}-${item.quantity}`}
-            item={item}
-            mutating={mutating}
-            updateItem={updateItem}
-            removeItem={removeItem}
+      <div className="cart-content-layout">
+        <section className="cart-lines" aria-label="Cart items">
+          {cart.items.map((item) => (
+            <CartLine
+              key={`${item.product.uuid}-${item.quantity}`}
+              item={item}
+              mutating={mutating}
+              updateItem={updateItem}
+              removeItem={removeItem}
+            />
+          ))}
+        </section>
+        <aside className="cart-summary" aria-labelledby="cart-summary-title">
+          <p className="eyebrow">Current total</p>
+          <h2 id="cart-summary-title">Summary</h2>
+          <dl>
+            <div><dt>Total quantity</dt><dd>{cart.total_quantity}</dd></div>
+            <div><dt>Total price</dt><dd>{formatMoney(cart.total_price)}</dd></div>
+          </dl>
+          <UnavailableControl
+            label="Proceed to Payment"
+            className="payment-tooltip-wrapper"
+            buttonClassName="button payment-button"
           />
-        ))}
-      </section>
-      <aside className="cart-summary" aria-labelledby="cart-summary-title">
-        <p className="eyebrow">Current total</p>
-        <h2 id="cart-summary-title">Summary</h2>
-        <dl>
-          <div><dt>Total quantity</dt><dd>{cart.total_quantity}</dd></div>
-          <div><dt>Total price</dt><dd>{formatMoney(cart.total_price)}</dd></div>
-        </dl>
-        <UnavailableControl
-          label="Proceed to Payment"
-          className="payment-tooltip-wrapper"
-          buttonClassName="button payment-button"
-        />
-        <p className="payment-note">Online payments are currently unavailable. Your cart will remain a selection only.</p>
-      </aside>
+          <p className="payment-note">Online payments are currently unavailable. Your cart will remain a selection only.</p>
+        </aside>
+      </div>
     </div>
   );
 }

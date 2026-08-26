@@ -36,14 +36,19 @@ export default function CataloguePage() {
   return (
     <div className="catalogue-page page-frame">
       <header className="catalogue-masthead">
-        <div>
+        <div className="catalogue-identity">
           <p className="eyebrow">The fragrance collection</p>
           <h1 id="catalogue-title">Find your signature.</h1>
+          <p className="catalogue-deck">A considered edit of lasting compositions, arranged for a slower kind of discovery.</p>
         </div>
         <div className="sillage-line" aria-hidden="true" />
-        <p className="catalogue-count" aria-live="polite">
-          {state.data ? `${state.data.count} fragrances` : "Curating the collection"}
-        </p>
+        <div className="catalogue-context">
+          <span className="catalogue-context-label">Collection index</span>
+          <p className="catalogue-count" aria-live="polite">
+            {state.data ? `${state.data.count} fragrances` : "Curating the collection"}
+          </p>
+          <span className="catalogue-context-detail">Real-time availability</span>
+        </div>
       </header>
       <ProductFilters />
       <section aria-labelledby="catalogue-title" className={loading && state.data ? "is-refreshing" : ""}>

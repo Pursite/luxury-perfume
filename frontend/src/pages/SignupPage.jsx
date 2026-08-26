@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import DisabledSmsOption from "../components/DisabledSmsOption";
+import AuthLayout from "../components/AuthLayout";
 import PasswordField from "../components/PasswordField";
 import useAuth from "../hooks/useAuth";
 import useDocumentTitle from "../hooks/useDocumentTitle";
@@ -92,14 +93,13 @@ export default function SignupPage() {
   const passwordInvalid = error?.field === "password" || error?.field === "form";
 
   return (
-    <div className="login-page page-frame">
-      <section className="login-panel" aria-labelledby="signup-title">
-        <div className="login-introduction">
-          <p className="eyebrow">Begin your collection</p>
-          <h1 id="signup-title">Create your account.</h1>
-          <p>Save your selected fragrances in one private, personal collection.</p>
-        </div>
-        <form className="login-form" noValidate onSubmit={handleSubmit}>
+    <AuthLayout
+      titleId="signup-title"
+      eyebrow="Begin your collection"
+      title="Create your account."
+      description="Save your selected fragrances in one private, personal collection."
+    >
+      <form className="login-form" noValidate onSubmit={handleSubmit}>
           {error ? <div id="signup-error" className="form-error" role="alert">{error.message}</div> : null}
           <label htmlFor="signup-username">Username</label>
           <input
@@ -139,8 +139,7 @@ export default function SignupPage() {
             Already have an account?{" "}
             <Link to="/login" state={{ returnTo }}>Sign in</Link>
           </p>
-        </form>
-      </section>
-    </div>
+      </form>
+    </AuthLayout>
   );
 }

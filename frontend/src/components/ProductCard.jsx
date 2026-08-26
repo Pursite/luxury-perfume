@@ -32,19 +32,25 @@ export default function ProductCard({ product }) {
           {product.is_featured ? <span className="featured-mark">Featured</span> : null}
         </div>
         <div className="product-card-body">
-          <p className="product-brand">{product.brand?.name || "Independent perfume"}</p>
-          <h2>{product.name}</h2>
-          <p className="product-facts">
-            {product.volume_ml ? `${product.volume_ml} ml` : null}
-            {product.volume_ml && product.concentration ? <span aria-hidden="true"> · </span> : null}
-            {label(product.concentration)}
-          </p>
-          <Price
-            price={product.price}
-            finalPrice={product.final_price}
-            discountPrice={product.discount_price}
-          />
-          <Availability stock={product.stock} />
+          <div className="product-card-identity">
+            <p className="product-brand">{product.brand?.name || "Independent perfume"}</p>
+            <h2>{product.name}</h2>
+          </div>
+          <div className="product-card-ledger">
+            <p className="product-facts">
+              {product.volume_ml ? `${product.volume_ml} ml` : null}
+              {product.volume_ml && product.concentration ? <span aria-hidden="true"> · </span> : null}
+              {label(product.concentration)}
+            </p>
+            <div className="product-card-commerce">
+              <Price
+                price={product.price}
+                finalPrice={product.final_price}
+                discountPrice={product.discount_price}
+              />
+              <Availability stock={product.stock} />
+            </div>
+          </div>
         </div>
       </Link>
     </article>

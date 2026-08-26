@@ -31,7 +31,7 @@ components:
     minHeight: "2.85rem"
   productMedia:
     radius: "1px"
-    aspectRatio: "4 / 4.9"
+    aspectRatio: "1 / 1.12"
 
 ---
 
@@ -88,7 +88,8 @@ values. Desktop can breathe, but the catalogue keeps the first product row
 within a useful browse distance. Mobile reflows to one readable column and
 retains practical touch targets; it is not a hidden desktop layout.
 
-The header remains in normal document flow at its existing height. There is no
+The header remains in normal document flow at its existing height and is
+organized as brand, navigation, and client-access zones. There is no
 blurred sticky shell, scroll listener, parallax, or decorative layer that can
 intercept pointer events.
 
@@ -114,13 +115,18 @@ small square editorial marker rather than a floating bubble.
   existing focusable tooltip wrapper.
 - Inputs are dark surface fields with a neutral hairline, a clear label, and a
   gold focus ring. Error copy and `aria-invalid` remain visible.
-- Product cards have no application-card frame: media, then muted brand,
-  Bodoni name, facts, price, and stock in a calm vertical stack. Hover only
-  adds a tiny image refinement and never carries essential information.
-- Product detail keeps the main image contained in its media field, with the
-  title and purchase controls immediately legible. The fragrance pyramid is
-  the one signature rule and uses aligned note tiers instead of decorative
-  diagrams.
+- Product cards have no application-card frame: image-led media transitions to
+  a brand/name identity block and a small commerce ledger pairing facts,
+  price, and availability. Hover only adds a tiny image refinement and never
+  carries essential information.
+- Product detail uses an intentional image stage, a separate identity and
+  commerce decision area, then an editorial story/specification rhythm. The
+  fragrance pyramid is the one signature rule and uses widening, aligned note
+  tiers instead of decorative diagrams.
+- Login and Signup use an open private-client composition: editorial
+  introduction beside a precise credential column. Account remains a dossier-
+  like ledger, and Cart is a two-column shopping bag with a statically placed
+  summary that stays in normal document flow.
 - Loading, error, and empty states reserve geometry and use the same surface,
   type, and hairline language as successful content.
 
