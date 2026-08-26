@@ -1,15 +1,15 @@
 .button {
-  min-height: 2.9rem;
+  min-height: 2.85rem;
   border: 1px solid var(--color-gold);
-  padding: 0.75rem 1.15rem;
+  padding: 0.7rem 1.1rem;
   color: var(--color-ink);
   background: var(--color-gold);
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease;
 }
 
 .button:hover {
@@ -22,9 +22,30 @@
   background: transparent;
 }
 
+.button-outline:hover {
+  color: var(--color-ink);
+  background: var(--color-ivory);
+  border-color: var(--color-ivory);
+}
+
+.button-quiet {
+  border-color: transparent;
+  color: var(--color-ivory-muted);
+  background: transparent;
+}
+
+.button-quiet:hover {
+  color: var(--color-ivory);
+  background: transparent;
+  border-color: var(--line-default);
+}
+
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  border-color: var(--line-default);
+  color: var(--color-ivory-subtle);
+  background: var(--color-surface);
+  opacity: 0.72;
 }
 
 .price {
@@ -65,7 +86,7 @@
 }
 
 .availability.is-unavailable {
-  color: #d8a69b;
+  color: var(--color-danger-text);
 }
 
 .availability.is-unavailable::before {
@@ -74,12 +95,12 @@
 
 .state-panel {
   min-height: 24rem;
-  border: 1px solid var(--line-soft);
-  padding: clamp(2rem, 6vw, 5rem);
+  border-block: 1px solid var(--line-default);
+  padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 4vw, 3rem);
   display: grid;
   place-content: center;
   justify-items: start;
-  background: var(--color-ink-raised);
+  background: var(--color-surface);
 }
 
 .state-panel h2 {
@@ -105,10 +126,10 @@
   min-height: 5rem;
   display: flex;
   align-items: center;
-  gap: clamp(0.5rem, 2.5vw, 2rem);
-  border-bottom: 1px solid var(--line-soft);
+  gap: clamp(0.6rem, 2.5vw, 2rem);
+  border-bottom: 1px solid var(--line-subtle);
   padding: 0 var(--space-page);
-  background: color-mix(in srgb, var(--color-ink) 94%, transparent);
+  background: var(--color-ink);
 }
 
 .skip-link {
@@ -127,8 +148,8 @@
 .wordmark {
   flex: 0 0 auto;
   font-family: var(--font-display);
-  font-size: clamp(1.25rem, 2.2vw, 1.7rem);
-  letter-spacing: -0.03em;
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+  letter-spacing: -0.035em;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -170,6 +191,10 @@
 .sign-in-link.active,
 .account-menu-trigger:hover { color: var(--color-gold); }
 
+.navigation-link.active {
+  color: var(--color-ivory);
+}
+
 .navigation-icon,
 .account-menu-trigger {
   display: inline-grid;
@@ -178,8 +203,8 @@
 
 .navigation-icon svg,
 .account-menu-trigger svg {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.15rem;
+  height: 1.15rem;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -193,7 +218,7 @@
   height: 1.35rem;
   display: inline-grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 1px;
   color: var(--color-ink);
   background: var(--color-gold);
   font-size: 0.58rem;
@@ -223,10 +248,10 @@
 
 .account-menu-list {
   width: 100%;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   padding: 0.45rem;
-  background: var(--color-ink-raised);
-  box-shadow: 0 1.3rem 3.5rem rgba(0, 0, 0, 0.45);
+  background: var(--color-surface);
+  box-shadow: 0 1.3rem 3.5rem rgba(0, 0, 0, 0.38);
 }
 
 .account-menu-list > a,
@@ -253,7 +278,7 @@
 .account-menu-list > a:focus,
 .account-menu-list > button:focus {
   color: var(--color-gold);
-  background: color-mix(in srgb, var(--color-gold) 8%, transparent);
+  background: color-mix(in srgb, var(--color-ivory) 5%, transparent);
 }
 
 .account-menu-list > button:last-child {
@@ -297,10 +322,10 @@
   left: 50%;
   z-index: var(--z-popover);
   max-width: min(18rem, calc(100vw - 2rem));
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   padding: 0.55rem 0.75rem;
   color: var(--color-ivory);
-  background: var(--color-ink);
+  background: var(--color-surface);
   font-size: 0.68rem;
   line-height: 1.45;
   text-align: center;
@@ -331,9 +356,9 @@
   width: min(100%, 31rem);
   max-height: calc(100vh - 2rem);
   overflow: auto;
-  border: 1px solid var(--color-gold-dark);
+  border: 1px solid var(--line-accent);
   padding: clamp(1.5rem, 5vw, 3rem);
-  background: var(--color-ink-raised);
+  background: var(--color-surface);
   box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.55);
 }
 
@@ -348,10 +373,15 @@
 .confirm-dialog > .dialog-error {
   border-left: 2px solid var(--color-danger);
   padding-left: 0.8rem;
-  color: #efc2ba;
+  color: var(--color-danger-text);
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.8rem; margin-top: 2rem; }
 .button-danger { border-color: var(--color-danger); color: var(--color-ink); background: var(--color-danger); }
+
+.button-danger:hover {
+  border-color: var(--color-danger-text);
+  background: var(--color-danger-text);
+}
 
 @media (max-width: 42rem) {
   .site-header { min-height: 4.5rem; gap: 0.2rem; }

@@ -61,6 +61,40 @@ test("returns the application to anonymous state when an active session cannot r
   await waitFor(() => expect(screen.getByText("anonymous")).toBeInTheDocument());
 });
 
+test("restores a valid rotated session before initializing the protected Cart", async () => {
+  setTokens({ access: null, refresh: "reload-refresh" });
+  const refreshCalls = [];
+  const cartCalls = [];
+  fetch.mockImplementation((url, options) => {
+    if (url === "/api/v1/users/token/refresh/") {
+      refreshCalls.push(options);
+      return Promise.resolve(jsonResponse({ access: "restored-access", refresh: "rotated-refresh" }));
+    }
+    if (url === "/api/v1/cart/") {
+      cartCalls.push(options);
+      return Promise.resolve(jsonResponse({ total_quantity: 1, items: [] }));
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  render(
+    <StrictMode>
+      <AuthProvider>
+        <CartProvider>
+          <RestorationProbe />
+        </CartProvider>
+      </AuthProvider>
+    </StrictMode>,
+  );
+
+  await screen.findByText("authenticated");
+  await waitFor(() => expect(screen.getByText("1")).toBeInTheDocument());
+  expect(sessionStorage.getItem("exon.refreshToken")).toBe("rotated-refresh");
+  expect(refreshCalls).toHaveLength(1);
+  expect(cartCalls.length).toBeGreaterThan(0);
+  expect(cartCalls[0].headers.Authorization).toBe("Bearer restored-access");
+});
+
 test("recovers a transient reload failure without classifying the session as anonymous", async () => {
   setTokens({ access: null, refresh: "reload-refresh" });
   const refreshCalls = [];

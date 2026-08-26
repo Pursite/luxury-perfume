@@ -75,6 +75,34 @@ test("signs up with the direct username/password contract and synchronizes Cart"
   expect(cartRequest[1].headers.Authorization).toBe("Bearer signup-access");
 });
 
+test("prevents duplicate Create account requests while signup is pending", async () => {
+  const user = userEvent.setup();
+  let resolveSignup;
+  fetch.mockImplementation((url) => {
+    if (url === "/api/v1/users/signup/") {
+      return new Promise((resolve) => { resolveSignup = resolve; });
+    }
+    if (url === "/api/v1/cart/") return Promise.resolve(jsonResponse(emptyCart));
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  renderSignup("/cart");
+
+  await user.type(screen.getByLabelText("Username"), "secure_customer");
+  await user.type(screen.getByLabelText("Password"), "CorrectHorseBatteryStaple42!");
+  const submit = screen.getByRole("button", { name: "Create account" });
+  await user.click(submit);
+  await user.click(submit);
+
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(submit).toBeDisabled();
+
+  resolveSignup(jsonResponse({
+    user: { username: "secure_customer" },
+    tokens: { access: "signup-access", refresh: "signup-refresh" },
+  }, 201));
+  expect(await screen.findByRole("heading", { name: "Your cart is empty" })).toBeInTheDocument();
+});
+
 test("rejects an unsafe return destination after successful Signup", async () => {
   const user = userEvent.setup();
   fetch.mockImplementation((url) => {

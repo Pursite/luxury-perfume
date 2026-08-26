@@ -22,7 +22,7 @@ function renderHeader(initialEntry = "/") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Header />
-      <button type="button">Outside target</button>
+      <button type="button" onClick={() => {}}>Outside target</button>
       <Routes>
         <Route path="/" element={<h1>Products destination</h1>} />
         <Route path="/cart" element={<h1>Cart destination</h1>} />

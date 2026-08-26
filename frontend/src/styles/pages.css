@@ -1,25 +1,25 @@
 .catalogue-page {
-  padding-top: clamp(3.5rem, 8vw, 7rem);
+  padding-top: clamp(2.75rem, 6vw, 5.5rem);
 }
 
 .catalogue-masthead {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(4rem, 0.48fr) auto;
+  grid-template-columns: minmax(0, 1.15fr) minmax(8rem, 0.6fr) auto;
   align-items: end;
   gap: clamp(1rem, 3vw, 3rem);
-  margin-bottom: clamp(2.5rem, 6vw, 5rem);
+  margin-bottom: clamp(2rem, 5vw, 4rem);
 }
 
 .catalogue-masthead h1 {
   max-width: 13ch;
-  font-size: clamp(3.2rem, 8vw, 7.5rem);
-  line-height: 0.92;
+  font-size: clamp(3.1rem, 7vw, 6.6rem);
+  line-height: 0.94;
 }
 
 .sillage-line {
   height: 1px;
   margin-bottom: 0.6rem;
-  background: linear-gradient(90deg, transparent, var(--color-gold));
+  background: linear-gradient(90deg, transparent, var(--line-accent));
 }
 
 .catalogue-count {
@@ -32,16 +32,16 @@
 }
 
 .catalogue-filters {
-  margin-bottom: 2.5rem;
-  border-block: 1px solid var(--line-soft);
-  padding-block: 1.25rem;
+  margin-bottom: 2.25rem;
+  border-block: 1px solid var(--line-default);
+  padding-block: 1.1rem;
 }
 
 .search-field > label,
 .filter-row label > span {
   display: block;
   margin-bottom: 0.45rem;
-  color: var(--color-ivory-muted);
+  color: var(--color-ivory-subtle);
   font-size: 0.65rem;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -60,15 +60,15 @@
 .filter-row select {
   width: 100%;
   min-height: 2.9rem;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   border-radius: 0;
   color: var(--color-ivory);
-  background: var(--color-ink-raised);
+  background: var(--color-surface);
 }
 
 .search-control input {
   min-height: 2.75rem;
-  padding: 0.65rem 3rem 0.65rem 0.85rem;
+  padding: 0.62rem 3rem 0.62rem 0.85rem;
 }
 
 .search-control input::-webkit-search-cancel-button {
@@ -92,19 +92,19 @@
 .filter-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(8rem, 1fr));
-  gap: 0.8rem;
-  margin-top: 1rem;
+  gap: 0.7rem 0.9rem;
+  margin-top: 1.1rem;
 }
 
 .filter-row select {
-  padding: 0.7rem;
+  padding: 0.65rem 0.7rem;
 }
 
 .product-grid {
-  width: min(100%, 81rem);
+  width: min(100%, 82rem);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(1.15rem, 2.8vw, 2.8rem) clamp(1rem, 2.5vw, 2.4rem);
+  gap: clamp(1.5rem, 3.2vw, 3.2rem) clamp(1.1rem, 2.8vw, 2.8rem);
   margin-inline: auto;
   transition: opacity 180ms ease;
 }
@@ -126,8 +126,8 @@
   position: relative;
   overflow: hidden;
   aspect-ratio: 4 / 4.9;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 22%, transparent);
-  background: linear-gradient(145deg, #181714, #0d0d0d);
+  border: 1px solid var(--line-subtle);
+  background: var(--color-media);
 }
 
 .product-card-media img {
@@ -135,12 +135,12 @@
   height: 100%;
   display: block;
   object-fit: cover;
-  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 220ms ease;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 180ms ease;
 }
 
 .product-card-link:hover img {
-  transform: scale(1.025);
-  filter: brightness(1.06);
+  transform: scale(1.015);
+  filter: brightness(1.035);
 }
 
 .image-fallback {
@@ -158,10 +158,10 @@
   position: absolute;
   top: 1rem;
   left: 1rem;
-  border: 1px solid var(--color-gold);
+  border: 1px solid var(--line-accent);
   padding: 0.4rem 0.55rem;
-  color: var(--color-ink);
-  background: var(--color-gold);
+  color: var(--color-gold);
+  background: color-mix(in srgb, var(--color-ink) 78%, transparent);
   font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -169,12 +169,12 @@
 }
 
 .product-card-body {
-  padding: 1.1rem 0.1rem 0;
+  padding: 1rem 0.1rem 0;
 }
 
 .product-brand {
   margin: 0 0 0.45rem;
-  color: var(--color-gold);
+  color: var(--color-ivory-muted);
   font-size: 0.66rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -183,14 +183,14 @@
 .product-card h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.45rem, 2.2vw, 2rem);
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
   font-weight: 400;
 }
 
 .product-facts {
   min-height: 1.5rem;
   margin: 0.35rem 0 0;
-  color: var(--color-ivory-muted);
+  color: var(--color-ivory-subtle);
   font-size: 0.75rem;
   text-transform: capitalize;
 }
@@ -259,8 +259,12 @@
 @media (max-width: 62rem) {
   .catalogue-masthead { grid-template-columns: 1fr auto; }
   .sillage-line { display: none; }
-  .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 44rem) {
+  .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 36rem) {
@@ -279,7 +283,7 @@
 
 .back-link {
   display: inline-flex;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   color: var(--color-ivory-muted);
   font-size: 0.72rem;
   letter-spacing: 0.09em;
@@ -293,21 +297,22 @@
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 0.8fr);
   align-items: start;
-  gap: clamp(2rem, 7vw, 8rem);
+  gap: clamp(2rem, 6vw, 6.5rem);
 }
 
 .product-gallery-main {
   overflow: hidden;
   aspect-ratio: 4 / 5;
-  border: 1px solid var(--line-soft);
-  background: linear-gradient(145deg, #181714, #0d0d0d);
+  border: 1px solid var(--line-subtle);
+  padding: clamp(0.4rem, 1.5vw, 1rem);
+  background: var(--color-media);
 }
 
 .product-gallery-main img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .product-thumbnails {
@@ -320,7 +325,7 @@
 .product-thumbnails button {
   overflow: hidden;
   aspect-ratio: 1;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-subtle);
   padding: 0;
   color: var(--color-gold);
   background: var(--color-ink-raised);
@@ -339,13 +344,13 @@
 
 .product-detail-copy {
   position: sticky;
-  top: 2rem;
-  padding-top: clamp(1rem, 5vw, 5rem);
+  top: 1.5rem;
+  padding-top: clamp(0.5rem, 3vw, 2.5rem);
 }
 
 .product-detail-copy h1 {
-  font-size: clamp(3.2rem, 7vw, 6.8rem);
-  line-height: 0.92;
+  font-size: clamp(3rem, 6vw, 5.8rem);
+  line-height: 0.94;
 }
 
 .product-detail-category {
@@ -362,15 +367,15 @@
 }
 
 .product-description {
-  margin: 2.2rem 0;
+  margin: 1.8rem 0;
   color: var(--color-ivory-muted);
-  line-height: 1.9;
+  line-height: 1.8;
 }
 
 .product-purchase {
-  margin-top: 2rem;
-  border-block: 1px solid var(--line-soft);
-  padding-block: 1.2rem;
+  margin-top: 1.75rem;
+  border-block: 1px solid var(--line-default);
+  padding-block: 1.1rem;
 }
 
 .product-purchase > label {
@@ -386,8 +391,8 @@
 .product-purchase input { min-width: 0; border: 1px solid var(--line-soft); padding: 0.75rem; color: var(--color-ivory); background: var(--color-ink); }
 .purchase-status,
 .purchase-error { margin: 0.8rem 0 0; font-size: 0.72rem; line-height: 1.5; }
-.purchase-status { color: var(--color-gold); }
-.purchase-error { color: #efc2ba; }
+.purchase-status { color: var(--color-success); }
+.purchase-error { color: var(--color-danger-text); }
 
 .product-specifications {
   margin: 2rem 0 0;
@@ -420,7 +425,7 @@
   grid-template-columns: 0.75fr 1.25fr;
   gap: clamp(2rem, 6vw, 7rem);
   margin-top: clamp(5rem, 12vw, 10rem);
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--line-accent);
   padding-top: clamp(3rem, 7vw, 6rem);
 }
 
@@ -428,7 +433,7 @@
   max-width: 8ch;
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(2.8rem, 6vw, 5.5rem);
+  font-size: clamp(2.6rem, 5.5vw, 5rem);
   font-weight: 400;
   line-height: 0.98;
 }
@@ -442,13 +447,13 @@
   display: grid;
   grid-template-columns: minmax(7rem, 0.4fr) 1fr;
   align-items: baseline;
-  border-bottom: 1px solid var(--line-soft);
-  padding: 1.5rem 0;
+  border-bottom: 1px solid var(--line-default);
+  padding: 1.35rem 0;
 }
 
 .note-tier h3 {
   margin: 0;
-  color: var(--color-gold);
+  color: var(--color-gold-muted);
   font-size: 0.66rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -465,7 +470,7 @@
 
 .note-tier li {
   font-family: var(--font-display);
-  font-size: clamp(1.3rem, 2.6vw, 2.2rem);
+  font-size: clamp(1.25rem, 2.4vw, 2.1rem);
 }
 
 .detail-skeleton {
@@ -509,8 +514,8 @@
   width: min(100%, 66rem);
   display: grid;
   grid-template-columns: 1fr 0.8fr;
-  border: 1px solid var(--line-soft);
-  background: var(--color-ink-raised);
+  border-block: 1px solid var(--line-default);
+  background: var(--color-surface);
 }
 
 .login-introduction,
@@ -519,13 +524,13 @@
 }
 
 .login-introduction {
-  border-right: 1px solid var(--line-soft);
-  background: radial-gradient(circle at 10% 10%, rgba(198, 161, 91, 0.13), transparent 25rem);
+  border-right: 1px solid var(--line-default);
+  background: var(--color-surface);
 }
 
 .login-introduction h1 {
-  font-size: clamp(3.2rem, 7vw, 6rem);
-  line-height: 0.95;
+  font-size: clamp(3rem, 6vw, 5.6rem);
+  line-height: 0.96;
 }
 
 .login-introduction > p:last-child {
@@ -551,7 +556,7 @@
 .login-form input {
   width: 100%;
   min-height: 3rem;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   border-radius: 0;
   padding: 0.75rem;
   color: var(--color-ivory);
@@ -601,7 +606,7 @@
   min-height: 3rem;
   border-left: 2px solid var(--color-danger);
   padding: 0.8rem 1rem;
-  color: #efc2ba;
+  color: var(--color-danger-text);
   background: rgba(212, 128, 114, 0.08);
   font-size: 0.78rem;
   line-height: 1.6;
@@ -689,7 +694,7 @@
 
 @media (max-width: 46rem) {
   .login-panel { grid-template-columns: 1fr; }
-  .login-introduction { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .login-introduction { border-right: 0; border-bottom: 1px solid var(--line-default); }
 }
 
 .cart-page { padding-top: clamp(3rem, 7vw, 6rem); }
@@ -727,7 +732,7 @@
   margin-bottom: 1.2rem;
   border-left: 2px solid var(--color-danger);
   padding: 0.9rem 1rem;
-  color: #efc2ba;
+  color: var(--color-danger-text);
   background: rgba(212, 128, 114, 0.08);
   font-size: 0.78rem;
   line-height: 1.6;
@@ -744,7 +749,7 @@
   padding: 1.5rem 0;
 }
 
-.cart-line.is-unavailable { background: linear-gradient(90deg, rgba(212, 128, 114, 0.05), transparent); }
+.cart-line.is-unavailable { background: color-mix(in srgb, var(--color-danger) 4%, transparent); }
 
 .cart-line-image {
   overflow: hidden;
@@ -765,7 +770,7 @@
   font-size: 0.7rem;
 }
 
-.cart-unavailable { display: flex; flex-direction: column; gap: 0.25rem; color: #efc2ba; }
+.cart-unavailable { display: flex; flex-direction: column; gap: 0.25rem; color: var(--color-danger-text); }
 
 .quantity-form label {
   display: block;
@@ -786,9 +791,9 @@
 .cart-summary {
   width: min(100%, 31rem);
   margin: 4rem 0 0 auto;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   padding: clamp(1.5rem, 4vw, 2.5rem);
-  background: var(--color-ink-raised);
+  background: var(--color-surface);
 }
 
 .cart-summary h2 { margin: 0; font-family: var(--font-display); font-size: 2.7rem; font-weight: 400; }
@@ -799,6 +804,10 @@
 
 .payment-tooltip-wrapper { position: relative; width: 100%; }
 .payment-button { width: 100%; }
+.payment-button:disabled {
+  color: var(--color-ivory-subtle);
+  background: transparent;
+}
 .payment-note { margin: 0.8rem 0 0; color: var(--color-ivory-muted); font-size: 0.68rem; line-height: 1.6; }
 
 .cart-loading {
@@ -814,7 +823,7 @@
 
 .account-page {
   width: min(100%, 78rem);
-  padding-top: clamp(3.5rem, 8vw, 7rem);
+  padding-top: clamp(2.75rem, 6vw, 5.5rem);
 }
 
 .account-masthead {
@@ -822,17 +831,17 @@
   align-items: end;
   justify-content: space-between;
   gap: 2rem;
-  padding-bottom: clamp(2.5rem, 6vw, 5rem);
+  padding-bottom: clamp(2rem, 5vw, 4rem);
 }
 
 .account-masthead h1 {
-  font-size: clamp(3.2rem, 8vw, 7rem);
-  line-height: 0.92;
+  font-size: clamp(3rem, 7vw, 6.2rem);
+  line-height: 0.94;
 }
 
 .profile-completion {
   flex: 0 0 auto;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   padding: 0.6rem 0.8rem;
   color: var(--color-ivory-muted);
   font-size: 0.66rem;
@@ -841,13 +850,13 @@
 }
 
 .profile-completion.is-complete {
-  border-color: var(--color-gold);
-  color: var(--color-gold);
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .profile-guidance {
   margin-bottom: 1rem;
-  border-block: 1px solid var(--line-soft);
+  border-block: 1px solid var(--line-default);
   padding: 1.25rem 0;
 }
 
@@ -871,7 +880,7 @@
   display: grid;
   grid-template-columns: minmax(11rem, 0.34fr) minmax(0, 1fr);
   gap: clamp(2rem, 7vw, 7rem);
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-default);
   padding: clamp(2.5rem, 6vw, 5rem) 0;
 }
 
@@ -907,11 +916,11 @@
 .account-field textarea {
   width: 100%;
   min-height: 3rem;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-default);
   border-radius: 0;
   padding: 0.8rem;
   color: var(--color-ivory);
-  background: var(--color-ink-raised);
+  background: var(--color-surface);
   font: inherit;
 }
 
@@ -923,7 +932,7 @@
 
 .account-field input[readonly] {
   color: var(--color-ivory-muted);
-  background: color-mix(in srgb, var(--color-ink-raised) 82%, var(--color-gold) 3%);
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-ivory) 3%);
 }
 
 .account-field input[aria-invalid="true"],
@@ -934,14 +943,14 @@
 .field-error {
   min-height: 1.1rem;
   margin: 0.4rem 0 0;
-  color: #efc2ba;
+  color: var(--color-danger-text);
   font-size: 0.68rem;
   line-height: 1.5;
 }
 
 .account-phone-missing {
   min-height: 3rem;
-  border-left: 1px solid var(--line-soft);
+  border-left: 1px solid var(--line-default);
   padding-left: 1rem;
 }
 
@@ -963,13 +972,13 @@
 
 .account-personal-form > .account-form-actions {
   justify-content: flex-end;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-default);
   padding: 0 0 clamp(2.5rem, 6vw, 5rem);
 }
 
 .save-status {
   margin: 0;
-  color: var(--color-gold);
+  color: var(--color-success);
   font-size: 0.72rem;
 }
 
@@ -979,7 +988,7 @@
 }
 
 .address-editor + .address-editor {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--line-default);
   padding-top: 3rem;
 }
 

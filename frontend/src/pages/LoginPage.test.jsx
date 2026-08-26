@@ -69,6 +69,25 @@ test("logs in with username and password and returns to the intended page", asyn
   );
 });
 
+test("prevents duplicate Sign in requests while the session is being established", async () => {
+  const user = userEvent.setup();
+  let resolveLogin;
+  fetch.mockReturnValue(new Promise((resolve) => { resolveLogin = resolve; }));
+  renderLogin();
+
+  await user.type(screen.getByLabelText("Username"), "customer");
+  await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+  const submit = screen.getByRole("button", { name: "Sign in" });
+  await user.click(submit);
+  await user.click(submit);
+
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(submit).toBeDisabled();
+
+  resolveLogin(jsonResponse({ tokens: { access: "access-token", refresh: "refresh-token" } }));
+  expect(await screen.findByRole("heading", { name: "Your cart" })).toBeInTheDocument();
+});
+
 test("shows a generic accessible authentication error and preserves the username", async () => {
   const user = userEvent.setup();
   fetch.mockResolvedValue(jsonResponse({ detail: "No active account found." }, 401));

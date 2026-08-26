@@ -90,9 +90,11 @@ is kept in `sessionStorage`, so a page reload can restore the session but a
 browser session ending removes it. This limits persistence compared with
 `localStorage`, but neither storage approach protects a bearer token from
 JavaScript running after an XSS compromise. The application therefore keeps
-token handling centralized, never logs tokens, retries a protected request
-once after a single shared refresh, and returns the whole application to an
-anonymous state when refresh fails.
+token handling centralized, never logs tokens, and retries a protected request
+once after a single shared refresh. An authoritative 401 from the refresh
+endpoint clears the session and returns the application to anonymous; transient
+429, 5xx, and network failures preserve the refresh credential and expose a
+retryable restoration state.
 
 Successful username/password signup establishes the same session as Login,
 loads the authenticated Cart, and honors only validated internal return paths.
@@ -133,3 +135,19 @@ Separate focusable wrappers own their accessible unavailable tooltips; they
 never navigate or call an API. Every route includes the understated
 development notice, in Persian, that SMS services and online payments are not
 available yet.
+
+## Visual system
+
+The storefront uses the quiet-luxury editorial system documented in
+[`DESIGN.md`](./DESIGN.md). Bodoni Moda carries display hierarchy and Manrope
+carries interface copy. Ink, raised ink, and a single surface step establish
+depth; warm ivory provides the reading hierarchy; gold is reserved for active
+navigation, editorial eyebrows, focused controls, meaningful primary actions,
+and the two sillage hairlines. Corners are effectively square and static
+content is nearly flat.
+
+`src/styles/tokens.css` is the runtime token source mapped from the durable
+visual decisions in `DESIGN.md`. `global.css` owns document rhythm, focus,
+scrollbar, and reduced-motion behavior; `components.css` and `pages.css` own
+visual variants without changing the API, routing, authentication, Cart, or
+Product contracts.

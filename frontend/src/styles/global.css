@@ -27,7 +27,7 @@ html::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-thumb {
   background: var(--color-gold-dark);
   border: 2px solid var(--color-ink-raised);
-  border-radius: 999px;
+  border-radius: 2px;
 }
 
 html::-webkit-scrollbar-thumb:hover,
@@ -44,9 +44,7 @@ body {
   margin: 0;
   min-width: 20rem;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 50% -30%, rgba(198, 161, 91, 0.11), transparent 40rem),
-    var(--color-ink);
+  background: var(--color-ink);
 }
 
 button,
@@ -95,7 +93,7 @@ a {
 .page-frame {
   width: min(100%, 92rem);
   margin-inline: auto;
-  padding: clamp(5rem, 12vw, 10rem) var(--space-page);
+  padding: clamp(3.25rem, 6vw, 6.5rem) var(--space-page);
 }
 
 .eyebrow {
@@ -110,13 +108,14 @@ a {
 h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(3.5rem, 12vw, 9rem);
+  font-size: clamp(3rem, 8vw, 6.5rem);
   font-weight: 400;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.055em;
+  line-height: 0.96;
 }
 
 .development-notice {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--line-subtle);
   padding: 0.95rem var(--space-page);
   color: var(--color-ivory-muted);
   background: var(--color-ink-raised);
@@ -126,7 +125,7 @@ h1 {
 .development-notice p {
   margin: 0;
   font-size: 0.72rem;
-  letter-spacing: 0;
+  letter-spacing: normal;
   line-height: 1.6;
 }
 
