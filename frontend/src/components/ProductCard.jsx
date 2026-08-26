@@ -29,11 +29,13 @@ export default function ProductCard({ product }) {
               Luxury Perfume
             </span>
           )}
-          {product.is_featured ? <span className="featured-mark">Featured</span> : null}
         </div>
         <div className="product-card-body">
           <div className="product-card-identity">
-            <p className="product-brand">{product.brand?.name || "Independent perfume"}</p>
+            <div className="product-card-brandline">
+              <p className="product-brand">{product.brand?.name || "Independent perfume"}</p>
+              {product.is_featured ? <span className="featured-mark">Featured</span> : null}
+            </div>
             <h2>{product.name}</h2>
           </div>
           <div className="product-card-ledger">

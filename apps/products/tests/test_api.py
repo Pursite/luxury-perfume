@@ -4,11 +4,15 @@ import time
 import pytest
 from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from apps.products.models import Product, ProductFragranceNote, ProductImage
+from apps.products.selectors import get_public_products_queryset
 from apps.products.tests.factories import (
     BrandFactory,
     CategoryFactory,
@@ -16,6 +20,7 @@ from apps.products.tests.factories import (
     ProductFactory,
     ProductImageFactory,
 )
+from apps.products.views import ProductListCreateAPIView
 from apps.users.tests.factories import UserFactory
 
 
@@ -31,6 +36,97 @@ def _add_note(product, note, layer, position=1):
 @pytest.mark.django_db
 class TestProductListCreateAPIView:
     url = reverse("apps.products:product-list")
+
+    def _get_public_queryset(self):
+        view = ProductListCreateAPIView()
+        request = view.initialize_request(APIRequestFactory().get(self.url))
+        return get_public_products_queryset(request=request, view=view)
+
+    def test_list_prefetches_and_returns_the_primary_image_for_each_product(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        ProductImageFactory(product=product, display_order=1)
+        primary = ProductImageFactory(
+            product=product,
+            is_primary=True,
+            display_order=2,
+        )
+        ProductImageFactory(product=product, display_order=3)
+
+        listed_product = self._get_public_queryset().get(id=product.id)
+        response = api_client.get(self.url)
+
+        assert [image.id for image in listed_product._list_image] == [primary.id]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["results"][0]["primary_image"]["id"] == primary.id
+
+    def test_list_prefetches_and_returns_the_first_image_when_no_primary_exists(
+        self,
+        api_client,
+    ):
+        product = ProductFactory()
+        first = ProductImageFactory(product=product, display_order=1)
+        ProductImageFactory(product=product, display_order=2)
+
+        listed_product = self._get_public_queryset().get(id=product.id)
+        response = api_client.get(self.url)
+
+        assert [image.id for image in listed_product._list_image] == [first.id]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["results"][0]["primary_image"]["id"] == first.id
+
+    def test_list_uses_a_stable_three_query_read_path(self, api_client):
+        products = ProductFactory.create_batch(2)
+        for product in products:
+            ProductImageFactory.create_batch(3, product=product)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = api_client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(queries) == 3
+
+    def test_list_response_schema_is_unchanged(self, api_client):
+        product = ProductFactory()
+        ProductImageFactory(product=product)
+
+        response = api_client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.data["results"][0]
+        assert set(result) == {
+            "uuid",
+            "name",
+            "slug",
+            "sku",
+            "price",
+            "discount_price",
+            "final_price",
+            "stock",
+            "concentration",
+            "target_audience",
+            "fragrance_family",
+            "introduction_year",
+            "suitable_season",
+            "suitable_usage_time",
+            "volume_ml",
+            "category",
+            "brand",
+            "primary_image",
+            "is_featured",
+            "created_at",
+        }
+        assert set(result["category"]) == {"uuid", "name", "slug"}
+        assert set(result["brand"]) == {"uuid", "name", "slug", "country"}
+        assert set(result["primary_image"]) == {
+            "id",
+            "image",
+            "thumbnail",
+            "is_primary",
+            "display_order",
+        }
 
     def test_list_is_paginated_and_hides_inactive_products(self, api_client):
         products = ProductFactory.create_batch(15, is_active=True)

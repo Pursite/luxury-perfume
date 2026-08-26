@@ -30,7 +30,7 @@ components:
     radius: "1px"
     minHeight: "2.85rem"
   productMedia:
-    radius: "1px"
+    treatment: "unframed"
     aspectRatio: "1 / 1.12"
 
 ---
@@ -97,7 +97,7 @@ intercept pointer events.
 
 Static content is nearly flat. Depth comes from a surface step and a restrained
 shadow only where a menu or confirmation dialog needs separation. Product media
-is border-light and image-led. Avoid glass, blur, large shadows, and stacked
+is unframed and image-led. Avoid glass, blur, large shadows, and stacked
 cards.
 
 ## Shapes
