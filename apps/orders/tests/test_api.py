@@ -2,10 +2,26 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.orders.models import Order
+from apps.cart.models import Cart, CartItem
+from apps.orders.selectors import get_user_order_detail_queryset
+from apps.orders.serializers import OrderDetailOutputSerializer
+from apps.orders.services.checkout import create_waiting_order
+from apps.products.tests.factories import ProductFactory
 from apps.users.tests.factories import AddressFactory
 
 
 class OrderReadApiTests(APITestCase):
+    def _checkout(self, *, item_count=1):
+        address = AddressFactory(title="Home", full_address="Original address", postal_code="1234567890")
+        cart = Cart.objects.create(user=address.user)
+        products = []
+        for index in range(item_count):
+            product = ProductFactory(name=f"Snapshot {index}", sku=f"SNAP-{index}-{address.pk}", stock=2, price="25.00", discount_price=None)
+            CartItem.objects.create(cart=cart, product=product, quantity=1)
+            products.append(product)
+        order, _ = create_waiting_order(user=address.user, address_id=address.pk, idempotency_key="9c158193-f62b-4f2b-a3c8-d346b0dbcc38")
+        return order, address, products
+
     def test_list_returns_only_the_authenticated_users_orders(self):
         """Dropping owner filtering would disclose another customer's commercial record."""
         own_address = AddressFactory()
@@ -29,3 +45,39 @@ class OrderReadApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["uuid"], str(own_order.uuid))
+
+    def test_detail_is_owner_only_and_uses_historical_snapshots(self):
+        order, address, products = self._checkout()
+        product = products[0]
+        original_item = order.items.get()
+        original_address = order.shipping_full_address
+        product.name = "Changed product"
+        product.price = "999.00"
+        product.save(update_fields=("name", "price", "updated_at"))
+        address.full_address = "Changed address"
+        address.save(update_fields=("full_address", "updated_at"))
+        address.delete()
+        self.client.force_authenticate(order.user)
+
+        response = self.client.get(f"/api/v1/orders/{order.uuid}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        line = response.data["items"][0]
+        self.assertEqual(line["product_name"], original_item.product_name)
+        self.assertEqual(line["product_sku"], original_item.product_sku)
+        self.assertEqual(line["unit_price"], "25.00")
+        self.assertEqual(line["line_total"], "25.00")
+        self.assertEqual(response.data["shipping_full_address"], original_address)
+        order.refresh_from_db()
+        self.assertIsNone(order.source_address_id)
+
+        outsider = AddressFactory().user
+        self.client.force_authenticate(outsider)
+        self.assertEqual(self.client.get(f"/api/v1/orders/{order.uuid}/").status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_detail_selector_prefetches_multiple_lines_without_n_plus_one(self):
+        order, _address, _products = self._checkout(item_count=3)
+        with self.assertNumQueries(2):
+            selected = get_user_order_detail_queryset(user=order.user).get(pk=order.pk)
+            data = OrderDetailOutputSerializer(selected).data
+            self.assertEqual(len(data["items"]), 3)

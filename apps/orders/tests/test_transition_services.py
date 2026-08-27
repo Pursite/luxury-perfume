@@ -15,7 +15,7 @@ from apps.orders.services.transitions import (
     mark_order_shipped,
     TransitionOutcome,
 )
-from apps.orders.services.reservations import ReservationIntegrityError
+from apps.orders.services.reservations import ReservationIntegrityError, ReservationStateError
 from apps.products.tests.factories import ProductFactory
 from apps.users.tests.factories import AddressFactory
 
@@ -105,3 +105,60 @@ class OrderTransitionTests(TestCase):
         self.assertEqual(result.outcome, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
         self.assertEqual(order.status, Order.Status.CANCELLED)
         self.assertEqual(product.stock, 2)
+
+    def test_waiting_consumed_and_processing_nonconsumed_states_are_rejected(self):
+        order, _ = self._order_with_reservation()
+        reservation = order.items.get().reservation
+        reservation.status = StockReservation.Status.CONSUMED
+        reservation.consumed_at = timezone.now()
+        reservation.save()
+        with self.assertRaises(ReservationStateError):
+            confirm_verified_payment(order_id=order.pk)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.WAITING_FOR_PAYMENT)
+
+        order.status = Order.Status.PROCESSING
+        order.processing_at = timezone.now()
+        order.save(update_fields=("status", "processing_at", "updated_at"))
+        reservation.status = StockReservation.Status.ACTIVE
+        reservation.consumed_at = None
+        reservation.save()
+        with self.assertRaises(ReservationStateError):
+            confirm_verified_payment(order_id=order.pk)
+
+        reservation.status = StockReservation.Status.RELEASED
+        reservation.released_at = timezone.now()
+        reservation.release_reason = StockReservation.ReleaseReason.PAYMENT_FAILED
+        reservation.save()
+        with self.assertRaises(ReservationStateError):
+            confirm_verified_payment(order_id=order.pk)
+
+    def test_processing_consumed_replay_and_late_callback_are_idempotent(self):
+        order, product = self._order_with_reservation()
+        applied = confirm_verified_payment(order_id=order.pk)
+        replay = confirm_verified_payment(order_id=order.pk)
+        self.assertEqual(applied.outcome, TransitionOutcome.APPLIED)
+        self.assertEqual(replay.outcome, TransitionOutcome.ALREADY_APPLIED)
+        self.assertFalse(replay.changed)
+
+        second_order, second_product = self._order_with_reservation()
+        expired_at = timezone.now() - timedelta(seconds=1)
+        Order.objects.filter(pk=second_order.pk).update(created_at=expired_at - timedelta(minutes=15), reservation_expires_at=expired_at)
+        first_late = confirm_verified_payment(order_id=second_order.pk)
+        marker = first_late.order.late_payment_detected_at
+        second_late = confirm_verified_payment(order_id=second_order.pk)
+        second_order.refresh_from_db()
+        product.refresh_from_db()
+        second_product.refresh_from_db()
+        self.assertEqual(second_late.outcome, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
+        self.assertFalse(second_late.changed)
+        self.assertEqual(second_order.late_payment_detected_at, marker)
+        self.assertEqual(second_product.stock, 3)
+
+    def test_missing_reservation_aborts_confirmation(self):
+        order, _ = self._order_with_reservation()
+        order.items.get().reservation.delete()
+        with self.assertRaises(ReservationIntegrityError):
+            confirm_verified_payment(order_id=order.pk)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.WAITING_FOR_PAYMENT)
