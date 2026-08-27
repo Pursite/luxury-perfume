@@ -12,8 +12,9 @@ import useDocumentTitle from "../hooks/useDocumentTitle";
 
 export default function CataloguePage() {
   useDocumentTitle("Perfume collection");
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const parameters = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams]);
+  const hasActiveParameters = searchParams.size > 0;
   const requestParameters = JSON.stringify(parameters);
   const [state, setState] = useState({ data: null, error: null, request: null });
   const [attempt, setAttempt] = useState(0);
@@ -61,8 +62,17 @@ export default function CataloguePage() {
           />
         ) : null}
         {!loading && !error && state.data?.results.length === 0 ? (
-          <EmptyState title="No fragrances found">
-            Try a different search or remove one of the filters.
+          <EmptyState
+            title="No fragrances found"
+            action={hasActiveParameters ? (
+              <button type="button" className="button button-outline" onClick={() => setSearchParams({})}>
+                Clear search and filters
+              </button>
+            ) : null}
+          >
+            {hasActiveParameters
+              ? "Try a different search or clear the active filters."
+              : "No fragrances are available in the collection yet."}
           </EmptyState>
         ) : null}
         {state.data?.results.length ? (

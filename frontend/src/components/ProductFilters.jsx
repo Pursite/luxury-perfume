@@ -9,9 +9,23 @@ const FILTERS = [
 
 export default function ProductFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [search, setSearch] = useState(searchParams.get("search") || "");
+  const committedSearch = searchParams.get("search") || "";
+  const [searchState, setSearchState] = useState({
+    committed: committedSearch,
+    value: committedSearch,
+  });
   const [isComposing, setIsComposing] = useState(false);
   const searchRef = useRef(null);
+
+  if (searchState.committed !== committedSearch) {
+    setSearchState({ committed: committedSearch, value: committedSearch });
+  }
+
+  const search = searchState.value;
+
+  function setSearch(value) {
+    setSearchState({ committed: committedSearch, value });
+  }
 
   useEffect(() => {
     if (isComposing) return undefined;
