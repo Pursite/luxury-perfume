@@ -214,6 +214,29 @@ docker compose -f docker/docker-compose.integration.yml down
 
 Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.
 
+## Orders and inventory reservations
+
+`Product.stock` is available-to-sell inventory. Cart writes never reserve it.
+The trusted Orders checkout service locks Product rows in ascending numeric PK
+order, snapshots current `final_price` and product/customer/address data, creates
+one ACTIVE reservation per immutable OrderItem, decrements available stock once,
+and clears the captured CartItems in the same PostgreSQL transaction.
+
+`Order.reservation_expires_at` is the only 15-minute reservation deadline;
+StockReservation has no expiry or quantity field. ACTIVE reservations consume
+on server-verified future payment without another stock decrement. Failed or
+expired unpaid orders release ACTIVE reservations and restore each immutable
+OrderItem quantity exactly once. At or after the deadline, payment verification
+must cancel/release and record a late-payment condition; it never reactivates a
+cancelled order.
+
+Celery Beat schedules a bounded (100 Orders) database query once per 60
+seconds. It is recovery/scheduling only: delayed or lost tasks never extend
+the database deadline, and creating a checkout synchronously reconciles an
+expired unswept waiting Order before a replacement attempt. Payments and
+Notifications are future explicit service integrations; no provider, signal,
+or external I/O participates in these transactions.
+
 ## Customer storefront
 
 The React application is deployed independently of Django and preserves the

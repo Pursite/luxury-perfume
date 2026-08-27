@@ -3,12 +3,22 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Q
 
 from apps.lib.loggers import AppLogger
 from apps.products.models import FragranceNote, Product, ProductFragranceNote, ProductImage
 from apps.products.tasks import generate_product_image_thumbnail
+
+
+class ProductDeletionProtectedError(Exception):
+    """Raised when commercial order history permanently protects a product."""
+
+
+class ProductAdminUpdateValidationError(Exception):
+    """A stale admin stock delta would make available stock negative."""
 
 
 FRAGRANCE_NOTE_LAYERS = {
@@ -95,6 +105,43 @@ def update_product_service(
 
 
 @transaction.atomic
+def update_product_from_admin_service(
+    *,
+    product_id: int,
+    changed_data: dict[str, Any],
+    original_stock: int | None,
+    submitted_stock: int | None,
+) -> Product:
+    """Merge an admin form onto a fresh locked product without stale overwrites."""
+    locked_product = Product.objects.select_for_update().get(pk=product_id)
+    editable_fields = {
+        field.name
+        for field in Product._meta.concrete_fields
+        if field.editable and field.name not in {"id", "stock", "created_at", "updated_at"}
+    }
+    update_fields = []
+    for field_name, value in changed_data.items():
+        if field_name in editable_fields:
+            setattr(locked_product, field_name, value)
+            update_fields.append(field_name)
+    if original_stock is not None and submitted_stock is not None:
+        new_stock = locked_product.stock + (submitted_stock - original_stock)
+        if new_stock < 0:
+            raise ProductAdminUpdateValidationError(
+                "This inventory adjustment would make available stock negative."
+            )
+        locked_product.stock = new_stock
+        update_fields.append("stock")
+    try:
+        locked_product.full_clean()
+    except ValidationError as exc:
+        raise ProductAdminUpdateValidationError(str(exc)) from exc
+    if update_fields:
+        locked_product.save(update_fields=[*dict.fromkeys(update_fields), "updated_at"])
+    return locked_product
+
+
+@transaction.atomic
 def delete_products_service(*, product_ids: Iterable[int]) -> int:
     """Delete products atomically and remove their uploaded files after commit."""
     requested_ids = sorted({product_id for product_id in product_ids if product_id})
@@ -110,6 +157,17 @@ def delete_products_service(*, product_ids: Iterable[int]) -> int:
     if not locked_product_ids:
         return 0
 
+    # Check before deleting so API and admin callers receive a stable domain
+    # error rather than Django's collector exception. This is inside the same
+    # transaction as the delete; a concurrent checkout is serialized by the
+    # Product locks above and the defensive catch below covers remaining races.
+    from apps.orders.models import OrderItem
+
+    if OrderItem.objects.filter(product_id__in=locked_product_ids).exists():
+        raise ProductDeletionProtectedError(
+            "Products referenced by commercial orders cannot be deleted. Deactivate them instead."
+        )
+
     product_images = list(
         ProductImage.objects.select_for_update()
         .filter(product_id__in=locked_product_ids)
@@ -122,7 +180,12 @@ def delete_products_service(*, product_ids: Iterable[int]) -> int:
         if field.name
     ]
     storage = ProductImage._meta.get_field("image").storage
-    Product.objects.filter(pk__in=locked_product_ids).delete()
+    try:
+        Product.objects.filter(pk__in=locked_product_ids).delete()
+    except ProtectedError as exc:
+        raise ProductDeletionProtectedError(
+            "Products referenced by commercial orders cannot be deleted. Deactivate them instead."
+        ) from exc
     if image_names:
         transaction.on_commit(lambda: _delete_files(storage, image_names))
     return len(locked_product_ids)

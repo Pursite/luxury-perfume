@@ -30,6 +30,7 @@ urlpatterns = [
     path("api/v1/users/", include("apps.users.urls", namespace="users")),
     path("api/v1/products/", include("apps.products.urls", namespace="products")),
     path("api/v1/cart/", include("apps.cart.urls", namespace="cart")),
+    path("api/v1/orders/", include("apps.orders.urls", namespace="orders")),
 ]
 
 

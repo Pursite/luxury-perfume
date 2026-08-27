@@ -606,3 +606,8 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 web celery
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec web python manage.py check --deploy
 ```
+
+Orders adds a separate `celery-beat` service. Run exactly one Beat process; it
+schedules the Orders expiry sweep every 60 seconds and must not be replaced by
+`worker -B`. The database `reservation_expires_at` deadline remains
+authoritative if Beat, workers, or the broker are delayed.

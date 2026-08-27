@@ -194,7 +194,7 @@ jobs:
             exit 1
           fi
 
-          "${compose[@]}" up -d --no-build --no-deps --force-recreate celery
+          "${compose[@]}" up -d --no-build --no-deps --force-recreate celery celery-beat
           celery_container_id="$("${compose[@]}" ps -q celery)"
           test -n "$celery_container_id"
           for sample in 1 2 3 4 5; do
@@ -202,6 +202,22 @@ jobs:
             test "$current_container_id" = "$celery_container_id"
             celery_state="$(docker inspect --format '{{.State.Status}} {{.State.Running}} {{.State.Restarting}} {{.RestartCount}}' "$celery_container_id")"
             read -r status running restarting restart_count <<<"$celery_state"
+            test "$status" = running
+            test "$running" = true
+            test "$restarting" = false
+            test "$restart_count" = 0
+            if [ "$sample" -lt 5 ]; then
+              sleep 2
+            fi
+          done
+
+          celery_beat_container_id="$("${compose[@]}" ps -q celery-beat)"
+          test -n "$celery_beat_container_id"
+          for sample in 1 2 3 4 5; do
+            current_container_id="$("${compose[@]}" ps -q celery-beat)"
+            test "$current_container_id" = "$celery_beat_container_id"
+            celery_beat_state="$(docker inspect --format '{{.State.Status}} {{.State.Running}} {{.State.Restarting}} {{.RestartCount}}' "$celery_beat_container_id")"
+            read -r status running restarting restart_count <<<"$celery_beat_state"
             test "$status" = running
             test "$running" = true
             test "$restarting" = false

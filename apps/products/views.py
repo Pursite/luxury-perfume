@@ -35,6 +35,7 @@ from apps.products.services import (
     delete_product_image_service,
     delete_product_service,
     update_product_service,
+    ProductDeletionProtectedError,
 )
 
 
@@ -184,8 +185,11 @@ class ProductDetailAPIView(APIView):
     def delete(self, request, *args, **kwargs):
         product = self.get_object()
         product_sku = product.sku
-        if not delete_product_service(product=product):
-            raise Http404
+        try:
+            if not delete_product_service(product=product):
+                raise Http404
+        except ProductDeletionProtectedError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         AppLogger.log_activity(msg=f"Product deleted: {product_sku}", user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

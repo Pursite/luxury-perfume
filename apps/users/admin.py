@@ -1,10 +1,13 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.contrib.admin.actions import delete_selected
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group
 from django.contrib.admin.utils import unquote
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 from apps.users.forms import (
     CustomAdminPasswordChangeForm,
@@ -16,6 +19,7 @@ from apps.users.models import Address, CustomUser
 from apps.users.services.user_service import (
     delete_addresses_service,
     delete_users_service,
+    UserDeletionProtectedError,
 )
 
 
@@ -172,6 +176,26 @@ class CustomUserAdmin(UserAdmin):
             user_ids=queryset.values_list("pk", flat=True),
             allow_privileged=request.user.is_superuser,
         )
+
+    def delete_view(self, request, object_id, extra_context=None):
+        try:
+            return super().delete_view(request, object_id, extra_context)
+        except UserDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:users_customuser_changelist"))
+
+    @admin.action(description="Delete selected users")
+    def delete_selected_users(self, request, queryset):
+        try:
+            return delete_selected(self, request, queryset)
+        except UserDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(request.get_full_path())
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
 
 
 @admin.register(Address)

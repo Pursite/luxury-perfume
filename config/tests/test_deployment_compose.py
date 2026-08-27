@@ -23,12 +23,12 @@ def test_application_images_are_built_only_for_development():
     ).read_text()
 
     assert "build:" not in shared_compose_config
-    assert development_compose_config.count("context: ..") == 2
-    assert development_compose_config.count("dockerfile: docker/Dockerfile") == 2
-    assert development_compose_config.count("target: final") == 2
+    assert development_compose_config.count("context: ..") == 3
+    assert development_compose_config.count("dockerfile: docker/Dockerfile") == 3
+    assert development_compose_config.count("target: final") == 3
     assert production_compose_config.count(
         "image: ${APP_IMAGE:?APP_IMAGE is required}"
-    ) == 2
+    ) == 3
 
 
 def test_development_dependencies_remain_internal_without_host_port_settings():

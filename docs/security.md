@@ -95,6 +95,14 @@ does not reserve inventory, so stock may change immediately after Cart
 validation; future Order/checkout code must perform the final stock lock and
 decrement.
 
+Orders are protected against price/status mass assignment: only server-side
+services derive monetary snapshots and state transitions. Customer reads are
+owner-filtered, address selection is owner-filtered under lock, and order UUIDs
+are never authorization. Product and user commercial references use `PROTECT`;
+catalogue removal must deactivate Products and users with Orders require a
+future explicit retention/anonymization policy. Deletion services map those
+constraints to domain errors so the API/Admin do not expose raw database errors.
+
 ## Data and upload integrity
 
 The custom user model requires active users to have a username or phone

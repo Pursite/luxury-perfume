@@ -272,6 +272,21 @@ The visible payment control is disabled and makes no request.
 
 ## Status codes
 
+## Orders
+
+Authenticated customers can read only their own commercial history:
+
+- `GET /api/v1/orders/`
+- `GET /api/v1/orders/<uuid:order_uuid>/`
+
+These endpoints are read-only. They expose immutable product, price, customer,
+and shipping snapshots; they do not create a checkout, reserve stock, accept a
+payment result, or mutate fulfillment. A foreign order UUID returns `404`.
+
+Order creation is currently an internal trusted service for future Payments
+integration. Currency denomination and shipping calculation are not an API
+contract yet.
+
 - `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, and Cart quantity-update operations.
 - `201 Created` — direct signup, OTP signup verification, product/image creation, or a newly created CartItem.
 - `204 No Content` — product, product-image, or Cart item deletion and Cart clearing.

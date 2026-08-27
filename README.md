@@ -254,8 +254,10 @@ The users, authentication, profiles, fragrance products, categories, brands,
 reusable fragrance notes, product-image, Cart domain, and first customer React
 storefront are implemented. The project remains under active development.
 
-Not implemented: a separate inventory system, orders, checkout, payments,
-shipping, reviews, object-storage integration, or an SMS-provider integration.
+Orders, stock reservations, customer Order history, and manual Admin
+fulfillment are implemented. Payments, gateway/provider verification,
+payment reconciliation, Refunds, Notifications/SMS, a shipping-price
+algorithm, and an authoritative backend currency denomination are not.
 
 The repository includes a Docker Compose deployment layout for development and
 a single VPS, plus a manual GitHub Actions production deployment workflow; see
