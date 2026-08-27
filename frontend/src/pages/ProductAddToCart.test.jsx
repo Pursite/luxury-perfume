@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { clearTokens, setTokens } from "../api/tokenStore";
+import { clearTokens, setAccessToken } from "../api/tokenStore";
 import Header from "../components/Header";
 import { AuthProvider } from "../context/AuthContext";
 import { CartProvider } from "../context/CartContext";
@@ -43,10 +43,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 test("adds a Product through the real authenticated Cart contract", async () => {
   const user = userEvent.setup();
-  setTokens({ access: "old-access", refresh: "old-refresh" });
+  setAccessToken("old-access");
   fetch.mockImplementation((url, options = {}) => {
     if (url.endsWith("/token/refresh/")) {
-      return Promise.resolve(jsonResponse({ access: "new-access", refresh: "new-refresh" }));
+      return Promise.resolve(jsonResponse({ access: "new-access" }));
     }
     if (url === "/api/v1/products/sauvage-elixir/") return Promise.resolve(jsonResponse(productDetail));
     if (url === "/api/v1/cart/" && options.method === "GET") return Promise.resolve(jsonResponse(emptyCart));

@@ -12,6 +12,7 @@ export default function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
   const wrapperRef = useRef(null);
   const triggerRef = useRef(null);
   const accountRef = useRef(null);
@@ -101,11 +102,13 @@ export default function AccountMenu() {
     if (signOutInFlight.current) return;
     signOutInFlight.current = true;
     setSigningOut(true);
+    setSignOutError("");
     setOpen(false);
     try {
       await auth.logout();
     } catch {
-      // AuthContext still clears the local session in its finally path.
+      setSignOutError("Sign out could not be completed. Check your connection and try again.");
+      setOpen(true);
     } finally {
       signOutInFlight.current = false;
       setSigningOut(false);
@@ -153,6 +156,7 @@ export default function AccountMenu() {
             aria-label="Account menu"
             onKeyDown={onMenuKeyDown}
           >
+            {signOutError ? <p className="form-error" role="alert">{signOutError}</p> : null}
             <Link
               ref={accountRef}
               to="/account"

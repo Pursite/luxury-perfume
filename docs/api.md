@@ -17,27 +17,28 @@ below.
 
 | Method and path | Access | Request | Success |
 | --- | --- | --- | --- |
-| `POST /users/signup/` | Public; signup throttle | `username`, `password` | 201; `user.username` and `tokens.refresh`/`tokens.access` |
+| `POST /users/signup/` | Public; signup throttle; trusted Origin | `username`, `password` | 201; `user.username`, `tokens.access`, and refresh cookie |
 | `POST /users/signup/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
-| `POST /users/signup/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 201; message and tokens |
-| `POST /users/login/userpass/` | Public; password-login throttle | `username`, `password` | 200; message and tokens |
-| `POST /users/token/refresh/` | Public; dedicated security-cache refresh throttle | `refresh` | 200; rotated `access` and `refresh` tokens |
+| `POST /users/signup/verify-otp/` | Public; phone + IP OTP-verification throttles; trusted Origin | `phone_number`, `otp` | 201; message, `tokens.access`, and refresh cookie |
+| `POST /users/login/userpass/` | Public; password-login throttle; trusted Origin | `username`, `password` | 200; message, `tokens.access`, and refresh cookie |
+| `POST /users/token/refresh/` | Public; dedicated security-cache refresh throttle; trusted Origin | Refresh cookie | 200; rotated `access` and refresh cookie |
 | `POST /users/login/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
-| `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; message and tokens |
+| `POST /users/login/verify-otp/` | Public; phone + IP OTP-verification throttles; trusted Origin | `phone_number`, `otp` | 200; message, `tokens.access`, and refresh cookie |
 | `POST /users/profile/phone/send-otp/` | Authenticated; phone + IP OTP-request throttles | `phone_number` | 200; generic message and `expires_in` |
 | `POST /users/profile/phone/verify-otp/` | Authenticated; phone + IP OTP-verification throttles | `phone_number`, `otp` | 200; verified serialized user in `data` |
 | `GET /users/profile/` | Authenticated | No body or user identifier | 200; current serialized user in `data` |
 | `POST /users/profile/complete/` | Authenticated; requires a verified phone | `username`, `email`, `first_name`, `last_name`, `address` | 200; message and serialized user in `data` |
 | `PATCH /users/profile/update/` | Authenticated | Any subset of `username`, `email`, `first_name`, `last_name`, `password`, `address` | 200; message and serialized user in `data` |
-| `POST /users/logout/` | Authenticated | `refresh` | 200; logout message |
+| `POST /users/logout/` | Refresh cookie; trusted Origin | No body | 200; logout message and expired cookie |
 | `POST /users/password-reset/send-otp/` | Public; phone + IP OTP-request throttles | `phone_number` | 200; message and `expires_in` |
-| `POST /users/password-reset/verify-and-reset/` | Public; phone + IP OTP-verification throttles | `phone_number`, `otp`, `password` | 200; message and tokens |
+| `POST /users/password-reset/verify-and-reset/` | Public; phone + IP OTP-verification throttles; trusted Origin | `phone_number`, `otp`, `password` | 200; message, `tokens.access`, and refresh cookie |
 
 All user endpoint paths in this section are relative to `/api/v1/users/`.
 `phone_number` must match ASCII `09[0-9]{9}`, such as `09123456789`; Unicode
 digits and alternate formats are rejected. OTPs are exactly six ASCII digits.
-Refresh responses rotate the submitted refresh token and blacklist its prior
-value. Password changes invalidate older access and refresh tokens. Detailed
+Refresh responses rotate the cookie refresh token and blacklist its prior
+value. Password changes invalidate older access and refresh tokens. Sensitive
+auth responses are not cached. Detailed
 security behavior is in [authentication.md](authentication.md).
 
 Usernames supplied by signup, profile completion, or profile update must be

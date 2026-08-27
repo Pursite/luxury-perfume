@@ -126,6 +126,16 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
+CORS_ALLOW_CREDENTIALS = True
+
+# The refresh token is persistent authentication state, but remains scoped to
+# the API host and users endpoints. Production enables Secure in its settings.
+REFRESH_TOKEN_COOKIE_NAME = "exon_refresh_token"  # nosec B105
+REFRESH_TOKEN_COOKIE_PATH = "/api/v1/users/"  # nosec B105
+REFRESH_TOKEN_COOKIE_DOMAIN = None
+REFRESH_TOKEN_COOKIE_HTTPONLY = True
+REFRESH_TOKEN_COOKIE_SAMESITE = "Lax"  # nosec B105
+REFRESH_TOKEN_COOKIE_SECURE = False
 
 LOGGING = {
     "version": 1,

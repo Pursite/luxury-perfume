@@ -95,15 +95,13 @@ platform accessibility and interaction behavior.
 ## Authentication and Cart state
 
 The access token is kept only in JavaScript memory. The rotating refresh token
-is kept in `sessionStorage`, so a page reload can restore the session but a
-browser session ending removes it. This limits persistence compared with
-`localStorage`, but neither storage approach protects a bearer token from
-JavaScript running after an XSS compromise. The application therefore keeps
-token handling centralized, never logs tokens, and retries a protected request
-once after a single shared refresh. An authoritative 401 from the refresh
-endpoint clears the session and returns the application to anonymous; transient
-429, 5xx, and network failures preserve the refresh credential and expose a
-retryable restoration state.
+is kept only in the backend's persistent `HttpOnly` cookie, never in
+`localStorage`, `sessionStorage`, or another JavaScript-readable store. Startup
+silently refreshes once; an authoritative 401 means anonymous, while transient
+429, 5xx, and network failures expose a retryable restoration state. Protected
+requests share one refresh attempt and retry only after a valid access token is
+returned. Cookie-backed auth requests use explicit credentials and trusted
+Origin/CORS policy.
 
 Successful username/password signup establishes the same session as Login,
 loads the authenticated Cart, and honors only validated internal return paths.

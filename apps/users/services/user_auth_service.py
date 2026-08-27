@@ -5,8 +5,6 @@ from ..models import CustomUser, Address
 from ..jwt import revoke_user_refresh_tokens
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.settings import api_settings
-from secrets import compare_digest
 
 class UserAuthService:
 
@@ -115,12 +113,11 @@ class UserAuthService:
 
     @classmethod
     @transaction.atomic
-    def logout_user(cls, user: CustomUser, refresh_token: str) -> None:
+    def logout_user(cls, refresh_token: str | None) -> None:
+        if not refresh_token:
+            return
         try:
             token = RefreshToken(refresh_token)
-            token_user_id = str(token.get(api_settings.USER_ID_CLAIM, ""))
-            if not compare_digest(token_user_id, str(user.pk)):
-                raise TokenError("Token does not belong to the authenticated user.")
             token.blacklist()
 
             AppLogger.log_activity(
@@ -128,7 +125,4 @@ class UserAuthService:
                 status="INFO"
             )
         except TokenError:
-            AppLogger.log_security(msg="Logout rejected an invalid refresh token.", user=user)
-            raise ValidationError({
-                "refresh": "token is invalid or expired."
-            })
+            AppLogger.log_security(msg="Logout received an invalid refresh token.")

@@ -39,7 +39,12 @@ function renderSignup(returnTo) {
 
 beforeEach(() => {
   clearTokens();
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", vi.fn((url) => {
+    if (url === "/api/v1/users/token/refresh/") {
+      return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
+    }
+    return Promise.resolve(jsonResponse({ detail: "unauthorized" }, 401));
+  }));
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -47,10 +52,13 @@ afterEach(() => vi.unstubAllGlobals());
 test("signs up with the direct username/password contract and synchronizes Cart", async () => {
   const user = userEvent.setup();
   fetch.mockImplementation((url, options = {}) => {
+    if (url === "/api/v1/users/token/refresh/") {
+      return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
+    }
     if (url === "/api/v1/users/signup/") {
       return Promise.resolve(jsonResponse({
         user: { username: "secure_customer" },
-        tokens: { access: "signup-access", refresh: "signup-refresh" },
+        tokens: { access: "signup-access" },
       }, 201));
     }
     if (url === "/api/v1/cart/" && options.method === "GET") {
@@ -60,8 +68,8 @@ test("signs up with the direct username/password contract and synchronizes Cart"
   });
   renderSignup("/cart");
 
-  await user.type(screen.getByLabelText("Username"), "secure_customer");
-  await user.type(screen.getByLabelText("Password"), "CorrectHorseBatteryStaple42!");
+  await user.type(await screen.findByLabelText("Username"), "secure_customer");
+  await user.type(await screen.findByLabelText("Password"), "CorrectHorseBatteryStaple42!");
   await user.click(screen.getByRole("button", { name: "Create account" }));
 
   expect(await screen.findByRole("heading", { name: "Your cart is empty" })).toBeInTheDocument();
@@ -70,7 +78,8 @@ test("signs up with the direct username/password contract and synchronizes Cart"
     username: "secure_customer",
     password: "CorrectHorseBatteryStaple42!",
   });
-  expect(sessionStorage.getItem("exon.refreshToken")).toBe("signup-refresh");
+  expect(signupRequest[1].credentials).toBe("include");
+  expect(sessionStorage.getItem("exon.refreshToken")).toBeNull();
   const cartRequest = fetch.mock.calls.find(([url]) => url === "/api/v1/cart/");
   expect(cartRequest[1].headers.Authorization).toBe("Bearer signup-access");
 });
@@ -79,6 +88,7 @@ test("prevents duplicate Create account requests while signup is pending", async
   const user = userEvent.setup();
   let resolveSignup;
   fetch.mockImplementation((url) => {
+    if (url === "/api/v1/users/token/refresh/") return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
     if (url === "/api/v1/users/signup/") {
       return new Promise((resolve) => { resolveSignup = resolve; });
     }
@@ -87,18 +97,18 @@ test("prevents duplicate Create account requests while signup is pending", async
   });
   renderSignup("/cart");
 
-  await user.type(screen.getByLabelText("Username"), "secure_customer");
-  await user.type(screen.getByLabelText("Password"), "CorrectHorseBatteryStaple42!");
+  await user.type(await screen.findByLabelText("Username"), "secure_customer");
+  await user.type(await screen.findByLabelText("Password"), "CorrectHorseBatteryStaple42!");
   const submit = screen.getByRole("button", { name: "Create account" });
   await user.click(submit);
   await user.click(submit);
 
-  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls.filter(([url]) => url === "/api/v1/users/signup/")).toHaveLength(1);
   expect(submit).toBeDisabled();
 
   resolveSignup(jsonResponse({
     user: { username: "secure_customer" },
-    tokens: { access: "signup-access", refresh: "signup-refresh" },
+    tokens: { access: "signup-access" },
   }, 201));
   expect(await screen.findByRole("heading", { name: "Your cart is empty" })).toBeInTheDocument();
 });
@@ -106,10 +116,11 @@ test("prevents duplicate Create account requests while signup is pending", async
 test("rejects an unsafe return destination after successful Signup", async () => {
   const user = userEvent.setup();
   fetch.mockImplementation((url) => {
+    if (url === "/api/v1/users/token/refresh/") return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
     if (url === "/api/v1/users/signup/") {
       return Promise.resolve(jsonResponse({
         user: { username: "secure_customer" },
-        tokens: { access: "signup-access", refresh: "signup-refresh" },
+        tokens: { access: "signup-access" },
       }, 201));
     }
     if (url === "/api/v1/products/") {
@@ -127,8 +138,8 @@ test("rejects an unsafe return destination after successful Signup", async () =>
   });
   renderSignup("https://attacker.example/collect");
 
-  await user.type(screen.getByLabelText("Username"), "secure_customer");
-  await user.type(screen.getByLabelText("Password"), "CorrectHorseBatteryStaple42!");
+  await user.type(await screen.findByLabelText("Username"), "secure_customer");
+  await user.type(await screen.findByLabelText("Password"), "CorrectHorseBatteryStaple42!");
   await user.click(screen.getByRole("button", { name: "Create account" }));
 
   expect(await screen.findByRole("heading", { name: "No fragrances found" })).toBeInTheDocument();
@@ -138,22 +149,22 @@ test("shows client validation without issuing a Signup request", async () => {
   const user = userEvent.setup();
   renderSignup();
 
-  await user.click(screen.getByRole("button", { name: "Create account" }));
+  await user.click(await screen.findByRole("button", { name: "Create account" }));
 
   expect(screen.getByRole("alert")).toHaveTextContent("Enter a username and password.");
   expect(screen.getByLabelText("Username")).toHaveFocus();
-  expect(fetch).not.toHaveBeenCalled();
+  expect(fetch.mock.calls.some(([url]) => url === "/api/v1/users/signup/")).toBe(false);
 });
 
 test("renders backend Signup field errors and preserves entered values", async () => {
   const user = userEvent.setup();
-  fetch.mockResolvedValue(jsonResponse({
-    password: ["This password is too common."],
-  }, 400));
+  fetch.mockImplementation((url) => url === "/api/v1/users/token/refresh/"
+    ? Promise.resolve(jsonResponse({ detail: "missing" }, 401))
+    : Promise.resolve(jsonResponse({ password: ["This password is too common."] }, 400)));
   renderSignup();
 
-  await user.type(screen.getByLabelText("Username"), "secure_customer");
-  await user.type(screen.getByLabelText("Password"), "common-password");
+  await user.type(await screen.findByLabelText("Username"), "secure_customer");
+  await user.type(await screen.findByLabelText("Password"), "common-password");
   await user.click(screen.getByRole("button", { name: "Create account" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent("This password is too common.");
@@ -163,15 +174,17 @@ test("renders backend Signup field errors and preserves entered values", async (
 
 test("renders the backend's generic nested account-conflict error", async () => {
   const user = userEvent.setup();
-  fetch.mockResolvedValue(jsonResponse({
-    non_field_errors: {
-      non_field_errors: ["Unable to create an account with the provided information."],
-    },
-  }, 400));
+  fetch.mockImplementation((url) => url === "/api/v1/users/token/refresh/"
+    ? Promise.resolve(jsonResponse({ detail: "missing" }, 401))
+    : Promise.resolve(jsonResponse({
+      non_field_errors: {
+        non_field_errors: ["Unable to create an account with the provided information."],
+      },
+    }, 400)));
   renderSignup();
 
-  await user.type(screen.getByLabelText("Username"), "secure_customer");
-  await user.type(screen.getByLabelText("Password"), "CorrectHorseBatteryStaple42!");
+  await user.type(await screen.findByLabelText("Username"), "secure_customer");
+  await user.type(await screen.findByLabelText("Password"), "CorrectHorseBatteryStaple42!");
   await user.click(screen.getByRole("button", { name: "Create account" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -183,7 +196,7 @@ test("links back to Sign In while preserving the return destination", async () =
   const user = userEvent.setup();
   renderSignup("/cart");
 
-  const accountSwitch = screen.getByText(/Already have an account/).closest("p");
+  const accountSwitch = (await screen.findByText(/Already have an account/)).closest("p");
   const loginLink = within(accountSwitch).getByRole("link", { name: "Sign in" });
   expect(loginLink).toHaveAttribute("href", "/login");
   await user.click(loginLink);
@@ -195,7 +208,7 @@ test("keeps SMS Signup disabled and never calls an OTP endpoint", async () => {
   const user = userEvent.setup();
   renderSignup();
 
-  const smsButton = screen.getByRole("button", { name: "Sign up with SMS" });
+  const smsButton = await screen.findByRole("button", { name: "Sign up with SMS" });
   const wrapper = screen.getByRole("group", { name: "Sign up with SMS, unavailable" });
   expect(smsButton).toBeDisabled();
   expect(screen.getByText("SMS sign-up is not available yet.")).toBeInTheDocument();
@@ -208,6 +221,6 @@ test("keeps SMS Signup disabled and never calls an OTP endpoint", async () => {
   expect(screen.getByRole("tooltip")).toHaveTextContent("This feature will be available later.");
   await user.click(smsButton);
 
-  expect(fetch).not.toHaveBeenCalled();
+  expect(fetch.mock.calls.some(([url]) => url !== "/api/v1/users/token/refresh/")).toBe(false);
   expect(fetch.mock.calls.some(([url]) => /(?:signup|login)\/(?:send|verify)-otp/.test(url))).toBe(false);
 });

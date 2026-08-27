@@ -144,12 +144,6 @@ class UserOutputSerializer(serializers.ModelSerializer):
         ]
 
 
-class LogoutInputSerializer(serializers.Serializer):
-    refresh = serializers.CharField(
-        error_messages={'required': 'refresh token is required.'}
-    )
-
-
 class UserProfileUpdateInputSerializer(serializers.Serializer):
     username = serializers.CharField(
         validators=[username_regex],

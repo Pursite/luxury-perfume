@@ -7,6 +7,7 @@ from rest_framework import status
 from apps.lib.throttle import SignupRateThrottle
 from apps.users.models import CustomUser
 from apps.users.tests.factories import UserFactory
+from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME
 
 @pytest.fixture
 def signup_payload():
@@ -29,7 +30,9 @@ class TestUserSignupAPIView:
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data["user"] == {"username": "secure_customer"}
-        assert set(response.data["tokens"]) == {"access", "refresh"}
+        assert set(response.data["tokens"]) == {"access"}
+        assert response.cookies[REFRESH_TOKEN_COOKIE_NAME]["httponly"]
+        assert "no-store" in response["Cache-Control"]
         user = CustomUser.objects.get(username="secure_customer")
         assert user.check_password(signup_payload["password"])
         assert user.password != signup_payload["password"]
@@ -59,7 +62,7 @@ class TestUserSignupAPIView:
         )
 
         assert login_response.status_code == status.HTTP_200_OK
-        assert set(login_response.data["tokens"]) == {"access", "refresh"}
+        assert set(login_response.data["tokens"]) == {"access"}
 
     def test_incomplete_signup_user_can_use_authenticated_endpoints(
         self,
