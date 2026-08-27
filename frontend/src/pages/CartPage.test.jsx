@@ -105,6 +105,26 @@ test("sets an absolute quantity and synchronizes the Header badge", async () => 
   expect(await screen.findByRole("link", { name: "Cart, 3 items" })).toBeInTheDocument();
 });
 
+test("explains and focuses an invalid cart quantity without updating the cart", async () => {
+  const user = userEvent.setup();
+  cartApi.getCart.mockResolvedValue(cartResponse);
+  renderCart();
+
+  const quantity = await screen.findByLabelText("Quantity for Sauvage Elixir");
+  await user.clear(quantity);
+  await user.type(quantity, String(cartResponse.items[0].available_stock + 1));
+  await user.click(screen.getByRole("button", { name: "Update Sauvage Elixir quantity" }));
+
+  const error = screen.getByRole("alert");
+  expect(error).toHaveTextContent(
+    `Choose a quantity between 1 and ${cartResponse.items[0].available_stock}.`,
+  );
+  expect(quantity).toHaveAttribute("aria-invalid", "true");
+  expect(quantity).toHaveAttribute("aria-describedby", error.id);
+  expect(quantity).toHaveFocus();
+  expect(cartApi.updateCartItem).not.toHaveBeenCalled();
+});
+
 test("removes an item and refreshes authoritative Cart state", async () => {
   const user = userEvent.setup();
   cartApi.getCart.mockResolvedValueOnce(cartResponse).mockResolvedValueOnce(emptyCart);

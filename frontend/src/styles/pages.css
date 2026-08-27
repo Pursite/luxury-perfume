@@ -785,6 +785,7 @@
 
 .quantity-form > div { display: flex; gap: 0.5rem; }
 .quantity-form input { width: 4.5rem; border: 1px solid var(--line-soft); padding: 0.6rem; color: var(--color-ivory); background: var(--color-ink); }
+.quantity-form input[aria-invalid="true"] { border-color: var(--color-danger); }
 .quantity-form .button { min-height: 2.6rem; padding: 0.55rem 0.8rem; }
 
 .cart-line-pricing { margin: 0; }
@@ -1302,6 +1303,7 @@
   .auth-introduction h1 { font-size: clamp(3.3rem, 14vw, 5.5rem); }
   .account-masthead { align-items: start; }
   .account-status-block { justify-items: start; }
+  .account-ledger-section { grid-template-columns: 1fr; gap: 2rem; }
 }
 
 @media (max-width: 36rem) {
