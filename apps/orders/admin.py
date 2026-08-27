@@ -58,6 +58,21 @@ class OrderAdmin(admin.ModelAdmin):
     )
     fields = readonly_fields
 
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request).select_related("user", "source_address")
+        if not request.user.is_superuser:
+            queryset = queryset.filter(user__is_staff=False, user__is_superuser=False)
+        return queryset
+
+    def _has_owner_access(self, request, obj):
+        return request.user.is_superuser or not (obj and (obj.user.is_staff or obj.user.is_superuser))
+
+    def has_view_permission(self, request, obj=None):
+        return self._has_owner_access(request, obj) and super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return self._has_owner_access(request, obj) and super().has_change_permission(request, obj)
+
     def has_add_permission(self, request):
         return False
 

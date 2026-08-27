@@ -46,6 +46,10 @@ class IdempotencyConflictError(CheckoutError):
     pass
 
 
+class CheckoutUserNotFoundError(CheckoutError):
+    pass
+
+
 MAX_CART_ITEMS_FOR_CHECKOUT = 100
 
 
@@ -67,11 +71,10 @@ def create_waiting_order(*, user: CustomUser, address_id, idempotency_key, shipp
     while True:
         retry_after_stale_reconciliation = False
         with transaction.atomic():
-            locked_user = CustomUser.objects.select_for_update().get(pk=user.pk)
-            if not locked_user.is_active:
-                raise CheckoutUserInactiveError("The user is inactive.")
-            if not locked_user.is_profile_complete:
-                raise CheckoutProfileIncompleteError("A complete profile and address are required.")
+            try:
+                locked_user = CustomUser.objects.select_for_update().get(pk=user.pk)
+            except CustomUser.DoesNotExist as exc:
+                raise CheckoutUserNotFoundError("The user no longer exists.") from exc
             existing = (
                 Order.objects.select_for_update().filter(user=locked_user, idempotency_key=idempotency_key).first()
             )
@@ -82,6 +85,11 @@ def create_waiting_order(*, user: CustomUser, address_id, idempotency_key, shipp
                 if existing.status == Order.Status.WAITING_FOR_PAYMENT and now >= existing.reservation_expires_at:
                     _cancel_expired_locked_order(existing)
                 return existing, False
+
+            if not locked_user.is_active:
+                raise CheckoutUserInactiveError("The user is inactive.")
+            if not locked_user.is_profile_complete:
+                raise CheckoutProfileIncompleteError("A complete profile and address are required.")
 
             waiting = (
                 Order.objects.select_for_update().filter(user=locked_user, status=Order.Status.WAITING_FOR_PAYMENT).first()

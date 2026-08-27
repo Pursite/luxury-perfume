@@ -115,6 +115,7 @@ class FragranceNoteAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    actions = ("delete_selected_products",)
     list_display = (
         "uuid",
         "name",

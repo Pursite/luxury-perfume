@@ -1,10 +1,11 @@
 from datetime import timedelta
 
 from django.test import TestCase
+from unittest.mock import patch
 from django.utils import timezone
 
 from apps.orders.models import Order
-from apps.orders.tasks import sweep_expired_orders
+from apps.orders.tasks import expire_unpaid_order_task, sweep_expired_orders
 from apps.users.tests.factories import AddressFactory
 
 
@@ -23,6 +24,8 @@ class ExpiryTaskTests(TestCase):
             reservation_expires_at=expired_at,
         )
 
-        queued = sweep_expired_orders()
+        with patch.object(expire_unpaid_order_task, "delay") as delay:
+            queued = sweep_expired_orders()
 
         self.assertEqual(queued, 1)
+        delay.assert_called_once_with(order.pk)

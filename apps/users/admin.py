@@ -34,6 +34,7 @@ class AddressInline(admin.TabularInline):
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
+    actions = ("delete_selected_users",)
     add_form = CustomUserCreationForm
     form = CustomUserChangeForm
     change_password_form = CustomAdminPasswordChangeForm

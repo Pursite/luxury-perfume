@@ -75,7 +75,6 @@ class OrderTransitionTests(TestCase):
     def test_mixed_reservation_states_abort_expiry_without_partial_stock_restore(self):
         order, product = self._order_with_reservation()
         second = ProductFactory(stock=2, price=Decimal("10.00"), discount_price=None)
-        item = order.items.get()
         from apps.orders.models import OrderItem
         second_item = OrderItem.objects.create_from_product(order=order, product=second, quantity=1)
         StockReservation.objects.create(order_item=second_item, status=StockReservation.Status.CONSUMED, consumed_at=timezone.now())
