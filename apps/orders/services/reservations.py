@@ -55,6 +55,13 @@ def _validate_reservation_set(*, products, items, reservations, operation: str) 
     return state
 
 
+def get_reservation_set_state(*, order: Order, operation: str) -> str:
+    products, items, reservations = lock_order_lines_and_reservations(order=order)
+    return _validate_reservation_set(
+        products=products, items=items, reservations=reservations, operation=operation
+    )
+
+
 def release_active_reservations(*, order: Order, reason: str) -> bool:
     """Release each active line once. The caller must have locked the order."""
     products, items, reservations = lock_order_lines_and_reservations(order=order)

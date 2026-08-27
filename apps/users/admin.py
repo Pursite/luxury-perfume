@@ -196,6 +196,8 @@ class CustomUserAdmin(UserAdmin):
     def get_actions(self, request):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
+        if request.method == "POST" and request.POST.get("post") and request.POST.get("action") == "delete_selected":
+            actions["delete_selected"] = actions["delete_selected_users"]
         return actions
 
 

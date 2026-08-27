@@ -13,6 +13,7 @@ from apps.orders.services.transitions import (
     expire_unpaid_order,
     mark_order_delivered,
     mark_order_shipped,
+    TransitionOutcome,
 )
 from apps.orders.services.reservations import ReservationIntegrityError
 from apps.products.tests.factories import ProductFactory
@@ -88,3 +89,19 @@ class OrderTransitionTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(product.stock, 2)
         self.assertEqual(order.status, Order.Status.WAITING_FOR_PAYMENT)
+
+    def test_released_waiting_reservation_never_transitions_to_processing(self):
+        order, product = self._order_with_reservation()
+        reservation = order.items.get().reservation
+        reservation.status = StockReservation.Status.RELEASED
+        reservation.released_at = timezone.now()
+        reservation.release_reason = StockReservation.ReleaseReason.PAYMENT_FAILED
+        reservation.save()
+
+        result = confirm_verified_payment(order_id=order.pk)
+
+        order.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(result.outcome, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertEqual(product.stock, 2)

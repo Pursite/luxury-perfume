@@ -5,7 +5,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.orders.models import Order
-from apps.orders.services.reservations import consume_active_reservations, release_active_reservations
+from apps.orders.services.reservations import (
+    ReservationStateError,
+    consume_active_reservations,
+    get_reservation_set_state,
+    release_active_reservations,
+)
 
 
 class InvalidOrderTransitionError(Exception):
@@ -89,6 +94,16 @@ def confirm_verified_payment(*, order_id: int) -> TransitionResult:
             order.late_payment_detected_at = timezone.now()
             order.save(update_fields=("status", "cancellation_reason", "cancelled_at", "late_payment_detected_at", "updated_at"))
             return _result(order, previous, True, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
+        reservation_state = get_reservation_set_state(order=order, operation="consume")
+        if reservation_state == "released":
+            order.status = Order.Status.CANCELLED
+            order.cancellation_reason = Order.CancellationReason.PAYMENT_FAILED
+            order.cancelled_at = timezone.now()
+            order.late_payment_detected_at = timezone.now()
+            order.save(update_fields=("status", "cancellation_reason", "cancelled_at", "late_payment_detected_at", "updated_at"))
+            return _result(order, previous, True, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
+        if reservation_state == "consumed":
+            raise ReservationStateError("A waiting order cannot have consumed reservations.")
         consume_active_reservations(order=order)
         order.status = Order.Status.PROCESSING
         order.processing_at = timezone.now()
@@ -100,6 +115,9 @@ def confirm_verified_payment(*, order_id: int) -> TransitionResult:
             order.late_payment_detected_at = timezone.now()
             order.save(update_fields=("late_payment_detected_at", "updated_at"))
         return _result(order, previous, changed, TransitionOutcome.LATE_PAYMENT_REVIEW_REQUIRED)
+    if order.status == Order.Status.PROCESSING:
+        if get_reservation_set_state(order=order, operation="consume") != "consumed":
+            raise ReservationStateError("A processing order must have consumed reservations.")
     return _result(order, previous, False, TransitionOutcome.ALREADY_APPLIED)
 
 

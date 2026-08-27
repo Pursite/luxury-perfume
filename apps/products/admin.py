@@ -240,6 +240,11 @@ class ProductAdmin(admin.ModelAdmin):
     def get_actions(self, request):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
+        # Django's built-in confirmation form posts action=delete_selected.
+        # Map only that confirmation POST back to our protected wrapper; it is
+        # never exposed as a selectable global action.
+        if request.method == "POST" and request.POST.get("post") and request.POST.get("action") == "delete_selected":
+            actions["delete_selected"] = actions["delete_selected_products"]
         return actions
 
     def get_readonly_fields(self, request, obj=None):
