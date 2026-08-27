@@ -53,10 +53,10 @@ class Order(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="orders")
     source_address = models.ForeignKey(Address, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
-    source_address_uuid = models.UUIDField(null=True, editable=False)
+    source_address_uuid = models.UUIDField(editable=False)
     idempotency_key = models.UUIDField()
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.WAITING_FOR_PAYMENT)
-    reservation_expires_at = models.DateTimeField(null=True, blank=True)
+    reservation_expires_at = models.DateTimeField()
     subtotal = models.DecimalField(max_digits=24, decimal_places=2, validators=[MinValueValidator(ZERO)])
     shipping_amount = models.DecimalField(max_digits=24, decimal_places=2, default=ZERO, validators=[MinValueValidator(ZERO)])
     total = models.DecimalField(max_digits=24, decimal_places=2, validators=[MinValueValidator(ZERO)])
@@ -90,6 +90,13 @@ class Order(models.Model):
             models.CheckConstraint(condition=Q(reservation_expires_at__isnull=True) | Q(reservation_expires_at__gt=F("created_at")), name="orders_deadline_after_created"),
             models.CheckConstraint(condition=Q(status="cancelled", cancelled_at__isnull=False) | ~Q(status="cancelled"), name="orders_cancelled_has_timestamp"),
             models.CheckConstraint(condition=Q(late_payment_detected_at__isnull=True) | Q(status="cancelled"), name="orders_late_payment_only_cancelled"),
+            models.CheckConstraint(condition=(
+                Q(status="waiting_for_payment", processing_at__isnull=True, shipped_at__isnull=True, delivered_at__isnull=True, cancelled_at__isnull=True, cancellation_reason="", late_payment_detected_at__isnull=True)
+                | Q(status="processing", processing_at__isnull=False, shipped_at__isnull=True, delivered_at__isnull=True, cancelled_at__isnull=True, cancellation_reason="")
+                | Q(status="shipped", processing_at__isnull=False, shipped_at__isnull=False, delivered_at__isnull=True, cancelled_at__isnull=True, cancellation_reason="")
+                | Q(status="delivered", processing_at__isnull=False, shipped_at__isnull=False, delivered_at__isnull=False, cancelled_at__isnull=True, cancellation_reason="")
+                | Q(status="cancelled", processing_at__isnull=True, shipped_at__isnull=True, delivered_at__isnull=True, cancelled_at__isnull=False, cancellation_reason__in=("payment_failed", "reservation_expired"))
+            ), name="orders_status_timestamps_consistent"),
         ]
         indexes = [
             models.Index(fields=("user", "-created_at"), name="orders_user_created_idx"),
@@ -150,12 +157,16 @@ class StockReservation(models.Model):
         CONSUMED = "consumed", "Consumed"
         RELEASED = "released", "Released"
 
+    class ReleaseReason(models.TextChoices):
+        PAYMENT_FAILED = "payment_failed", "Payment failed"
+        RESERVATION_EXPIRED = "reservation_expired", "Reservation expired"
+
     id = models.BigAutoField(primary_key=True)
     order_item = models.OneToOneField(OrderItem, on_delete=models.CASCADE, related_name="reservation")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
     consumed_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
-    release_reason = models.CharField(max_length=32, blank=True)
+    release_reason = models.CharField(max_length=32, blank=True, choices=ReleaseReason.choices)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -163,7 +174,7 @@ class StockReservation(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(status__in=("active", "consumed", "released")), name="orders_reservation_valid_status"),
             models.CheckConstraint(condition=Q(status="consumed", consumed_at__isnull=False, released_at__isnull=True, release_reason="") | ~Q(status="consumed"), name="orders_reservation_consumed_fields"),
-            models.CheckConstraint(condition=Q(status="released", released_at__isnull=False, consumed_at__isnull=True) | ~Q(status="released"), name="orders_reservation_released_fields"),
+            models.CheckConstraint(condition=Q(status="released", released_at__isnull=False, consumed_at__isnull=True, release_reason__in=("payment_failed", "reservation_expired")) | ~Q(status="released"), name="orders_reservation_released_fields"),
             models.CheckConstraint(condition=Q(status="active", consumed_at__isnull=True, released_at__isnull=True, release_reason="") | ~Q(status="active"), name="orders_reservation_active_fields"),
         ]
 

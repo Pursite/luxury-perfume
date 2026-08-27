@@ -14,6 +14,7 @@ from apps.orders.services.transitions import (
     mark_order_delivered,
     mark_order_shipped,
 )
+from apps.orders.services.reservations import ReservationIntegrityError
 from apps.products.tests.factories import ProductFactory
 from apps.users.tests.factories import AddressFactory
 
@@ -65,9 +66,26 @@ class OrderTransitionTests(TestCase):
         order, _product = self._order_with_reservation()
         with self.assertRaises(InvalidOrderTransitionError):
             mark_order_shipped(order_id=order.pk)
-
         confirm_verified_payment(order_id=order.pk)
         mark_order_shipped(order_id=order.pk)
         mark_order_delivered(order_id=order.pk)
         with self.assertRaises(InvalidOrderTransitionError):
             mark_order_shipped(order_id=order.pk)
+
+    def test_mixed_reservation_states_abort_expiry_without_partial_stock_restore(self):
+        order, product = self._order_with_reservation()
+        second = ProductFactory(stock=2, price=Decimal("10.00"), discount_price=None)
+        item = order.items.get()
+        from apps.orders.models import OrderItem
+        second_item = OrderItem.objects.create_from_product(order=order, product=second, quantity=1)
+        StockReservation.objects.create(order_item=second_item, status=StockReservation.Status.CONSUMED, consumed_at=timezone.now())
+        expired_at = timezone.now() - timedelta(seconds=1)
+        Order.objects.filter(pk=order.pk).update(created_at=expired_at - timedelta(minutes=15), reservation_expires_at=expired_at)
+
+        with self.assertRaises(ReservationIntegrityError):
+            expire_unpaid_order(order_id=order.pk)
+
+        product.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(product.stock, 2)
+        self.assertEqual(order.status, Order.Status.WAITING_FOR_PAYMENT)

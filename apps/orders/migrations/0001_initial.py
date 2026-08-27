@@ -25,10 +25,10 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ('source_address_uuid', models.UUIDField(editable=False, null=True)),
+                ('source_address_uuid', models.UUIDField(editable=False)),
                 ('idempotency_key', models.UUIDField()),
                 ('status', models.CharField(choices=[('waiting_for_payment', 'Waiting for payment'), ('processing', 'Processing'), ('shipped', 'Shipped'), ('delivered', 'Delivered'), ('cancelled', 'Cancelled')], default='waiting_for_payment', max_length=24)),
-                ('reservation_expires_at', models.DateTimeField(blank=True, null=True)),
+                ('reservation_expires_at', models.DateTimeField()),
                 ('subtotal', models.DecimalField(decimal_places=2, max_digits=24, validators=[django.core.validators.MinValueValidator(Decimal('0.00'))])),
                 ('shipping_amount', models.DecimalField(decimal_places=2, default=Decimal('0.00'), max_digits=24, validators=[django.core.validators.MinValueValidator(Decimal('0.00'))])),
                 ('total', models.DecimalField(decimal_places=2, max_digits=24, validators=[django.core.validators.MinValueValidator(Decimal('0.00'))])),
@@ -135,6 +135,10 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(condition=models.Q(('late_payment_detected_at__isnull', True), ('status', 'cancelled'), _connector='OR'), name='orders_late_payment_only_cancelled'),
         ),
         migrations.AddConstraint(
+            model_name='order',
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('cancelled_at__isnull', True), ('cancellation_reason', ''), ('delivered_at__isnull', True), ('late_payment_detected_at__isnull', True), ('processing_at__isnull', True), ('shipped_at__isnull', True), ('status', 'waiting_for_payment')), models.Q(('cancelled_at__isnull', True), ('cancellation_reason', ''), ('delivered_at__isnull', True), ('processing_at__isnull', False), ('shipped_at__isnull', True), ('status', 'processing')), models.Q(('cancelled_at__isnull', True), ('cancellation_reason', ''), ('delivered_at__isnull', True), ('processing_at__isnull', False), ('shipped_at__isnull', False), ('status', 'shipped')), models.Q(('cancelled_at__isnull', True), ('cancellation_reason', ''), ('delivered_at__isnull', False), ('processing_at__isnull', False), ('shipped_at__isnull', False), ('status', 'delivered')), models.Q(('cancelled_at__isnull', False), ('cancellation_reason__in', ('payment_failed', 'reservation_expired')), ('delivered_at__isnull', True), ('processing_at__isnull', True), ('shipped_at__isnull', True), ('status', 'cancelled')), _connector='OR'), name='orders_status_timestamps_consistent'),
+        ),
+        migrations.AddConstraint(
             model_name='orderitem',
             constraint=models.UniqueConstraint(fields=('order', 'product_uuid'), name='orders_item_unique_product_snapshot'),
         ),
@@ -160,7 +164,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='stockreservation',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('consumed_at__isnull', True), ('released_at__isnull', False), ('status', 'released')), models.Q(('status', 'released'), _negated=True), _connector='OR'), name='orders_reservation_released_fields'),
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('consumed_at__isnull', True), ('release_reason__in', ('payment_failed', 'reservation_expired')), ('released_at__isnull', False), ('status', 'released')), models.Q(('status', 'released'), _negated=True), _connector='OR'), name='orders_reservation_released_fields'),
         ),
         migrations.AddConstraint(
             model_name='stockreservation',
