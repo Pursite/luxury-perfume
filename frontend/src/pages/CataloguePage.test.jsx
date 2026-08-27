@@ -34,7 +34,8 @@ test("renders discounted, regular-price, and out-of-stock API products", async (
   expect(await screen.findByRole("heading", { name: "Sauvage Elixir" })).toBeInTheDocument();
   const featured = screen.getByText("Featured");
   expect(featured).toBeInTheDocument();
-  expect(featured.closest(".product-card-media")).not.toBeNull();
+  expect(featured.closest(".product-card-media")).toBeNull();
+  expect(featured.closest(".product-card-brandline")).not.toBeNull();
   expect(screen.getByText("6,250,000 toman")).toBeInTheDocument();
   expect(screen.getByText("7,500,000 toman")).toHaveClass("price-original");
   expect(screen.getByRole("heading", { name: "Naxos" })).toBeInTheDocument();
