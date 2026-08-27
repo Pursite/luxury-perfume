@@ -26,7 +26,7 @@ urlpatterns = [
     path("health/live", live, name="health-live"),
     path("health/ready", ready, name="health-ready"),
     path("health/startup", startup, name="health-startup"),
-    path('admin/', admin.site.urls),
+    path('admin65xtz/', admin.site.urls),
     path("api/v1/users/", include("apps.users.urls", namespace="users")),
     path("api/v1/products/", include("apps.products.urls", namespace="products")),
     path("api/v1/cart/", include("apps.cart.urls", namespace="cart")),
