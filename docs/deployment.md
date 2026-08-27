@@ -111,6 +111,12 @@ the selected production configuration with a non-secret image reference. The
 deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
 it to `.env`.
 
+Production authentication uses a host-only, Secure, HttpOnly refresh cookie on
+`shop.exonplus.ir`; no refresh token is placed in frontend storage. Keep the
+explicit storefront CORS and CSRF origin values unchanged, because credentialed
+refresh/logout requests require that allowlist. The unrelated
+`api.exonplus.ir` host must not be added to it.
+
 ```bash
 APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose \
   --env-file .env \

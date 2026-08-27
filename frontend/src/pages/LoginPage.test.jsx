@@ -42,29 +42,37 @@ function renderLogin() {
 
 beforeEach(() => {
   clearTokens();
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", vi.fn((url) => {
+    if (url === "/api/v1/users/token/refresh/") {
+      return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
+    }
+    return Promise.resolve(jsonResponse({ detail: "unauthorized" }, 401));
+  }));
 });
 afterEach(() => vi.unstubAllGlobals());
 
 test("logs in with username and password and returns to the intended page", async () => {
   const user = userEvent.setup();
-  fetch.mockResolvedValue(jsonResponse({
-    message: "Login successful.",
-    tokens: { access: "access-token", refresh: "refresh-token" },
-  }));
+  fetch.mockImplementation((url) => url === "/api/v1/users/token/refresh/"
+    ? Promise.resolve(jsonResponse({ detail: "missing" }, 401))
+    : Promise.resolve(jsonResponse({
+      message: "Login successful.",
+      tokens: { access: "access-token" },
+    })));
   renderLogin();
 
-  await user.type(screen.getByLabelText("Username"), "customer");
-  await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+  await user.type(await screen.findByLabelText("Username"), "customer");
+  await user.type(await screen.findByLabelText("Password"), "correct horse battery staple");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
   expect(await screen.findByRole("heading", { name: "Your cart" })).toBeInTheDocument();
-  expect(sessionStorage.getItem("exon.refreshToken")).toBe("refresh-token");
+  expect(sessionStorage.getItem("exon.refreshToken")).toBeNull();
   expect(fetch).toHaveBeenCalledWith(
     "/api/v1/users/login/userpass/",
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ username: "customer", password: "correct horse battery staple" }),
+      credentials: "include",
     }),
   );
 });
@@ -72,29 +80,34 @@ test("logs in with username and password and returns to the intended page", asyn
 test("prevents duplicate Sign in requests while the session is being established", async () => {
   const user = userEvent.setup();
   let resolveLogin;
-  fetch.mockReturnValue(new Promise((resolve) => { resolveLogin = resolve; }));
+  fetch.mockImplementation((url) => {
+    if (url === "/api/v1/users/token/refresh/") return Promise.resolve(jsonResponse({ detail: "missing" }, 401));
+    return new Promise((resolve) => { resolveLogin = resolve; });
+  });
   renderLogin();
 
-  await user.type(screen.getByLabelText("Username"), "customer");
-  await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+  await user.type(await screen.findByLabelText("Username"), "customer");
+  await user.type(await screen.findByLabelText("Password"), "correct horse battery staple");
   const submit = screen.getByRole("button", { name: "Sign in" });
   await user.click(submit);
   await user.click(submit);
 
-  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls.filter(([url]) => url === "/api/v1/users/login/userpass/")).toHaveLength(1);
   expect(submit).toBeDisabled();
 
-  resolveLogin(jsonResponse({ tokens: { access: "access-token", refresh: "refresh-token" } }));
+  resolveLogin(jsonResponse({ tokens: { access: "access-token" } }));
   expect(await screen.findByRole("heading", { name: "Your cart" })).toBeInTheDocument();
 });
 
 test("shows a generic accessible authentication error and preserves the username", async () => {
   const user = userEvent.setup();
-  fetch.mockResolvedValue(jsonResponse({ detail: "No active account found." }, 401));
+  fetch.mockImplementation((url) => url === "/api/v1/users/token/refresh/"
+    ? Promise.resolve(jsonResponse({ detail: "missing" }, 401))
+    : Promise.resolve(jsonResponse({ detail: "No active account found." }, 401)));
   renderLogin();
 
-  await user.type(screen.getByLabelText("Username"), "customer");
-  await user.type(screen.getByLabelText("Password"), "wrong-password");
+  await user.type(await screen.findByLabelText("Username"), "customer");
+  await user.type(await screen.findByLabelText("Password"), "wrong-password");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent("The username or password is incorrect.");
@@ -105,17 +118,17 @@ test("shows a generic accessible authentication error and preserves the username
 test("reveals and remasks the password accessibly", async () => {
   const user = userEvent.setup();
   renderLogin();
-  const password = screen.getByLabelText("Password");
+  const password = await screen.findByLabelText("Password");
   expect(password).toHaveAttribute("type", "password");
   await user.click(screen.getByRole("button", { name: "Show password" }));
   expect(password).toHaveAttribute("type", "text");
   expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
 });
 
-test("uses the Luxury Perfume customer-facing identity", () => {
+test("uses the Luxury Perfume customer-facing identity", async () => {
   renderLogin();
 
-  expect(screen.getByText("Use the username and password registered with Luxury Perfume.")).toBeInTheDocument();
+  expect(await screen.findByText("Use the username and password registered with Luxury Perfume.")).toBeInTheDocument();
   expect(document.title).toBe("Sign in — Luxury Perfume");
 });
 
@@ -123,7 +136,7 @@ test("links to Signup and preserves the intended return destination", async () =
   const user = userEvent.setup();
   renderLogin();
 
-  const signupLink = screen.getByRole("link", { name: "Create one" });
+  const signupLink = await screen.findByRole("link", { name: "Create one" });
   expect(signupLink).toHaveAttribute("href", "/signup");
   await user.click(signupLink);
 
@@ -135,7 +148,7 @@ test("keeps SMS sign-in disabled with pointer and keyboard-accessible explanatio
   const user = userEvent.setup();
   renderLogin();
 
-  const smsButton = screen.getByRole("button", { name: "Sign in with SMS" });
+  const smsButton = await screen.findByRole("button", { name: "Sign in with SMS" });
   const wrapper = screen.getByRole("group", { name: "Sign in with SMS, unavailable" });
   expect(smsButton).toBeDisabled();
   expect(screen.getByText("SMS sign-in is not available yet.")).toBeInTheDocument();
@@ -149,5 +162,5 @@ test("keeps SMS sign-in disabled with pointer and keyboard-accessible explanatio
   expect(screen.getByRole("tooltip")).toHaveTextContent("This feature will be available later.");
   await user.click(smsButton);
 
-  expect(fetch).not.toHaveBeenCalled();
+  expect(fetch.mock.calls.some(([url]) => url !== "/api/v1/users/token/refresh/")).toBe(false);
 });

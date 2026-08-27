@@ -3,6 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from apps.users.tests.factories import UserFactory
+from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME
 from apps.users.models import Address
 
 
@@ -362,10 +363,11 @@ class TestProfileFlow:
             {"last_name": "StillAuthorized"},
             format="json",
         )
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = str(refresh)
         refresh_response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": str(refresh)},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert update_response.status_code == status.HTTP_200_OK
@@ -392,10 +394,11 @@ class TestProfileFlow:
             {"first_name": "Rejected"},
             format="json",
         )
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = str(refresh)
         refresh_response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": str(refresh)},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert password_update.status_code == status.HTTP_200_OK

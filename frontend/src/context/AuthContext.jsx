@@ -2,27 +2,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { loginWithPassword, logoutSession, signupWithPassword } from "../api/auth";
 import { refreshSession } from "../api/client";
-import { clearTokens, getRefreshToken, setTokens, subscribeToSessionClear } from "../api/tokenStore";
+import {
+  clearTokens,
+  setAccessToken,
+  subscribeToRestorationError,
+  subscribeToSessionClear,
+} from "../api/tokenStore";
 import { AuthContext } from "./authContext";
 
 export function AuthProvider({ children }) {
-  const [status, setStatus] = useState(getRefreshToken() ? "initializing" : "anonymous");
+  const [status, setStatus] = useState("initializing");
   const [sessionError, setSessionError] = useState("");
   const restoreAttempt = useRef(null);
 
-  useEffect(() => subscribeToSessionClear(() => {
-    setSessionError("");
-    setStatus("anonymous");
-  }), []);
+  useEffect(() => {
+    const unsubscribeClear = subscribeToSessionClear(() => {
+      setSessionError("");
+      setStatus("anonymous");
+    });
+    const unsubscribeError = subscribeToRestorationError(() => {
+      setSessionError("Your session could not be restored. Check your connection and try again.");
+      setStatus("restoration_error");
+    });
+    return () => {
+      unsubscribeClear();
+      unsubscribeError();
+    };
+  }, []);
 
   const restoreSession = useCallback(() => {
     if (restoreAttempt.current) return restoreAttempt.current;
-    if (!getRefreshToken()) {
-      setSessionError("");
-      setStatus("anonymous");
-      return Promise.resolve(false);
-    }
-
     setSessionError("");
     setStatus("initializing");
     restoreAttempt.current = refreshSession()
@@ -35,7 +44,7 @@ export function AuthProvider({ children }) {
         return true;
       })
       .catch((error) => {
-        if (error.status === 401 || !getRefreshToken()) {
+        if (error.status === 401) {
           setSessionError("");
           setStatus("anonymous");
         } else {
@@ -51,11 +60,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (getRefreshToken()) Promise.resolve().then(restoreSession);
+    Promise.resolve().then(restoreSession);
   }, [restoreSession]);
 
   const establishSession = useCallback((response) => {
-    setTokens(response.tokens);
+    setAccessToken(response.tokens?.access);
     setSessionError("");
     setStatus("authenticated");
     return response;
@@ -70,13 +79,14 @@ export function AuthProvider({ children }) {
   }, [establishSession]);
 
   const logout = useCallback(async () => {
-    const refresh = getRefreshToken();
     try {
-      if (refresh) await logoutSession(refresh);
-    } finally {
+      await logoutSession();
       clearTokens();
       setSessionError("");
       setStatus("anonymous");
+    } catch (error) {
+      setSessionError("Sign out could not be completed. Check your connection and try again.");
+      throw error;
     }
   }, []);
 

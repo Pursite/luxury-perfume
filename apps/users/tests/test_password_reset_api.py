@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.users.services.pass_reset_service import PasswordResetService
 from apps.users.tests.factories import UserFactory
+from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME
 
 
 pytestmark = pytest.mark.django_db
@@ -111,7 +112,9 @@ class TestPasswordResetAPI:
 
         assert first_response.status_code == status.HTTP_200_OK
         assert first_response.data["message"] == "password changed successfully."
-        assert set(first_response.data["tokens"]) == {"access", "refresh"}
+        assert set(first_response.data["tokens"]) == {"access"}
+        assert first_response.cookies[REFRESH_TOKEN_COOKIE_NAME]["httponly"]
+        assert "no-store" in first_response["Cache-Control"]
         user.refresh_from_db()
         assert user.check_password("NewStrongPass1!")
         assert BlacklistedToken.objects.filter(token__jti=prior_refresh["jti"]).exists()

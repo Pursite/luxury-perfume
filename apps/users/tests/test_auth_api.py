@@ -2,6 +2,7 @@ import time
 
 import pytest
 from django.core.cache import caches
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
@@ -9,6 +10,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.users.services.login_otp_service import LoginOtpService
+from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_PATH
 from apps.users.selectors import UserSelector
 from apps.users.tests.factories import UserFactory
 
@@ -35,7 +37,32 @@ class TestAuthenticationAPI:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["message"] == "successfully logged in."
-        assert set(response.data["tokens"]) == {"access", "refresh"}
+        assert set(response.data["tokens"]) == {"access"}
+        cookie = response.cookies[REFRESH_TOKEN_COOKIE_NAME]
+        assert cookie["httponly"]
+        assert cookie["path"] == REFRESH_TOKEN_COOKIE_PATH
+        assert cookie["domain"] == ""
+        assert cookie["samesite"].lower() == "lax"
+        assert "no-store" in response["Cache-Control"]
+
+    @override_settings(REFRESH_TOKEN_COOKIE_SECURE=True)
+    def test_refresh_cookie_secure_flag_and_token_expiry_are_aligned(self, api_client):
+        user = UserFactory(username="secure_cookie_user")
+        user.set_password("SecurePass123!")
+        user.save(update_fields=["password"])
+
+        response = api_client.post(
+            self.password_login_url,
+            {"username": "secure_cookie_user", "password": "SecurePass123!"},
+            format="json",
+        )
+
+        cookie = response.cookies[REFRESH_TOKEN_COOKIE_NAME]
+        refresh = RefreshToken(cookie.value)
+        assert cookie["secure"]
+        expected_max_age = max(0, int(refresh["exp"]) - int(time.time()))
+        assert abs(int(cookie["max-age"]) - expected_max_age) <= 1
+        assert cookie["expires"]
 
     def test_password_login_throttle_fails_closed_when_security_cache_is_unavailable(
         self,
@@ -173,7 +200,8 @@ class TestAuthenticationAPI:
 
         assert first_response.status_code == status.HTTP_200_OK
         assert first_response.data["message"] == "successfully logged in."
-        assert set(first_response.data["tokens"]) == {"access", "refresh"}
+        assert set(first_response.data["tokens"]) == {"access"}
+        assert REFRESH_TOKEN_COOKIE_NAME in first_response.cookies
         assert replay_response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(replay_response.data["otp"]) == (
             "Invalid or expired verification code."
@@ -224,73 +252,60 @@ class TestAuthenticationAPI:
 
     def test_logout_blacklists_refresh_and_rejects_reuse(self, api_client):
         user = UserFactory()
-        api_client.force_authenticate(user=user)
         refresh = RefreshToken.for_user(user)
         refresh_value = str(refresh)
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = refresh_value
 
         first_response = api_client.post(
             self.logout_url,
-            {"refresh": refresh_value},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
         second_response = api_client.post(
             self.logout_url,
-            {"refresh": refresh_value},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert first_response.status_code == status.HTTP_200_OK
         assert BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()
-        assert second_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert str(second_response.data["refresh"]) == "token is invalid or expired."
+        assert second_response.status_code == status.HTTP_200_OK
+        assert second_response.cookies[REFRESH_TOKEN_COOKIE_NAME]["max-age"] == 0
 
     def test_logout_rejects_invalid_token(self, api_client):
-        user = UserFactory()
-        api_client.force_authenticate(user=user)
+        UserFactory()
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = "fake-and-invalid-refresh-token"
 
         response = api_client.post(
             self.logout_url,
-            {"refresh": "fake-and-invalid-refresh-token"},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert str(response.data["refresh"]) == "token is invalid or expired."
-
-    def test_logout_cannot_blacklist_a_different_users_refresh_token(self, api_client):
-        owner = UserFactory()
-        other_user = UserFactory()
-        refresh = RefreshToken.for_user(owner)
-
-        api_client.force_authenticate(user=other_user)
-        response = api_client.post(
-            self.logout_url,
-            {"refresh": str(refresh)},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert str(response.data["refresh"]) == "token is invalid or expired."
-        assert not BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.cookies[REFRESH_TOKEN_COOKIE_NAME]["path"] == REFRESH_TOKEN_COOKIE_PATH
 
     def test_refresh_rotates_and_blacklists_the_superseded_refresh_token(self, api_client):
         user = UserFactory()
         original_refresh = str(RefreshToken.for_user(user))
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = original_refresh
 
         response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": original_refresh},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = original_refresh
         replay_response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": original_refresh},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert set(response.data) == {"access", "refresh"}
-        assert response.data["refresh"] != original_refresh
+        assert set(response.data) == {"access"}
+        assert response.cookies[REFRESH_TOKEN_COOKIE_NAME]["path"] == REFRESH_TOKEN_COOKIE_PATH
+        assert "no-store" in response["Cache-Control"]
         assert replay_response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_refresh_is_not_blocked_by_the_global_anonymous_throttle(
@@ -299,6 +314,7 @@ class TestAuthenticationAPI:
     ):
         user = UserFactory()
         refresh = str(RefreshToken.for_user(user))
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = refresh
         caches["default"].set(
             "throttle_anon_198.51.100.30",
             [time.time()] * 100,
@@ -307,17 +323,18 @@ class TestAuthenticationAPI:
 
         response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": refresh},
             format="json",
             REMOTE_ADDR="198.51.100.30",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert set(response.data) == {"access", "refresh"}
+        assert set(response.data) == {"access"}
 
     def test_refresh_keeps_its_own_rate_limit(self, api_client):
         user = UserFactory()
         first_refresh = str(RefreshToken.for_user(user))
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = first_refresh
         caches["security"].set(
             "throttle_token_refresh_198.51.100.31",
             [time.time()] * 29,
@@ -326,15 +343,15 @@ class TestAuthenticationAPI:
 
         first_response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": first_refresh},
             format="json",
             REMOTE_ADDR="198.51.100.31",
+            HTTP_ORIGIN="http://testserver",
         )
         second_response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": first_response.data["refresh"]},
             format="json",
             REMOTE_ADDR="198.51.100.31",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert first_response.status_code == status.HTTP_200_OK
@@ -345,14 +362,45 @@ class TestAuthenticationAPI:
         stale_refresh = str(RefreshToken.for_user(user))
         user.set_password("ChangedPassword123!")
         user.save(update_fields=["password"])
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = stale_refresh
 
         response = api_client.post(
             reverse("users:token_refresh"),
-            {"refresh": stale_refresh},
             format="json",
+            HTTP_ORIGIN="http://testserver",
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_refresh_without_cookie_is_anonymous_and_deletes_scoped_cookie(self, api_client):
+        response = api_client.post(
+            reverse("users:token_refresh"),
+            format="json",
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        deleted = response.cookies[REFRESH_TOKEN_COOKIE_NAME]
+        assert deleted["path"] == REFRESH_TOKEN_COOKIE_PATH
+        assert deleted["domain"] == ""
+        assert deleted["max-age"] == 0
+        assert "no-store" in response["Cache-Control"]
+
+    def test_logout_works_with_an_expired_access_token(self, api_client):
+        user = UserFactory()
+        refresh = RefreshToken.for_user(user)
+        api_client.cookies[REFRESH_TOKEN_COOKIE_NAME] = str(refresh)
+        api_client.credentials(HTTP_AUTHORIZATION="Bearer expired-access-token")
+
+        response = api_client.post(
+            self.logout_url,
+            format="json",
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()
+        assert response.cookies[REFRESH_TOKEN_COOKIE_NAME]["path"] == REFRESH_TOKEN_COOKIE_PATH
 
     def test_nonexistent_password_login_performs_a_dummy_password_hash(self, mocker):
         password_check = mocker.patch(
@@ -431,11 +479,11 @@ class TestAuthenticationAPI:
 
         assert exhausted_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
-    def test_logout_requires_authentication(self, api_client):
+    def test_logout_requires_a_trusted_origin(self, api_client):
         response = api_client.post(
             self.logout_url,
-            {"refresh": "not-used"},
             format="json",
+            HTTP_ORIGIN="https://attacker.example",
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_403_FORBIDDEN

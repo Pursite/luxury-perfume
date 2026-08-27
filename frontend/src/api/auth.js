@@ -1,9 +1,10 @@
-import { request } from "./client";
+import { endSession, request } from "./client";
 
 export function loginWithPassword(credentials) {
   return request("/api/v1/users/login/userpass/", {
     method: "POST",
     body: credentials,
+    credentials: "include",
   });
 }
 
@@ -11,14 +12,14 @@ export function signupWithPassword(credentials) {
   return request("/api/v1/users/signup/", {
     method: "POST",
     body: credentials,
+    credentials: "include",
   });
 }
 
-export function logoutSession(refresh) {
-  return request("/api/v1/users/logout/", {
+export function logoutSession() {
+  return endSession(() => request("/api/v1/users/logout/", {
     method: "POST",
-    body: { refresh },
-    auth: true,
+    credentials: "include",
     retryAuth: false,
-  });
+  }));
 }

@@ -1,7 +1,13 @@
-import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "./tokenStore";
+import {
+  clearTokens,
+  getAccessToken,
+  notifyRestorationError,
+  setAccessToken,
+} from "./tokenStore";
 
 const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let refreshPromise = null;
+let logoutInProgress = false;
 
 export class ApiError extends Error {
   constructor(message, { status = 0, data = null } = {}) {
@@ -31,7 +37,10 @@ async function parseResponse(response) {
   return contentType.includes("application/json") ? response.json() : null;
 }
 
-async function fetchResponse(path, { method = "GET", body, signal, headers = {} } = {}) {
+async function fetchResponse(
+  path,
+  { method = "GET", body, signal, headers = {}, credentials = "same-origin" } = {},
+) {
   let response;
   try {
     response = await fetch(backendUrl(path), {
@@ -42,6 +51,7 @@ async function fetchResponse(path, { method = "GET", body, signal, headers = {} 
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...headers,
       },
+      credentials,
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
   } catch (error) {
@@ -59,33 +69,69 @@ function responseError(response, data) {
   });
 }
 
+export function withSessionCookieLock(operation) {
+  const locks = globalThis.navigator?.locks;
+  if (locks?.request) {
+    return locks.request("exon-auth-session", { mode: "exclusive" }, operation);
+  }
+  return operation();
+}
+
 export async function refreshSession() {
-  const refresh = getRefreshToken();
-  if (!refresh) return null;
+  if (logoutInProgress) {
+    throw new ApiError("Sign out is in progress.");
+  }
 
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    refreshPromise = withSessionCookieLock(async () => {
       const response = await fetchResponse("/api/v1/users/token/refresh/", {
         method: "POST",
-        body: { refresh },
+        credentials: "include",
       });
       const data = await parseResponse(response);
       if (!response.ok) {
         if (response.status === 401) clearTokens();
+        else notifyRestorationError();
         throw responseError(response, data);
       }
-      setTokens(data);
+      if (typeof data?.access !== "string" || !data.access) {
+        notifyRestorationError();
+        throw new ApiError("The session could not be restored.");
+      }
+      setAccessToken(data.access);
       return data.access;
-    })().finally(() => {
-      refreshPromise = null;
-    });
+    })
+      .catch((error) => {
+        if (error.status === 0) notifyRestorationError();
+        throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
   }
   return refreshPromise;
 }
 
+export async function endSession(operation) {
+  logoutInProgress = true;
+  try {
+    return await withSessionCookieLock(operation);
+  } finally {
+    logoutInProgress = false;
+  }
+}
+
 export async function request(
   path,
-  { method = "GET", body, signal, headers = {}, auth = false, retryAuth = true } = {},
+  {
+    method = "GET",
+    body,
+    signal,
+    headers = {},
+    credentials = "same-origin",
+    auth = false,
+    retryAuth = true,
+  } = {},
 ) {
   const access = auth ? getAccessToken() : null;
   const response = await fetchResponse(path, {
@@ -96,12 +142,24 @@ export async function request(
       ...headers,
       ...(access ? { Authorization: `Bearer ${access}` } : {}),
     },
+    credentials,
   });
 
   const data = await parseResponse(response);
-  if (response.status === 401 && auth && retryAuth && getRefreshToken()) {
-    await refreshSession();
-    return request(path, { method, body, signal, headers, auth, retryAuth: false });
+  if (response.status === 401 && auth && retryAuth) {
+    const refreshedAccess = await refreshSession();
+    if (!refreshedAccess) {
+      throw new ApiError("The session could not be restored.");
+    }
+    return request(path, {
+      method,
+      body,
+      signal,
+      headers,
+      credentials,
+      auth,
+      retryAuth: false,
+    });
   }
   if (!response.ok) {
     throw responseError(response, data);

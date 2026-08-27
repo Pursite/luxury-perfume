@@ -3,7 +3,8 @@
 ## Overview
 
 The API supports username/password and phone/OTP authentication through Simple
-JWT. Successful signup or login returns an access token and refresh token.
+JWT. Successful token-issuing responses return an access token in JSON and set
+the rotating refresh token in a persistent, host-only `HttpOnly` cookie.
 Protected requests use `Authorization: Bearer <access-token>`. All paths below
 are relative to `/api/v1/users/`.
 
@@ -31,12 +32,13 @@ until the user sets one through profile update; superusers require a password.
 Access tokens last 20 minutes and refresh tokens 30 days by default, controlled
 by `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` and `JWT_REFRESH_TOKEN_LIFETIME_DAYS`.
 
-`POST token/refresh/` accepts `{"refresh": "<refresh-token>"}` and returns
-`{"access": "...", "refresh": "..."}`. Refresh rotation and blacklist-after-
-rotation are enabled: clients must replace the old refresh token after each
-successful response; replaying it is rejected. Refresh attempts use a dedicated
+`POST token/refresh/` reads the refresh cookie and returns `{"access": "..."}`;
+it does not accept or expose a refresh token in JSON. Refresh rotation and
+blacklist-after-rotation remain enabled: the response replaces the cookie and
+replaying the prior value is rejected. Refresh attempts use a dedicated
 fail-closed security-cache throttle (`TOKEN_REFRESH_THROTTLE_RATE`, default
-`30/m`) rather than sharing the global anonymous API bucket.
+`30/m`) rather than sharing the global anonymous API bucket. Auth responses are
+marked `Cache-Control: no-store` (and compatible no-cache headers).
 
 Tokens carry Simple JWT's password-hash revocation claim. A password change
 (profile update or OTP reset) locks the user record, blacklists all
@@ -48,21 +50,22 @@ tokens; password reset already returns newly minted tokens. This intentionally
 invalidates JWTs issued before this hardening deployment because they lack the
 revocation claim.
 
-`POST logout/` requires an access token and a `refresh` body field. It only
-blacklists a valid refresh token whose `user_id` claim belongs to the
-authenticated user. Invalid, expired, blacklisted, stale, or another user's
-refresh token returns the existing generic 400 validation response.
+`POST logout/` reads and blacklists the refresh cookie when valid, then expires
+that cookie. It is idempotent for missing, invalid, expired, or already
+blacklisted cookies and does not require a still-valid access token. Cookie
+mutations require an exact trusted `Origin`; CORS preflight (`OPTIONS`) remains
+available for explicitly configured storefront origins.
 
 ## Username/password endpoints
 
 `POST signup/` accepts a 5–150 character ASCII-letter/digit/underscore
 username and a password. The same username limit and character rule apply to
 profile onboarding and repeatable profile updates. It returns `201` with the
-minimal username and a token pair. Case-conflicting and concurrent signup
-attempts return the existing generic 400 response.
+minimal username, an access token, and a refresh cookie. Case-conflicting and
+concurrent signup attempts return the existing generic 400 response.
 
 `POST login/userpass/` accepts `username` and `password`, returning `200` with
-a message and a token pair. Lookups are case-insensitive and all absent,
+a message, an access token, and a refresh cookie. Lookups are case-insensitive and all absent,
 inactive, unusable-password, and incorrect-password cases return the same 401
 error. Absent and legacy-ambiguous username paths perform a dummy password hash
 before returning, reducing practical timing enumeration. A separate security
@@ -71,12 +74,11 @@ IP; the endpoint also has the `login` anonymous-IP throttle.
 
 The React storefront exposes both direct username/password endpoints. Signup
 and Login feed the same centralized session handling: access tokens remain in
-memory and refresh tokens remain in `sessionStorage`. On reload, a successful
-refresh restores `authenticated` state before the protected Cart provider
-mounts. An invalid or expired refresh returns the app to `anonymous` and clears
-tokens; transient refresh failures such as throttling, network errors, or 5xx
-responses preserve the refresh token and expose a retryable restoration-error
-state instead. Its visible SMS signup and sign-in alternatives are genuinely
+memory and the refresh cookie is never readable by JavaScript. On every startup,
+the app makes one silent refresh attempt before protected providers mount. An
+invalid or expired cookie returns the app to `anonymous`; transient refresh
+failures such as throttling, network errors, or 5xx responses preserve the
+session and expose a retryable restoration-error state instead. Its visible SMS signup and sign-in alternatives are genuinely
 disabled and make no OTP request while the external SMS service is unavailable.
 
 Its protected `/account` route keeps profile data and drafts only in React
@@ -105,7 +107,7 @@ The Celery task remains a placeholder and does not call an SMS provider.
   `POST password-reset/verify-and-reset/` applies account-independent password
   checks before OTP verification. After a matching OTP is proven, it applies
   the full user-aware password policy before consuming the OTP, revokes prior
-  sessions, and returns a new token pair.
+  sessions, and returns a new access token plus refresh cookie.
 
 Each request and verification endpoint applies two independent limits from the
 fail-closed `security` cache: one keyed by normalized phone and one by client

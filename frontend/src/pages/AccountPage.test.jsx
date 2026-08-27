@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { clearTokens, setTokens } from "../api/tokenStore";
+import { clearTokens, setAccessToken } from "../api/tokenStore";
 import { profileResponse } from "../test/fixtures";
 import AccountPage from "./AccountPage";
 
@@ -30,7 +30,7 @@ function deferred() {
 
 beforeEach(() => {
   clearTokens();
-  setTokens({ access: "access-token", refresh: "refresh-token" });
+  setAccessToken("access-token");
   vi.stubGlobal("fetch", vi.fn());
 });
 

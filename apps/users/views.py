@@ -1,16 +1,18 @@
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import PhoneInputSerializer, VerifyOTPInputSerializer, UserPassLoginInputSerializer, \
-    UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer, LogoutInputSerializer, \
+    UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer, \
     PasswordResetVerifyInputSerializer, UserSignupInputSerializer, UserSignupOutputSerializer
 from .services.signup_otp_service import SendOTPService
 from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
 from .services.profile_phone_service import ProfilePhoneVerificationService
-from .jwt import issue_tokens_for_user
+from .jwt import SensitiveAuthResponseMixin, issue_tokens_for_user, token_response, delete_refresh_cookie
+from .permissions import CookieAuthOriginPermission
 from .selectors import UserSelector
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
@@ -25,10 +27,10 @@ from ..lib.throttle import (
 )
 
 
-class UserSignupAPIView(APIView):
+class UserSignupAPIView(SensitiveAuthResponseMixin, APIView):
     """Direct, anonymous username/password signup with a dedicated strict throttle."""
 
-    permission_classes = (AllowAny,)
+    permission_classes = (CookieAuthOriginPermission,)
     throttle_classes = (SignupRateThrottle,)
 
     def post(self, request):
@@ -49,12 +51,10 @@ class UserSignupAPIView(APIView):
 
         AppLogger.log_activity(msg="User registered with username/password", user=user)
         output_serializer = UserSignupOutputSerializer(user)
-        return Response(
-            {
-                "user": output_serializer.data,
-                "tokens": issue_tokens_for_user(user),
-            },
-            status=status.HTTP_201_CREATED,
+        return token_response(
+            payload={"user": output_serializer.data},
+            tokens=issue_tokens_for_user(user),
+            status_code=status.HTTP_201_CREATED,
         )
 
 
@@ -74,8 +74,8 @@ class SendOTPCodeAPIView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class VerifyOTPAPIView(APIView):
-    permission_classes = (AllowAny,)
+class VerifyOTPAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (CookieAuthOriginPermission,)
     throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
@@ -91,12 +91,16 @@ class VerifyOTPAPIView(APIView):
             submitted_otp=submitted_otp
         )
 
-        return Response(result, status=status.HTTP_201_CREATED)
+        return token_response(
+            payload={"message": result["message"]},
+            tokens=result["tokens"],
+            status_code=status.HTTP_201_CREATED,
+        )
 
 
-class LoginWithUserPassAPIView(APIView):
+class LoginWithUserPassAPIView(SensitiveAuthResponseMixin, APIView):
     throttle_classes = (PasswordLoginRateThrottle,)
-    permission_classes = (AllowAny,)
+    permission_classes = (CookieAuthOriginPermission,)
 
     def post(self, request):
         serializer = UserPassLoginInputSerializer(data=request.data)
@@ -112,7 +116,11 @@ class LoginWithUserPassAPIView(APIView):
             client_ip=BaseThrottle().get_ident(request),
         )
 
-        return Response(result, status=status.HTTP_200_OK)
+        return token_response(
+            payload={"message": result["message"]},
+            tokens=result["tokens"],
+            status_code=status.HTTP_200_OK,
+        )
 
 
 class SendOtpLoginAPIView(APIView):
@@ -131,8 +139,8 @@ class SendOtpLoginAPIView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class LoginWithOTPCodeAPIView(APIView):
-    permission_classes = (AllowAny,)
+class LoginWithOTPCodeAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (CookieAuthOriginPermission,)
     throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
@@ -148,7 +156,11 @@ class LoginWithOTPCodeAPIView(APIView):
             submitted_otp=submitted_otp
         )
 
-        return Response(result, status=status.HTTP_200_OK)
+        return token_response(
+            payload={"message": result["message"]},
+            tokens=result["tokens"],
+            status_code=status.HTTP_200_OK,
+        )
 
 
 class SendProfilePhoneOTPAPIView(APIView):
@@ -248,23 +260,14 @@ class UserProfileUpdateAPIView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-class LogoutAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+class LogoutAPIView(SensitiveAuthResponseMixin, APIView):
+    authentication_classes = ()
+    permission_classes = (CookieAuthOriginPermission,)
 
     def post(self, request):
-        serializer = LogoutInputSerializer(data=request.data)
-
-        serializer.is_valid(raise_exception=True)
-
-        UserAuthService.logout_user(
-            user=request.user,
-            refresh_token=serializer.validated_data['refresh']
-        )
-
-        return Response(
-            {"message": "successfully logged out."},
-            status=status.HTTP_200_OK
-        )
+        response = Response({"message": "successfully logged out."}, status=status.HTTP_200_OK)
+        UserAuthService.logout_user(request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME))
+        return delete_refresh_cookie(response)
 
 
 class SendPasswordResetOtpAPIView(APIView):
@@ -283,8 +286,8 @@ class SendPasswordResetOtpAPIView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class VerifyAndResetPasswordAPIView(APIView):
-    permission_classes = (AllowAny,)
+class VerifyAndResetPasswordAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (CookieAuthOriginPermission,)
     throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
     def post(self, request):
@@ -298,4 +301,8 @@ class VerifyAndResetPasswordAPIView(APIView):
             new_password=serializer.validated_data['password']
         )
 
-        return Response(result, status=status.HTTP_200_OK)
+        return token_response(
+            payload={"message": result["message"]},
+            tokens=result["tokens"],
+            status_code=status.HTTP_200_OK,
+        )

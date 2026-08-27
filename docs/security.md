@@ -25,18 +25,24 @@ delegated staff cannot inspect carts owned by staff or superusers. Admin
 password changes and customer deactivation blacklist all outstanding refresh
 tokens.
 
-Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` rotates refresh tokens and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists only a submitted refresh belonging to the authenticated user. These controls intentionally invalidate tokens issued before the password-revocation claim was enabled.
+Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` reads a host-only, `HttpOnly`, Secure-in-production `exon_refresh_token` cookie at `/api/v1/users/`, rotates it, and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists the cookie's refresh token when valid and expires the cookie, even when the access token is expired. Login, signup, OTP verification, password reset, refresh, and logout responses use `Cache-Control: no-store` and compatible no-cache headers.
 
 The React storefront centralizes bearer-token handling. Its access token is
-memory-only and its rotating refresh token uses `sessionStorage`; no component
-logs or directly persists either token. `sessionStorage` limits persistence to
-the browser session compared with `localStorage`, but any browser-readable
-bearer token remains exposed to JavaScript after a successful XSS compromise.
-Consequently this is a usability/security trade-off within the existing JWT
-contract, not an HttpOnly-cookie security claim. A protected 401 shares one
-in-flight refresh, retries once, and clears application authentication when
-refresh fails. Safe internal-path validation prevents a Login return target
-from becoming an external redirect.
+memory-only and its rotating refresh token is stored only in the persistent
+`HttpOnly` cookie; no component logs or directly persists either token. Startup
+silently refreshes once, protected 401s share one in-flight refresh and retry
+only after receiving a non-empty access token. A 401 refresh is an authoritative
+anonymous result; network, 429, and 5xx failures preserve the session as a
+retryable restoration error. Safe internal-path validation prevents a Login
+return target from becoming an external redirect.
+
+Cookie-backed POST operations (refresh, logout, and token-issuing browser
+flows) require an exact trusted `Origin` and explicit CORS allowlist. SameSite
+Lax reduces cross-site submission, but Origin validation is retained as the
+server-side CSRF defense because these DRF JWT views do not inherit
+SessionAuthentication's automatic CSRF enforcement. OPTIONS is allowed so
+trusted browser preflight can complete; actual mutation requests remain
+fail-closed.
 
 The protected Account page keeps profile responses and form drafts in React
 memory only; it does not persist profile PII in `localStorage` or

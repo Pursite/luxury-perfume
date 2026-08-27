@@ -5,6 +5,7 @@ from rest_framework import status
 from apps.users.models import CustomUser
 from apps.users.services.signup_otp_service import SendOTPService
 from apps.users.tests.factories import UserFactory
+from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME
 
 
 pytestmark = pytest.mark.django_db
@@ -174,7 +175,9 @@ class TestSignupOTPAPI:
 
         assert first_response.status_code == status.HTTP_201_CREATED
         assert first_response.data["message"] == "signup confirmed."
-        assert set(first_response.data["tokens"]) == {"access", "refresh"}
+        assert set(first_response.data["tokens"]) == {"access"}
+        assert first_response.cookies[REFRESH_TOKEN_COOKIE_NAME]["httponly"]
+        assert "no-store" in first_response["Cache-Control"]
         user = CustomUser.objects.get(phone_number=phone_number)
         assert user.has_usable_password() is False
         assert user.is_profile_complete is False

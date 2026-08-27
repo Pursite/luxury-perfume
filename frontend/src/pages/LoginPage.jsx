@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import DisabledSmsOption from "../components/DisabledSmsOption";
 import AuthLayout from "../components/AuthLayout";
+import ErrorState from "../components/ErrorState";
 import PasswordField from "../components/PasswordField";
 import useAuth from "../hooks/useAuth";
 import useDocumentTitle from "../hooks/useDocumentTitle";
@@ -18,6 +19,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  if (auth.status === "initializing") {
+    return <div className="route-loading" role="status" aria-label="Restoring your session" />;
+  }
+  if (auth.status === "restoration_error") {
+    return (
+      <ErrorState
+        title="Your session could not be restored"
+        message={auth.sessionError}
+        onRetry={auth.retrySession}
+      />
+    );
+  }
 
   if (auth.isAuthenticated) {
     return <Navigate to={safeInternalPath(location.state?.returnTo)} replace />;

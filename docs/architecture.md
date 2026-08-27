@@ -153,7 +153,14 @@ Redis has two configured cache aliases with separate URLs:
   authentication protection. Catalogue-read throttling remains on the ordinary
   `default` cache with catalogue caching.
 
-JWT authentication is the DRF default. The custom refresh serializer validates Simple JWT's password-hash revocation claim while locking the user row, then rotates and blacklists the submitted refresh. Password changes use that same lock, blacklist all outstanding refresh tokens, and invalidate earlier access tokens. See [authentication.md](authentication.md).
+JWT authentication is the DRF default. Access tokens are sent as Bearer
+credentials; rotating refresh tokens are kept in a host-only HttpOnly cookie
+and never returned to browser JavaScript. The custom refresh serializer
+validates Simple JWT's password-hash revocation claim while locking the user
+row, then rotates and blacklists the submitted refresh. Password changes use
+that same lock, blacklist all outstanding refresh tokens, and invalidate earlier
+access tokens. Cookie-backed auth mutations require a trusted Origin and
+explicit credentialed CORS. See [authentication.md](authentication.md).
 
 ## Configuration and logging
 
