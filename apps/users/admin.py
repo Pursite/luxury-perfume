@@ -1,5 +1,4 @@
 from django.contrib import admin, messages
-from django.contrib.admin.actions import delete_selected
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group
 from django.contrib.admin.utils import unquote
@@ -14,6 +13,7 @@ from apps.users.forms import (
     CustomUserChangeForm,
     CustomUserCreationForm,
 )
+from apps.lib.admin_actions import protected_delete_selected
 from apps.users.jwt import revoke_user_refresh_tokens
 from apps.users.models import Address, CustomUser
 from apps.users.services.user_service import (
@@ -185,10 +185,18 @@ class CustomUserAdmin(UserAdmin):
             self.message_user(request, str(exc), level=messages.ERROR)
             return HttpResponseRedirect(reverse("admin:users_customuser_changelist"))
 
-    @admin.action(description="Delete selected users")
+    @admin.action(
+        permissions=("delete",),
+        description="Delete selected users",
+    )
     def delete_selected_users(self, request, queryset):
         try:
-            return delete_selected(self, request, queryset)
+            return protected_delete_selected(
+                modeladmin=self,
+                request=request,
+                queryset=queryset,
+                action_name="delete_selected_users",
+            )
         except UserDeletionProtectedError as exc:
             self.message_user(request, str(exc), level=messages.ERROR)
             return HttpResponseRedirect(request.get_full_path())
@@ -196,8 +204,6 @@ class CustomUserAdmin(UserAdmin):
     def get_actions(self, request):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
-        if request.method == "POST" and request.POST.get("post") and request.POST.get("action") == "delete_selected":
-            actions["delete_selected"] = actions["delete_selected_users"]
         return actions
 
 

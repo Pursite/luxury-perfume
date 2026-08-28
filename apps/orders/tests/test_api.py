@@ -50,12 +50,21 @@ class OrderReadApiTests(APITestCase):
         order, address, products = self._checkout()
         product = products[0]
         original_item = order.items.get()
-        original_address = order.shipping_full_address
+        original_shipping = (
+            order.shipping_title,
+            order.shipping_full_address,
+            order.shipping_postal_code,
+        )
         product.name = "Changed product"
+        product.sku = "CHANGED-SKU"
         product.price = "999.00"
-        product.save(update_fields=("name", "price", "updated_at"))
+        product.save(update_fields=("name", "sku", "price", "updated_at"))
+        address.title = "Changed title"
         address.full_address = "Changed address"
-        address.save(update_fields=("full_address", "updated_at"))
+        address.postal_code = "0987654321"
+        address.save(
+            update_fields=("title", "full_address", "postal_code", "updated_at")
+        )
         address.delete()
         self.client.force_authenticate(order.user)
 
@@ -67,7 +76,14 @@ class OrderReadApiTests(APITestCase):
         self.assertEqual(line["product_sku"], original_item.product_sku)
         self.assertEqual(line["unit_price"], "25.00")
         self.assertEqual(line["line_total"], "25.00")
-        self.assertEqual(response.data["shipping_full_address"], original_address)
+        self.assertEqual(
+            (
+                response.data["shipping_title"],
+                response.data["shipping_full_address"],
+                response.data["shipping_postal_code"],
+            ),
+            original_shipping,
+        )
         order.refresh_from_db()
         self.assertIsNone(order.source_address_id)
 

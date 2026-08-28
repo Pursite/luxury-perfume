@@ -1,10 +1,12 @@
 import pytest
 from uuid import uuid4
 from django.contrib import admin
+from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.models import Permission
 from django.test import RequestFactory
 from django.urls import reverse
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.utils import timezone
 
 from apps.orders.models import Order
 from apps.users.models import CustomUser
@@ -89,8 +91,8 @@ def test_custom_bulk_delete_confirmation_post_deletes_safe_records(client, model
     url = reverse(f"admin:{model._meta.app_label}_{model._meta.model_name}_changelist")
     first = client.post(url, {"action": action_name, ACTION_CHECKBOX_NAME: [str(target.pk)], "index": "0"})
     assert first.status_code == 200
-    assert b"delete_selected" in first.content
-    confirmed = client.post(url, {"action": "delete_selected", ACTION_CHECKBOX_NAME: [str(target.pk)], "post": "yes"}, follow=True)
+    assert f'name="action" value="{action_name}"'.encode() in first.content
+    confirmed = client.post(url, {"action": action_name, ACTION_CHECKBOX_NAME: [str(target.pk)], "post": "yes"}, follow=True)
     assert confirmed.status_code == 200
     assert not model.objects.filter(pk=target.pk).exists()
 
@@ -109,13 +111,73 @@ def test_custom_bulk_delete_confirmation_keeps_mixed_commercial_selection_atomic
     action_name = "delete_selected_products" if model is Product else "delete_selected_users"
     url = reverse(f"admin:{model._meta.app_label}_{model._meta.model_name}_changelist")
     selected = [str(protected.pk), str(safe.pk)]
-    assert client.post(url, {"action": action_name, ACTION_CHECKBOX_NAME: selected, "index": "0"}).status_code == 200
-    response = client.post(url, {"action": "delete_selected", ACTION_CHECKBOX_NAME: selected, "post": "yes"}, follow=True)
+    first = client.post(
+        url,
+        {"action": action_name, ACTION_CHECKBOX_NAME: selected, "index": "0"},
+    )
+    assert first.status_code == 200
+    assert not first.context["perms_lacking"]
+    assert f'name="action" value="{action_name}"'.encode() in first.content
+    response = client.post(url, {"action": action_name, ACTION_CHECKBOX_NAME: selected, "post": "yes"}, follow=True)
     assert response.status_code == 200
     assert model.objects.filter(pk=protected.pk).exists()
     assert model.objects.filter(pk=safe.pk).exists()
     assert Order.objects.filter(pk=protected_order.pk).exists()
     assert "successfully deleted" not in response.content.decode().lower()
+    assert "cannot be deleted" in response.content.decode().lower()
+    assert not LogEntry.objects.filter(
+        user=operator,
+        action_flag=DELETION,
+    ).exists()
+
+
+@pytest.mark.parametrize("model", (Product, CustomUser))
+def test_custom_bulk_delete_protected_selection_reports_error(client, model):
+    operator = UserFactory(is_staff=True, is_superuser=True)
+    client.force_login(operator)
+    if model is Product:
+        protected_order, protected = _commercial_order()
+    else:
+        protected = UserFactory()
+        protected_order, _ = _commercial_order(user=protected)
+    action_name = (
+        "delete_selected_products" if model is Product else "delete_selected_users"
+    )
+    url = reverse(
+        f"admin:{model._meta.app_label}_{model._meta.model_name}_changelist"
+    )
+
+    first = client.post(
+        url,
+        {
+            "action": action_name,
+            ACTION_CHECKBOX_NAME: [str(protected.pk)],
+            "index": "0",
+        },
+    )
+    assert first.status_code == 200
+    assert not first.context["perms_lacking"]
+    assert f'name="action" value="{action_name}"'.encode() in first.content
+    response = client.post(
+        url,
+        {
+            "action": action_name,
+            ACTION_CHECKBOX_NAME: [str(protected.pk)],
+            "post": "yes",
+        },
+        follow=True,
+    )
+
+    assert response.status_code == 200
+    assert model.objects.filter(pk=protected.pk).exists()
+    assert Order.objects.filter(pk=protected_order.pk).exists()
+    content = response.content.decode().lower()
+    assert "cannot be deleted" in content
+    assert "successfully deleted" not in content
+    assert not LogEntry.objects.filter(
+        user=operator,
+        action_flag=DELETION,
+    ).exists()
 
 
 def test_order_admin_real_urls_enforce_privileged_owner_boundary(client):
@@ -124,6 +186,11 @@ def test_order_admin_real_urls_enforce_privileged_owner_boundary(client):
     ordinary = _order_for(UserFactory())
     staff_owned = _order_for(UserFactory(is_staff=True))
     superuser_owned = _order_for(UserFactory(is_staff=True, is_superuser=True))
+    Order.objects.filter(pk=staff_owned.pk).update(
+        status=Order.Status.PROCESSING,
+        processing_at=timezone.now(),
+    )
+    staff_owned.refresh_from_db()
     client.force_login(delegated)
     ordinary_url = reverse("admin:orders_order_change", args=[ordinary.pk])
     assert client.get(ordinary_url).status_code == 200
@@ -137,7 +204,7 @@ def test_order_admin_real_urls_enforce_privileged_owner_boundary(client):
     )
     assert action_response.status_code == 200
     staff_owned.refresh_from_db()
-    assert staff_owned.status == Order.Status.WAITING_FOR_PAYMENT
+    assert staff_owned.status == Order.Status.PROCESSING
 
     superuser = UserFactory(is_staff=True, is_superuser=True)
     client.force_login(superuser)

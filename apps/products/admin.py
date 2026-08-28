@@ -1,6 +1,5 @@
 from django import forms
 from django.contrib import admin, messages
-from django.contrib.admin.actions import delete_selected
 from django.core.exceptions import ValidationError
 from django.db.models import Case, IntegerField, Value, When
 from django.http import HttpResponseRedirect
@@ -14,6 +13,7 @@ from apps.products.models import (
     ProductFragranceNote,
     ProductImage,
 )
+from apps.lib.admin_actions import protected_delete_selected
 from apps.products.serializers import ProductImageUploadInputSerializer
 from apps.products.services import (
     cleanup_product_image_original_after_rollback,
@@ -229,10 +229,18 @@ class ProductAdmin(admin.ModelAdmin):
             self.message_user(request, str(exc), level=messages.ERROR)
             return HttpResponseRedirect(reverse("admin:products_product_changelist"))
 
-    @admin.action(description="Delete selected products")
+    @admin.action(
+        permissions=("delete",),
+        description="Delete selected products",
+    )
     def delete_selected_products(self, request, queryset):
         try:
-            return delete_selected(self, request, queryset)
+            return protected_delete_selected(
+                modeladmin=self,
+                request=request,
+                queryset=queryset,
+                action_name="delete_selected_products",
+            )
         except ProductDeletionProtectedError as exc:
             self.message_user(request, str(exc), level=messages.ERROR)
             return HttpResponseRedirect(request.get_full_path())
@@ -240,11 +248,6 @@ class ProductAdmin(admin.ModelAdmin):
     def get_actions(self, request):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
-        # Django's built-in confirmation form posts action=delete_selected.
-        # Map only that confirmation POST back to our protected wrapper; it is
-        # never exposed as a selectable global action.
-        if request.method == "POST" and request.POST.get("post") and request.POST.get("action") == "delete_selected":
-            actions["delete_selected"] = actions["delete_selected_products"]
         return actions
 
     def get_readonly_fields(self, request, obj=None):
