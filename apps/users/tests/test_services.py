@@ -7,7 +7,7 @@ from apps.users.selectors import UserSelector
 from apps.users.services.login_otp_service import LoginOtpService
 from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
 from apps.users.services.user_auth_service import UserAuthService
-from apps.users.tests.factories import UserFactory
+from apps.users.tests.factories import AddressFactory, UserFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -199,3 +199,25 @@ def test_profile_completion_refuses_password_input_instead_of_storing_it_raw():
     user.refresh_from_db()
     assert user.password == original_password
     assert Address.objects.filter(user=user).count() == 0
+
+
+def test_delete_users_service_preserves_users_with_commercial_orders():
+    """Commercial retention must be a domain error instead of raw ProtectedError."""
+    from apps.orders.models import Order
+    from apps.users.services.user_service import (
+        UserDeletionProtectedError,
+        delete_users_service,
+    )
+
+    user = UserFactory()
+    address = AddressFactory(user=user)
+    Order.objects.create_waiting(
+        user=user, source_address=address,
+        idempotency_key="ea12437e-16d3-40cc-85aa-2c27dfd7d15b",
+        subtotal="1.00", shipping_amount="0.00", total="1.00",
+    )
+
+    with pytest.raises(UserDeletionProtectedError):
+        delete_users_service(user_ids=[user.pk], allow_privileged=False)
+
+    assert CustomUser.objects.filter(pk=user.pk).exists()

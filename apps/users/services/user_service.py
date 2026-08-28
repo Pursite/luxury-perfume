@@ -2,9 +2,14 @@ from collections.abc import Iterable
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 
 from apps.users.jwt import revoke_user_refresh_tokens
 from apps.users.models import Address, CustomUser
+
+
+class UserDeletionProtectedError(Exception):
+    """Raised when commercial records require retaining a user."""
 
 
 @transaction.atomic
@@ -47,7 +52,20 @@ def delete_users_service(
 
     locked_user_ids = [user.pk for user in locked_users]
     if locked_user_ids:
-        CustomUser.objects.filter(pk__in=locked_user_ids).delete()
+        # Privilege checks above deliberately run first. Commercial protection is
+        # all-or-nothing for the requested set.
+        from apps.orders.models import Order
+
+        if Order.objects.filter(user_id__in=locked_user_ids).exists():
+            raise UserDeletionProtectedError(
+                "Users with commercial orders cannot be deleted."
+            )
+        try:
+            CustomUser.objects.filter(pk__in=locked_user_ids).delete()
+        except ProtectedError as exc:
+            raise UserDeletionProtectedError(
+                "Users with commercial orders cannot be deleted."
+            ) from exc
     return len(locked_user_ids)
 
 

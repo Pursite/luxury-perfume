@@ -1,21 +1,25 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import GroupAdmin, UserAdmin
 from django.contrib.auth.models import Group
 from django.contrib.admin.utils import unquote
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 from apps.users.forms import (
     CustomAdminPasswordChangeForm,
     CustomUserChangeForm,
     CustomUserCreationForm,
 )
+from apps.lib.admin_actions import protected_delete_selected
 from apps.users.jwt import revoke_user_refresh_tokens
 from apps.users.models import Address, CustomUser
 from apps.users.services.user_service import (
     delete_addresses_service,
     delete_users_service,
+    UserDeletionProtectedError,
 )
 
 
@@ -30,6 +34,7 @@ class AddressInline(admin.TabularInline):
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
+    actions = ("delete_selected_users",)
     add_form = CustomUserCreationForm
     form = CustomUserChangeForm
     change_password_form = CustomAdminPasswordChangeForm
@@ -172,6 +177,34 @@ class CustomUserAdmin(UserAdmin):
             user_ids=queryset.values_list("pk", flat=True),
             allow_privileged=request.user.is_superuser,
         )
+
+    def delete_view(self, request, object_id, extra_context=None):
+        try:
+            return super().delete_view(request, object_id, extra_context)
+        except UserDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:users_customuser_changelist"))
+
+    @admin.action(
+        permissions=("delete",),
+        description="Delete selected users",
+    )
+    def delete_selected_users(self, request, queryset):
+        try:
+            return protected_delete_selected(
+                modeladmin=self,
+                request=request,
+                queryset=queryset,
+                action_name="delete_selected_users",
+            )
+        except UserDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(request.get_full_path())
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
 
 
 @admin.register(Address)

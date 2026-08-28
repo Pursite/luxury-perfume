@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.products",
     "apps.cart",
+    "apps.orders",
 ]
 
 MIDDLEWARE = [
@@ -247,5 +248,11 @@ CELERY_TASK_MAX_RETRIES = 3
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_TASK_TRACK_STARTED = True
+CELERY_BEAT_SCHEDULE = {
+    "orders-sweep-expired-reservations": {
+        "task": "apps.orders.tasks.sweep_expired_orders",
+        "schedule": 60.0,
+    },
+}
 
 AUTH_USER_MODEL = "users.CustomUser"

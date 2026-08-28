@@ -1,7 +1,9 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import Case, IntegerField, Value, When
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 from apps.products.models import (
     Brand,
@@ -11,6 +13,7 @@ from apps.products.models import (
     ProductFragranceNote,
     ProductImage,
 )
+from apps.lib.admin_actions import protected_delete_selected
 from apps.products.serializers import ProductImageUploadInputSerializer
 from apps.products.services import (
     cleanup_product_image_original_after_rollback,
@@ -18,6 +21,9 @@ from apps.products.services import (
     delete_product_image_service,
     delete_product_service,
     delete_products_service,
+    ProductDeletionProtectedError,
+    ProductAdminUpdateValidationError,
+    update_product_from_admin_service,
     update_product_image_service,
 )
 
@@ -109,6 +115,7 @@ class FragranceNoteAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    actions = ("delete_selected_products",)
     list_display = (
         "uuid",
         "name",
@@ -153,12 +160,36 @@ class ProductAdmin(admin.ModelAdmin):
                 form_url=form_url,
                 extra_context=extra_context,
             )
+        except ProductAdminUpdateValidationError as exc:
+            for product_image in request._created_product_images:
+                cleanup_product_image_original_after_rollback(product_image)
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(request.path)
         except Exception:
             for product_image in request._created_product_images:
                 cleanup_product_image_original_after_rollback(product_image)
             raise
         finally:
             del request._created_product_images
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            return super().save_model(request, obj, form, change)
+        changed_data = {
+            field_name: form.cleaned_data[field_name]
+            for field_name in form.changed_data
+            if field_name in form.cleaned_data and field_name != "stock"
+        }
+        original_stock = form.initial.get("stock") if "stock" in form.changed_data else None
+        submitted_stock = form.cleaned_data.get("stock") if "stock" in form.changed_data else None
+        updated = update_product_from_admin_service(
+            product_id=obj.pk,
+            changed_data=changed_data,
+            original_stock=original_stock,
+            submitted_stock=submitted_stock,
+        )
+        obj.refresh_from_db()
+        return updated
 
     def save_formset(self, request, form, formset, change):
         if formset.model is not ProductImage:
@@ -190,6 +221,34 @@ class ProductAdmin(admin.ModelAdmin):
         delete_products_service(
             product_ids=queryset.values_list("pk", flat=True),
         )
+
+    def delete_view(self, request, object_id, extra_context=None):
+        try:
+            return super().delete_view(request, object_id, extra_context)
+        except ProductDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:products_product_changelist"))
+
+    @admin.action(
+        permissions=("delete",),
+        description="Delete selected products",
+    )
+    def delete_selected_products(self, request, queryset):
+        try:
+            return protected_delete_selected(
+                modeladmin=self,
+                request=request,
+                queryset=queryset,
+                action_name="delete_selected_products",
+            )
+        except ProductDeletionProtectedError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(request.get_full_path())
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
 
     def get_readonly_fields(self, request, obj=None):
         if obj is None:

@@ -50,6 +50,21 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  celery-beat:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    command:
+      - celery
+      - -A
+      - config
+      - beat
+      - --loglevel=INFO
+
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   db:
     logging:
       driver: local

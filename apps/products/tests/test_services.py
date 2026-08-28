@@ -3,14 +3,6 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 
 from apps.products.models import Product, ProductFragranceNote, ProductImage
-from apps.products.services import (
-    _enqueue_thumbnail,
-    create_product_image_service,
-    create_product_service,
-    delete_product_image_service,
-    delete_product_service,
-    update_product_service,
-)
 from apps.products.tests.factories import (
     BrandFactory,
     CategoryFactory,
@@ -18,8 +10,55 @@ from apps.products.tests.factories import (
     ProductFactory,
     ProductImageFactory,
 )
+from apps.products.services import (
+    _enqueue_thumbnail,
+    create_product_image_service,
+    create_product_service,
+    delete_product_image_service,
+    delete_product_service,
+    delete_products_service,
+    update_product_service,
+)
 
 
+def test_delete_products_with_order_items_raises_domain_protection_error(db):
+    """Commercial references must prevent a hard product delete before Django raises raw ProtectedError."""
+    from apps.cart.models import Cart, CartItem
+    from apps.orders.services.checkout import create_waiting_order
+    from apps.users.tests.factories import AddressFactory
+    from apps.products.tests.factories import ProductFactory
+    from apps.products.services import ProductDeletionProtectedError
+
+    address = AddressFactory()
+    product = ProductFactory(stock=2)
+    cart = Cart.objects.create(user=address.user)
+    CartItem.objects.create(cart=cart, product=product, quantity=1)
+    create_waiting_order(
+        user=address.user,
+        address_id=address.pk,
+        idempotency_key="f5d4649b-c58e-4978-9493-6d04496c491f",
+    )
+
+    with pytest.raises(ProductDeletionProtectedError):
+        delete_products_service(product_ids=[product.pk])
+
+
+def test_admin_stock_change_merges_the_form_delta_onto_fresh_locked_stock():
+    """Replacing fresh stock with the stale absolute form value loses reservations."""
+    from apps.products.services import update_product_from_admin_service
+
+    product = ProductFactory(stock=10)
+    Product.objects.filter(pk=product.pk).update(stock=9)
+
+    update_product_from_admin_service(
+        product_id=product.pk,
+        changed_data={},
+        original_stock=10,
+        submitted_stock=8,
+    )
+
+    product.refresh_from_db()
+    assert product.stock == 7
 pytestmark = pytest.mark.django_db
 
 

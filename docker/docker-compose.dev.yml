@@ -20,3 +20,11 @@ services:
       target: final
     volumes:
       - ..:/app
+
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: final
+    volumes:
+      - ..:/app

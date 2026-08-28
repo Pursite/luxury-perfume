@@ -70,6 +70,17 @@ services:
       redis:
         condition: service_healthy
 
+  celery-beat:
+    env_file:
+      - ../.env
+    restart: unless-stopped
+    command: celery -A config beat --loglevel=INFO
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
