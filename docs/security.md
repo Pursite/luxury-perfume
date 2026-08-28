@@ -108,7 +108,9 @@ amount from a locked Order. Dedicated Payment throttles use the fail-closed
 security cache. Callback data is only a lookup hint: capture is accepted only
 after server-to-server provider verification, and Orders decides timeliness
 under its row lock. Redirect destinations must be HTTPS and match a configured
-host allowlist.
+host allowlist. A trusted, canonical initiator IP is mandatory before Payment
+initialization can create an Order, reserve stock, or call a provider; missing
+or malformed direct-peer/proxy information fails the request safely.
 
 The application stores normalized financial identities, amounts, timestamps,
 request correlation, and limited IP/user-agent evidence. It never stores or
@@ -116,6 +118,9 @@ logs PAN, CVV/CVC, PIN, raw card credentials, Authorization values, provider
 secrets, or raw provider payloads. Payment IP/user-agent evidence is scrubbed
 after 180 days by default. Forwarded client IPs are ignored unless the
 immediate peer and proxy chain match configured trusted CIDRs.
+Ordinary structured logs emit only fixed financial events and allowlisted
+correlation identifiers; they never include IPs, user agents, provider
+identities, raw provider data, credentials, or card data.
 
 No real provider adapter or credential contract is present. Production checks
 reject enablement with an unknown provider, unsafe URLs/redirect hosts,

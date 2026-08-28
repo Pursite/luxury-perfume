@@ -1,4 +1,5 @@
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from django.urls import reverse
@@ -119,6 +120,40 @@ def test_initialize_rejects_client_controlled_financial_and_redirect_fields(api_
 
     assert response.status_code == 400
     assert api_provider.create_calls == 0
+
+
+def test_initialize_fails_closed_without_a_trusted_client_ip(api_client, api_provider):
+    address = _ready_user()
+    api_client.force_authenticate(address.user)
+
+    response = api_client.post(
+        reverse("payments:initialize"),
+        {"address_uuid": str(address.pk)},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="45646bd5-54d2-4642-ad1e-9aa117748499",
+        REMOTE_ADDR="",
+        HTTP_X_FORWARDED_FOR="198.51.100.77",
+    )
+
+    assert response.status_code == 400
+    assert Payment.objects.count() == 0
+    assert api_provider.create_calls == 0
+
+
+def test_initialize_generates_fresh_request_id_when_context_is_missing(api_client, api_provider, mocker):
+    address = _ready_user()
+    mocker.patch("apps.payments.views.get_request_id", return_value=None)
+
+    response = _initialize(
+        api_client,
+        address,
+        key="c7ff97f5-b258-4b97-ad30-6c6555946164",
+    )
+
+    payment = Payment.objects.get(uuid=response.json()["payment"]["uuid"])
+    assert response.status_code == 201
+    assert payment.initiator_request_id != "0" * 32
+    assert UUID(payment.initiator_request_id)
 
 
 def test_ambiguous_initialize_returns_bounded_retry_guidance(api_client, api_provider):

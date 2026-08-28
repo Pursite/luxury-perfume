@@ -63,6 +63,10 @@ class PaymentProvider(Protocol):
 
     def lookup_payment(self, *, payment_uuid, expected_amount, expected_currency) -> PaymentInitiationResult: ...
 
+    def parse_callback(self, *, method, query_params, data, headers) -> tuple[str, bool]: ...
+
+    def build_redirect_url(self, provider_session_id) -> str: ...
+
 
 def irt_to_rial(amount: Decimal) -> int:
     converted = Decimal(amount) * Decimal("10")

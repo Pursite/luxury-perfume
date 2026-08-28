@@ -17,6 +17,7 @@ class Payment(models.Model):
         MANUAL_REVIEW = "manual_review", "Manual review"
 
     OPEN_STATUSES = (Status.PENDING, Status.REDIRECT_READY, Status.VERIFYING, Status.MANUAL_REVIEW)
+    RECONCILABLE_STATUSES = (Status.PENDING, Status.REDIRECT_READY, Status.VERIFYING)
 
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -94,6 +95,17 @@ class Payment(models.Model):
                 name="payments_failed_fields",
             ),
             models.CheckConstraint(condition=(~Q(status="manual_review") | (Q(manual_review_at__isnull=False) & ~Q(failure_code=""))), name="payments_review_fields"),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status="manual_review")
+                    | Q(
+                        next_reconciliation_at__isnull=True,
+                        operation_token__isnull=True,
+                        operation_started_at__isnull=True,
+                    )
+                ),
+                name="payments_review_has_no_automatic_work",
+            ),
             models.CheckConstraint(condition=(Q(applied_to_order_at__isnull=True) | Q(status="verified")), name="payments_applied_only_verified"),
             models.CheckConstraint(
                 condition=(
@@ -110,7 +122,7 @@ class Payment(models.Model):
         indexes = [
             models.Index(fields=("order", "-created_at"), name="payments_order_created_idx"),
             models.Index(fields=("status", "-created_at"), name="payments_status_created_idx"),
-            models.Index(fields=("next_reconciliation_at", "id"), condition=Q(status__in=("pending", "redirect_ready", "verifying", "manual_review")), name="payments_reconcile_due_idx"),
+            models.Index(fields=("next_reconciliation_at", "id"), condition=Q(status__in=("pending", "redirect_ready", "verifying")), name="payments_reconcile_due_idx"),
             models.Index(fields=("created_at", "id"), condition=Q(audit_scrubbed_at__isnull=True), name="payments_audit_unscrub_idx"),
         ]
 

@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from apps.orders.models import Order
 from apps.orders.services.transitions import TransitionOutcome, cancel_failed_payment, confirm_verified_payment
+from apps.payments.audit import emit_payment_event
 from apps.payments.exceptions import (
     PaymentNotFoundError,
     ProviderProtocolError,
@@ -67,18 +68,35 @@ def verify_payment(*, provider, provider_session_id, callback_ip=None, record_ca
         if payment.operation_token and payment.operation_started_at and payment.operation_started_at > now - timedelta(seconds=VERIFY_LEASE_SECONDS):
             payment.save(update_fields=callback_fields)
             return PaymentVerificationServiceResult(payment=payment, pending=True)
+        # A prior initiation can have been definitively marked failed, allowing
+        # a newer open attempt on the same Order.  A later provider callback for
+        # that old authority still needs authoritative server verification, but
+        # must not become a second ``VERIFYING`` row and violate the one-open-
+        # attempt invariant.  Keep its terminal status until finalization.
+        retain_failed_status = payment.status == Payment.Status.FAILED
         reconciliation_fields = []
         if not record_callback:
             payment.reconciliation_attempts += 1
             payment.last_reconciled_at = now
             reconciliation_fields = ["reconciliation_attempts", "last_reconciled_at"]
-        payment.status = Payment.Status.VERIFYING
         payment.operation_token = token
         payment.operation_started_at = now
-        payment.failed_at = None
-        payment.manual_review_at = None
-        payment.failure_code = ""
-        payment.save(update_fields=callback_fields + reconciliation_fields + ["status", "operation_token", "operation_started_at", "failed_at", "manual_review_at", "failure_code"])
+        state_fields = ["operation_token", "operation_started_at"]
+        if not retain_failed_status:
+            payment.status = Payment.Status.VERIFYING
+            payment.failed_at = None
+            payment.manual_review_at = None
+            payment.failure_code = ""
+            state_fields += ["status", "failed_at", "manual_review_at", "failure_code"]
+        payment.save(update_fields=callback_fields + reconciliation_fields + state_fields)
+
+    if record_callback:
+        emit_payment_event(
+            "payment_callback_received",
+            payment=payment,
+            provider=provider,
+            outcome="received",
+        )
 
     try:
         result = adapter.verify_payment(
@@ -87,22 +105,46 @@ def verify_payment(*, provider, provider_session_id, callback_ip=None, record_ca
             expected_currency=payment.currency,
         )
     except ProviderTransportError:
+        emit_payment_event("payment_provider_error", payment=payment, provider=provider, outcome="transport")
         result = PaymentVerificationResult(outcome=VerificationOutcome.AMBIGUOUS, diagnostic_code="transport_error")
     except ProviderProtocolError:
-        return _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+        resolved = _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+        emit_payment_event("payment_provider_error", payment=resolved.payment, provider=provider, outcome="protocol")
+        return _emit_verification_events(resolved)
     except ProviderSecurityError:
-        return _move_to_manual_review(payment_id=payment.pk, token=token, code="provider_security")
+        resolved = _move_to_manual_review(payment_id=payment.pk, token=token, code="provider_security")
+        emit_payment_event("payment_provider_error", payment=resolved.payment, provider=provider, outcome="security")
+        return _emit_verification_events(resolved)
     if not isinstance(result, PaymentVerificationResult) or not isinstance(result.outcome, VerificationOutcome):
-        return _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+        resolved = _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+        emit_payment_event("payment_provider_error", payment=resolved.payment, provider=provider, outcome="protocol")
+        return _emit_verification_events(resolved)
     if result.outcome == VerificationOutcome.VERIFIED:
         try:
             _validate_capture_result(result)
         except (InvalidOperation, TypeError, ValidationError, ValueError):
-            return _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+            resolved = _return_to_reconciliation(payment_id=payment.pk, token=token, code="verification_protocol")
+            emit_payment_event("payment_provider_error", payment=resolved.payment, provider=provider, outcome="protocol")
+            return _emit_verification_events(resolved)
     try:
-        return _finalize_verification(payment_id=payment.pk, token=token, result=result)
+        resolved = _finalize_verification(payment_id=payment.pk, token=token, result=result)
     except IntegrityError:
-        return _move_to_manual_review(payment_id=payment.pk, token=token, code="financial_identity_conflict")
+        resolved = _move_to_manual_review(payment_id=payment.pk, token=token, code="financial_identity_conflict")
+        emit_payment_event("payment_provider_error", payment=resolved.payment, provider=provider, outcome="identity_conflict")
+    return _emit_verification_events(resolved)
+
+
+def _emit_verification_events(resolved):
+    payment = resolved.payment
+    if payment.status == Payment.Status.VERIFIED:
+        emit_payment_event("payment_verification_succeeded", payment=payment, outcome="verified")
+        if resolved.refund and resolved.refund.reason == Refund.Reason.LATE_PAYMENT:
+            emit_payment_event("payment_late", payment=payment, refund=resolved.refund, outcome="late")
+    elif payment.status == Payment.Status.FAILED:
+        emit_payment_event("payment_verification_failed", payment=payment, outcome="failed")
+    elif payment.status == Payment.Status.MANUAL_REVIEW:
+        emit_payment_event("payment_manual_review_required", payment=payment, outcome="manual_review")
+    return resolved
 
 
 def _return_to_reconciliation(*, payment_id, token, code):
@@ -127,9 +169,14 @@ def _move_to_manual_review(*, payment_id, token, code):
         payment.status = Payment.Status.MANUAL_REVIEW
         payment.manual_review_at = timezone.now()
         payment.failure_code = code
+        payment.next_reconciliation_at = None
         payment.operation_token = None
         payment.operation_started_at = None
-        payment.save(update_fields=("status", "manual_review_at", "failure_code", "operation_token", "operation_started_at", "updated_at"))
+        payment.save(update_fields=(
+            "status", "manual_review_at", "failure_code",
+            "next_reconciliation_at", "operation_token",
+            "operation_started_at", "updated_at",
+        ))
         return PaymentVerificationServiceResult(payment=payment)
 
 

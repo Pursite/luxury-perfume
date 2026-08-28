@@ -249,6 +249,9 @@ locked `Order.total`, and records normalized provider identities and recovery
 leases. `Refund` records one full captured-amount obligation per Payment.
 PostgreSQL constraints enforce idempotency, provider identity uniqueness, one
 open attempt and one Order-funding Payment, and one Refund per Payment.
+`MANUAL_REVIEW` remains an unresolved attempt for that uniqueness rule, but is
+not a reconcilable state: it has no operation lease or due reconciliation time
+until an explicit superuser service action rearms it.
 
 Initialization and verification use local/external/local phases: short
 transactions claim an operation, provider I/O runs without database locks, and
@@ -261,8 +264,11 @@ remain financially verified and create a durable full Refund.
 Celery sweeps due Payment reconciliation and Refund execution every 60 seconds
 and scrubs retained Payment IP/user-agent evidence daily. Database uniqueness
 and provider UUID idempotency—not Redis or task delivery—provide financial
-safety. The provider registry is disabled by default until a real adapter is
-selected.
+safety. A new Payment is created only after a trusted, canonical initiator IP
+has been obtained; this is enforced by the service before checkout can reserve
+stock. Financial lifecycle events use allowlisted structured correlation fields
+only, while IP and user-agent evidence stays in the database. The provider
+registry is disabled by default until a real adapter is selected.
 
 ## Customer storefront
 

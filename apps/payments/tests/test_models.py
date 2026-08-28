@@ -29,6 +29,16 @@ def test_verified_payment_requires_complete_capture_identity():
         PaymentFactory(status=Payment.Status.VERIFIED, verified_at=timezone.now())
 
 
+def test_manual_review_payment_cannot_have_automatic_reconciliation_work():
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PaymentFactory(
+            status=Payment.Status.MANUAL_REVIEW,
+            manual_review_at=timezone.now(),
+            failure_code="provider_security",
+            next_reconciliation_at=timezone.now(),
+        )
+
+
 def test_provider_transaction_identity_is_unique_per_provider():
     first = PaymentFactory(
         status=Payment.Status.VERIFIED,

@@ -25,8 +25,9 @@ authenticated carts; `frontend/` provides the customer experience.
   reserve stock or prices.
 - A disabled-by-default Payments backend with immutable-price Payment attempts,
   full Refund obligations, provider-adapter contracts, owner-only status,
-  Orders integration, reconciliation tasks, and audit-data retention. No real
-  gateway adapter is selected, so production Payments cannot yet be enabled.
+  Orders integration, reconciliation tasks, trusted initiator-IP evidence, and
+  audit-data retention. No real gateway adapter is selected, so production
+  Payments cannot yet be enabled.
 - A responsive React storefront with a server-filtered catalogue,
   slug-addressed Product Detail gallery and fragrance pyramid,
   username/password JWT login, an authenticated Account Details experience,

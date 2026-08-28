@@ -46,7 +46,10 @@ class RequestContextFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Emit a small, allowlisted JSON record suitable for Docker log drivers."""
 
-    _safe_extra_fields = ("category", "user_id", "path", "task_id")
+    _safe_extra_fields = (
+        "category", "user_id", "path", "task_id", "payment_uuid",
+        "order_uuid", "refund_uuid", "provider", "outcome",
+    )
 
     def format(self, record: logging.LogRecord) -> str:
         event = getattr(record, "event", record.getMessage())

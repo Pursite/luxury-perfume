@@ -6,6 +6,7 @@ from django.test import override_settings
 
 from apps.payments.exceptions import PaymentProviderProtocolError
 from apps.payments.providers.base import irt_to_rial
+from apps.payments.providers.base import PaymentProvider
 from apps.payments.providers.registry import ProviderNotRegistered, get_provider, register_provider
 
 
@@ -35,6 +36,15 @@ def test_irt_to_rial_conversion_never_rounds_fractional_rials():
     assert irt_to_rial(Decimal("125.00")) == 1250
     with pytest.raises(PaymentProviderProtocolError):
         irt_to_rial(Decimal("0.01"))
+
+
+def test_provider_protocol_declares_every_runtime_contract_method():
+    assert callable(PaymentProvider.create_payment)
+    assert callable(PaymentProvider.verify_payment)
+    assert callable(PaymentProvider.refund_payment)
+    assert callable(PaymentProvider.lookup_payment)
+    assert callable(PaymentProvider.parse_callback)
+    assert callable(PaymentProvider.build_redirect_url)
 
 
 @override_settings(PAYMENTS_ENABLED=False)

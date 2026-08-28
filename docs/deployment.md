@@ -616,7 +616,10 @@ That same single Beat process schedules Payment reconciliation and pending
 Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily. No
 additional service is required. Keep `PAYMENTS_ENABLED=False` until a reviewed
 real provider adapter exists, and apply the additive `payments.0001_initial`
-migration before any later enablement.
+and `payments.0002_manual_review_stops_automatic_reconciliation` migrations
+before any later enablement. Manual-review Payments intentionally have no
+automatic reconciliation due time; rearm them only through the audited
+superuser recovery action.
 
 Provider enablement is a separate reviewed operation: configure the registered
 provider and provider-specific secrets, HTTPS public/result URLs, exact

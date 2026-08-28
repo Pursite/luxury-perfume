@@ -15,6 +15,7 @@ from apps.payments.providers.base import (
 )
 from apps.payments.providers.registry import register_provider
 from apps.payments.services.reconciliation import reconcile_payment
+from apps.payments.services.reconciliation import rearm_manual_review_payment
 from apps.payments.tasks import (
     scrub_expired_payment_audit_metadata,
     sweep_pending_refunds,
@@ -23,6 +24,7 @@ from apps.payments.tasks import (
 from apps.payments.tests.factories import PaymentFactory, RefundFactory
 from apps.products.tests.factories import ProductFactory
 from apps.users.tests.factories import AddressFactory
+from apps.users.tests.factories import UserFactory
 
 
 pytestmark = pytest.mark.django_db
@@ -50,6 +52,11 @@ class LookupProvider:
 class MalformedLookupProvider:
     def lookup_payment(self, **kwargs):
         return object()
+
+
+class NeverCallProvider:
+    def verify_payment(self, **kwargs):
+        raise AssertionError("Manual-review payments must not be verified automatically.")
 
 
 def test_reconciliation_uses_canonical_verifier_without_forging_callback_evidence():
@@ -95,6 +102,61 @@ def test_sweepers_queue_only_due_durable_records(mocker):
     assert payment_count == refund_count == 1
     reconcile_delay.assert_called_once_with(due_payment.pk)
     refund_delay.assert_called_once_with(due_refund.pk)
+
+
+def test_reconciliation_sweeper_never_queues_manual_review_payment(mocker):
+    manual_review = PaymentFactory(
+        status=Payment.Status.MANUAL_REVIEW,
+        manual_review_at=timezone.now(),
+        failure_code="provider_security",
+    )
+    reconcile_delay = mocker.patch("apps.payments.tasks.reconcile_payment_task.delay")
+
+    count = sweep_reconcilable_payments()
+
+    assert count == 0
+    reconcile_delay.assert_not_called()
+    manual_review.refresh_from_db()
+    assert manual_review.status == Payment.Status.MANUAL_REVIEW
+    assert manual_review.status not in Payment.RECONCILABLE_STATUSES
+
+
+def test_direct_reconciliation_task_never_resumes_manual_review_payment():
+    register_provider("manual-review", NeverCallProvider())
+    payment = PaymentFactory(
+        provider="manual-review",
+        status=Payment.Status.MANUAL_REVIEW,
+        provider_session_id="manual-session",
+        redirect_ready_at=timezone.now(),
+        manual_review_at=timezone.now(),
+        failure_code="provider_security",
+    )
+
+    result = reconcile_payment(payment_id=payment.pk)
+
+    payment.refresh_from_db()
+    assert result.payment.status == Payment.Status.MANUAL_REVIEW
+    assert payment.operation_token is None
+    assert payment.next_reconciliation_at is None
+
+
+def test_superuser_can_explicitly_rearm_manual_review_payment():
+    payment = PaymentFactory(
+        status=Payment.Status.MANUAL_REVIEW,
+        manual_review_at=timezone.now(),
+        failure_code="provider_security",
+    )
+    operator = UserFactory(is_staff=True, is_superuser=True)
+
+    rearmed = rearm_manual_review_payment(
+        payment_id=payment.pk,
+        requested_by=operator,
+    )
+
+    assert rearmed.status == Payment.Status.PENDING
+    assert rearmed.manual_review_at is None
+    assert rearmed.next_reconciliation_at is not None
+    assert rearmed.operation_token is None
 
 
 def test_audit_scrubber_removes_only_expired_transport_metadata(settings):

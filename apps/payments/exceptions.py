@@ -10,6 +10,10 @@ class PaymentEligibilityError(PaymentError):
     pass
 
 
+class PaymentInitiatorIPError(PaymentEligibilityError):
+    pass
+
+
 class PaymentIdempotencyConflictError(PaymentError):
     pass
 

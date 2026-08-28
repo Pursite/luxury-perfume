@@ -33,7 +33,7 @@ def sweep_reconcilable_payments():
 
     candidate_ids = list(
         Payment.objects.filter(
-            status__in=Payment.OPEN_STATUSES,
+            status__in=Payment.RECONCILABLE_STATUSES,
             next_reconciliation_at__lte=timezone.now(),
         )
         .order_by("next_reconciliation_at", "id")

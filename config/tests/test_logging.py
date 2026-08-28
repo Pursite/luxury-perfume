@@ -98,6 +98,37 @@ def test_json_logging_redacts_payment_provider_and_card_secrets():
         assert secret not in encoded
 
 
+def test_json_logging_allows_financial_correlation_without_transport_evidence():
+    record = logging.LogRecord(
+        name="activity",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="ignored",
+        args=(),
+        exc_info=None,
+    )
+    record.category = "financial"
+    record.event = "payment_initialized"
+    record.payment_uuid = "b48e6c65-b56b-4c69-9f54-5f2b5f5235a9"
+    record.order_uuid = "e3a0d1dc-792f-4cbc-8eae-9c6a1bbfb670"
+    record.refund_uuid = "7a2e5eb5-f1a9-44a3-907a-14f4c3fc309c"
+    record.provider = "fake-payments"
+    record.outcome = "verified"
+    record.initiator_ip = "198.51.100.8"
+    record.provider_session_id = "never-log-this"
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    assert payload["payment_uuid"] == record.payment_uuid
+    assert payload["order_uuid"] == record.order_uuid
+    assert payload["refund_uuid"] == record.refund_uuid
+    assert payload["provider"] == "fake-payments"
+    assert payload["outcome"] == "verified"
+    assert "198.51.100.8" not in json.dumps(payload)
+    assert "never-log-this" not in json.dumps(payload)
+
+
 def test_django_error_records_do_not_forward_untrusted_error_messages():
     record = logging.LogRecord(
         name="django.request",

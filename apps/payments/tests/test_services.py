@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+import logging
 
 import pytest
 from django.contrib.admin.models import CHANGE, LogEntry
@@ -7,6 +8,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from apps.cart.models import Cart, CartItem
+from apps.lib.loggers import activity_logger
 from apps.orders.models import Order, StockReservation
 from apps.orders.services.checkout import create_waiting_order
 from apps.payments.models import Payment, Refund
@@ -16,7 +18,7 @@ from apps.payments.exceptions import (
     PaymentProviderUnavailableError,
     RefundNotEligibleError,
 )
-from apps.payments.exceptions import ProviderProtocolError
+from apps.payments.exceptions import ProviderProtocolError, ProviderSecurityError, ProviderTransportError
 from apps.payments.providers.base import (
     InitiationOutcome,
     PaymentInitiationResult,
@@ -35,6 +37,15 @@ from apps.payments.tests.factories import RefundFactory
 
 
 pytestmark = pytest.mark.django_db
+
+
+class _AuditHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record)
 
 
 class FakeProvider:
@@ -113,6 +124,148 @@ def _initialize(provider, *, key="639d5086-942d-475a-b2ac-7694cc1bdebb"):
     return result, product
 
 
+def test_initialization_emits_allowlisted_financial_audit_event(provider):
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        result, _product = _initialize(provider)
+    finally:
+        activity_logger.removeHandler(handler)
+
+    record = next(record for record in handler.records if record.event == "payment_initialized")
+    assert record.payment_uuid == str(result.payment.uuid)
+    assert record.order_uuid == str(result.order.uuid)
+    assert record.provider == "fake-payments"
+    for forbidden in (
+        "initiator_ip", "callback_ip", "user_agent", "provider_session_id",
+        "provider_transaction_id", "provider_refund_id", "raw_payload",
+    ):
+        assert not hasattr(record, forbidden)
+
+
+def test_verification_emits_callback_and_success_audit_events(provider):
+    initialized, _product = _initialize(provider)
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        verify_payment(
+            provider="fake-payments",
+            provider_session_id=initialized.payment.provider_session_id,
+            callback_ip="203.0.113.8",
+        )
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert {record.event for record in handler.records} >= {
+        "payment_callback_received",
+        "payment_verification_succeeded",
+    }
+
+
+def test_provider_security_failure_emits_error_and_manual_review_audit_events(provider):
+    initialized, _product = _initialize(provider)
+    provider.verification = ProviderSecurityError("untrusted provider response")
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        verify_payment(
+            provider="fake-payments",
+            provider_session_id=initialized.payment.provider_session_id,
+        )
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert {record.event for record in handler.records} >= {
+        "payment_provider_error",
+        "payment_manual_review_required",
+    }
+
+
+def test_provider_transport_failure_emits_safe_error_and_ambiguous_audit_events(provider):
+    initialized, _product = _initialize(provider)
+    provider.verification = ProviderTransportError("gateway timeout details must not be logged")
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        result = verify_payment(
+            provider="fake-payments",
+            provider_session_id=initialized.payment.provider_session_id,
+        )
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert result.pending is True
+    assert {record.event for record in handler.records} >= {"payment_provider_error"}
+    error = next(record for record in handler.records if record.event == "payment_provider_error")
+    assert error.outcome == "transport"
+    assert "gateway timeout" not in error.getMessage()
+
+
+def test_negative_verification_emits_failed_audit_event(provider):
+    initialized, _product = _initialize(provider)
+    provider.verification = PaymentVerificationResult(
+        outcome=VerificationOutcome.NOT_PAID,
+        diagnostic_code="not_paid",
+    )
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        verify_payment(
+            provider="fake-payments",
+            provider_session_id=initialized.payment.provider_session_id,
+        )
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert "payment_verification_failed" in {record.event for record in handler.records}
+
+
+def test_late_verification_emits_late_and_refund_queued_audit_events(provider):
+    initialized, _product = _initialize(provider)
+    expired_at = timezone.now() - timedelta(seconds=1)
+    Order.objects.filter(pk=initialized.order.pk).update(
+        created_at=expired_at - timedelta(minutes=15),
+        reservation_expires_at=expired_at,
+    )
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            verify_payment(
+                provider="fake-payments",
+                provider_session_id=initialized.payment.provider_session_id,
+            )
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert {record.event for record in handler.records} >= {
+        "payment_late",
+        "refund_queued",
+    }
+
+
+def test_refund_resolution_emits_success_retry_and_manual_review_audit_events(provider):
+    succeeded = RefundFactory(provider="fake-payments", payment__provider="fake-payments")
+    retry = RefundFactory(provider="fake-payments", payment__provider="fake-payments")
+    review = RefundFactory(provider="fake-payments", payment__provider="fake-payments")
+    handler = _AuditHandler()
+    activity_logger.addHandler(handler)
+    try:
+        execute_refund(refund_id=succeeded.pk)
+        provider.refund = RefundResult(outcome=RefundOutcome.AMBIGUOUS, diagnostic_code="timeout")
+        execute_refund(refund_id=retry.pk)
+        provider.refund = ProviderProtocolError("malformed response")
+        execute_refund(refund_id=review.pk)
+    finally:
+        activity_logger.removeHandler(handler)
+
+    assert {record.event for record in handler.records} >= {
+        "refund_succeeded",
+        "refund_retry_scheduled",
+        "refund_manual_review_required",
+    }
+
+
 def test_initialization_commits_intent_before_provider_call_and_replays_same_key(provider):
     first, product = _initialize(provider)
     replay = initialize_payment(
@@ -150,6 +303,43 @@ def test_initialization_sanitizes_and_bounds_user_agent_evidence(provider):
     assert "\n" not in result.payment.initiator_user_agent
     assert "\x00" not in result.payment.initiator_user_agent
     assert len(result.payment.initiator_user_agent) <= 512
+
+
+@pytest.mark.parametrize("initiator_ip", (None, "", "not-an-ip", "198.51.100.8/24"))
+def test_initialization_rejects_untrusted_or_malformed_ip_before_checkout(provider, initiator_ip):
+    address, product = _checkout()
+
+    with pytest.raises(PaymentEligibilityError):
+        initialize_payment(
+            user=address.user,
+            idempotency_key="71692c3f-4805-4fe6-aeaa-ab07de2e73e3",
+            address_uuid=address.pk,
+            initiator_ip=initiator_ip,
+            initiator_user_agent="browser",
+            request_id="a" * 32,
+        )
+
+    product.refresh_from_db()
+    assert Payment.objects.count() == 0
+    assert Order.objects.filter(user=address.user).count() == 0
+    assert CartItem.objects.filter(cart__user=address.user).count() == 1
+    assert product.stock == 3
+    assert provider.create_calls == 0
+
+
+def test_initialization_canonicalizes_trusted_ip_evidence(provider):
+    address, _product = _checkout()
+
+    result = initialize_payment(
+        user=address.user,
+        idempotency_key="9d8fd0b9-715a-4f7f-a401-b2e2d89aeea2",
+        address_uuid=address.pk,
+        initiator_ip="2001:0db8:0:0:0:0:0:1",
+        initiator_user_agent="browser",
+        request_id="a" * 32,
+    )
+
+    assert result.payment.initiator_ip == "2001:db8::1"
 
 
 def test_ambiguous_initialization_remains_reconcilable(provider):

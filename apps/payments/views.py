@@ -1,5 +1,5 @@
 from urllib.parse import urlencode
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.http import Http404, HttpResponse
@@ -22,6 +22,7 @@ from apps.orders.services.checkout import (
 from apps.payments.exceptions import (
     PaymentAttemptInProgressError,
     PaymentEligibilityError,
+    PaymentInitiatorIPError,
     PaymentIdempotencyConflictError,
     PaymentNotFoundError,
     PaymentProviderProtocolError,
@@ -67,10 +68,12 @@ class PaymentInitializeAPIView(APIView):
                 order_uuid=serializer.validated_data.get("order_uuid"),
                 initiator_ip=get_trusted_client_ip(request),
                 initiator_user_agent=request.headers.get("User-Agent", ""),
-                request_id=get_request_id() or "0" * 32,
+                request_id=get_request_id() or uuid4().hex,
             )
         except PaymentNotFoundError as exc:
             raise Http404 from exc
+        except PaymentInitiatorIPError as exc:
+            raise serializers.ValidationError({"detail": "Unable to determine a trusted client address."}) from exc
         except (PaymentIdempotencyConflictError, PaymentAttemptInProgressError, PaymentEligibilityError, ActiveCheckoutError) as exc:
             return Response({"code": "payment_conflict", "detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except (PaymentProviderUnavailableError, PaymentProviderProtocolError) as exc:

@@ -6,6 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.payments.audit import emit_payment_event
 from apps.payments.exceptions import (
     ProviderProtocolError,
     ProviderSecurityError,
@@ -36,6 +37,8 @@ def create_refund_obligation(*, payment, reason):
     from apps.payments.tasks import execute_refund_task
 
     transaction.on_commit(lambda: execute_refund_task.delay(refund.pk))
+    if _created:
+        emit_payment_event("refund_queued", payment=payment, refund=refund, outcome=reason)
     return refund
 
 
@@ -119,7 +122,9 @@ def execute_refund(*, refund_id):
             refund.next_retry_at = timezone.now() + timedelta(seconds=delay_seconds)
             refund.failure_code = (result.diagnostic_code or "refund_ambiguous")[:64]
             refund.save(update_fields=("status", "operation_token", "operation_started_at", "last_failed_at", "next_retry_at", "failure_code", "updated_at"))
-        return refund
+        resolved = refund
+    _emit_refund_events(resolved)
+    return resolved
 
 
 def _set_manual_review(refund, code):
@@ -131,6 +136,15 @@ def _set_manual_review(refund, code):
     refund.save(update_fields=("status", "manual_review_at", "failure_code", "operation_token", "operation_started_at", "updated_at"))
 
 
+def _emit_refund_events(refund):
+    if refund.status == Refund.Status.REFUNDED:
+        emit_payment_event("refund_succeeded", refund=refund, outcome="refunded")
+    elif refund.status == Refund.Status.MANUAL_REVIEW:
+        emit_payment_event("refund_manual_review_required", refund=refund, outcome="manual_review")
+    elif refund.status == Refund.Status.PENDING:
+        emit_payment_event("refund_retry_scheduled", refund=refund, outcome="retry_scheduled")
+
+
 def record_manual_refund_completion(
     *, refund_id, completed_by, provider_refund_id, confirmed=False,
 ):
@@ -139,6 +153,7 @@ def record_manual_refund_completion(
     if not is_valid_provider_identifier(provider_refund_id):
         raise RefundNotEligibleError("A valid external refund reference is required.")
 
+    completed_refund = None
     with transaction.atomic():
         payment_id = Refund.objects.only("payment_id").get(pk=refund_id).payment_id
         payment = Payment.objects.select_for_update().get(pk=payment_id)
@@ -179,4 +194,6 @@ def record_manual_refund_completion(
             action_flag=CHANGE,
             change_message="Recorded confirmed external refund completion.",
         )
-        return refund
+        completed_refund = refund
+    emit_payment_event("refund_succeeded", refund=completed_refund, outcome="manual_refunded")
+    return completed_refund

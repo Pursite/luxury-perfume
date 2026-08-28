@@ -303,6 +303,10 @@ identical replays return `200`, and ambiguous/recoverable attempts return
 `202`. The response contains safe `payment`, `order`, optional `refund`, and
 `redirect_url` values. A `202` response also contains
 `retry_after_seconds` and the same bounded value in the `Retry-After` header.
+Initialization also requires a valid trusted client address derived from the
+request peer/proxy policy. If that address cannot be determined, it returns a
+safe `400` before any checkout, stock reservation, Payment, or provider side
+effect.
 
 `GET /api/v1/payments/<uuid:payment_uuid>/` is authenticated and owner-only;
 foreign UUIDs return `404`. It omits provider sessions/transactions/receipts,

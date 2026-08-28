@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from ipaddress import ip_address
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -9,9 +10,11 @@ from django.utils import timezone
 from apps.orders.models import Order
 from apps.orders.services.checkout import create_waiting_order
 from apps.orders.services.transitions import expire_unpaid_order
+from apps.payments.audit import emit_payment_event
 from apps.payments.exceptions import (
     PaymentAttemptInProgressError,
     PaymentEligibilityError,
+    PaymentInitiatorIPError,
     PaymentIdempotencyConflictError,
     PaymentNotFoundError,
     PaymentProviderProtocolError,
@@ -42,6 +45,15 @@ class PaymentInitializationResult:
 
 def _sanitize_user_agent(value):
     return "".join(character for character in str(value or "") if character.isprintable())[:512]
+
+
+def _canonical_initiator_ip(value):
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise PaymentInitiatorIPError("A trusted client IP address is required.")
+    try:
+        return str(ip_address(value))
+    except ValueError as exc:
+        raise PaymentInitiatorIPError("A trusted client IP address is required.") from exc
 
 
 def _adapter():
@@ -90,6 +102,7 @@ def initialize_payment(
     initiator_ip, initiator_user_agent, request_id,
 ):
     idempotency_key = UUID(str(idempotency_key))
+    initiator_ip = _canonical_initiator_ip(initiator_ip)
     existing = _find_existing_payment(idempotency_key)
     if existing is not None:
         return _replay(existing, user=user, address_uuid=address_uuid, order_uuid=order_uuid)
@@ -159,6 +172,7 @@ def initialize_payment(
         adapter = _adapter()
     except PaymentProviderUnavailableError:
         _release_initiation_for_reconciliation(payment.pk, token, "provider_unavailable")
+        emit_payment_event("payment_provider_error", payment=payment, outcome="provider_unavailable")
         raise
     callback_url = f"{settings.PAYMENT_PUBLIC_BASE_URL.rstrip('/')}/api/v1/payments/callback/{settings.PAYMENT_PROVIDER}/"
     try:
@@ -169,17 +183,24 @@ def initialize_payment(
             callback_url=callback_url,
         )
     except ProviderTransportError:
+        emit_payment_event("payment_provider_error", payment=payment, outcome="transport")
         result = PaymentInitiationResult(outcome=InitiationOutcome.AMBIGUOUS, diagnostic_code="transport_error")
     except (ProviderProtocolError, ProviderSecurityError) as exc:
         _mark_initiation_review(payment.pk, token, "provider_protocol")
+        emit_payment_event("payment_provider_error", payment=payment, outcome="provider_protocol")
+        emit_payment_event("payment_manual_review_required", payment=payment, outcome="manual_review")
         raise PaymentProviderProtocolError("The payment provider returned an invalid response.") from exc
 
     if not isinstance(result, PaymentInitiationResult) or not isinstance(result.outcome, InitiationOutcome):
         _mark_initiation_review(payment.pk, token, "provider_protocol")
+        emit_payment_event("payment_provider_error", payment=payment, outcome="provider_protocol")
+        emit_payment_event("payment_manual_review_required", payment=payment, outcome="manual_review")
         raise PaymentProviderProtocolError("The payment provider returned an invalid response.")
 
     if result.outcome == InitiationOutcome.READY and not is_valid_provider_identifier(result.provider_session_id):
         _mark_initiation_review(payment.pk, token, "provider_protocol")
+        emit_payment_event("payment_provider_error", payment=payment, outcome="provider_protocol")
+        emit_payment_event("payment_manual_review_required", payment=payment, outcome="manual_review")
         raise PaymentProviderProtocolError("The payment provider returned an invalid response.")
 
     validated_redirect_url = None
@@ -191,6 +212,8 @@ def initialize_payment(
             )
         except PaymentProviderProtocolError:
             _mark_initiation_review(payment.pk, token, "unsafe_redirect")
+            emit_payment_event("payment_provider_error", payment=payment, outcome="unsafe_redirect")
+            emit_payment_event("payment_manual_review_required", payment=payment, outcome="manual_review")
             raise
 
     redirect_url = None
@@ -206,7 +229,10 @@ def initialize_payment(
         if result.outcome == InitiationOutcome.READY:
             if not result.provider_session_id or not result.redirect_url:
                 _set_review(payment, "provider_protocol")
-                fields += ["status", "manual_review_at", "failure_code"]
+                fields += [
+                    "status", "manual_review_at", "failure_code",
+                    "next_reconciliation_at",
+                ]
             else:
                 redirect_url = validated_redirect_url
                 payment.provider_session_id = result.provider_session_id
@@ -242,6 +268,23 @@ def initialize_payment(
             redirect_url = None
     if expired_order_id is not None:
         expire_unpaid_order(order_id=expired_order_id)
+    emit_payment_event(
+        "payment_initialized",
+        payment=payment,
+        outcome=payment.status,
+    )
+    if result.outcome == InitiationOutcome.AMBIGUOUS:
+        emit_payment_event(
+            "payment_initiation_ambiguous",
+            payment=payment,
+            outcome="ambiguous",
+        )
+    elif payment.status == Payment.Status.MANUAL_REVIEW:
+        emit_payment_event(
+            "payment_manual_review_required",
+            payment=payment,
+            outcome="manual_review",
+        )
     return PaymentInitializationResult(
         payment=payment,
         order=order,
@@ -255,6 +298,9 @@ def _set_review(payment, code):
     payment.status = Payment.Status.MANUAL_REVIEW
     payment.manual_review_at = timezone.now()
     payment.failure_code = code
+    payment.next_reconciliation_at = None
+    payment.operation_token = None
+    payment.operation_started_at = None
 
 
 def _mark_initiation_review(payment_id, token, code):
@@ -263,9 +309,11 @@ def _mark_initiation_review(payment_id, token, code):
         if payment.operation_token != token:
             return
         _set_review(payment, code)
-        payment.operation_token = None
-        payment.operation_started_at = None
-        payment.save(update_fields=("status", "manual_review_at", "failure_code", "operation_token", "operation_started_at", "updated_at"))
+        payment.save(update_fields=(
+            "status", "manual_review_at", "failure_code",
+            "next_reconciliation_at", "operation_token",
+            "operation_started_at", "updated_at",
+        ))
 
 
 def _release_initiation_for_reconciliation(payment_id, token, code):

@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.orders.models import Order
 from apps.orders.services.transitions import expire_unpaid_order
 from apps.payments.exceptions import (
+    PaymentEligibilityError,
     PaymentNotFoundError,
     PaymentProviderProtocolError,
     ProviderProtocolError,
@@ -25,6 +26,32 @@ from apps.payments.providers.registry import ProviderNotRegistered, get_provider
 from apps.payments.services.verification import PaymentVerificationServiceResult, verify_payment
 
 
+def rearm_manual_review_payment(*, payment_id, requested_by):
+    if not getattr(requested_by, "is_active", False) or not getattr(requested_by, "is_superuser", False):
+        raise PaymentEligibilityError("Only an active superuser can rearm a payment.")
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().get(pk=payment_id)
+        if payment.status != Payment.Status.MANUAL_REVIEW:
+            raise PaymentEligibilityError("Only manual-review payments can be rearmed.")
+        payment.status = (
+            Payment.Status.REDIRECT_READY
+            if payment.provider_session_id
+            else Payment.Status.PENDING
+        )
+        payment.manual_review_at = None
+        payment.failure_code = ""
+        payment.failure_message = ""
+        payment.operation_token = None
+        payment.operation_started_at = None
+        payment.next_reconciliation_at = timezone.now()
+        payment.save(update_fields=(
+            "status", "manual_review_at", "failure_code", "failure_message",
+            "operation_token", "operation_started_at", "next_reconciliation_at",
+            "updated_at",
+        ))
+        return payment
+
+
 def reconcile_payment(*, payment_id):
     token = uuid4()
     with transaction.atomic():
@@ -32,6 +59,11 @@ def reconcile_payment(*, payment_id):
         if payment is None:
             raise PaymentNotFoundError("Payment not found.")
         if payment.status == Payment.Status.VERIFIED:
+            return PaymentVerificationServiceResult(payment=payment, refund=payment.refunds.first())
+        if payment.status == Payment.Status.MANUAL_REVIEW:
+            # A queued task can outlive the transition that required human
+            # review.  Only the privileged rearm service may make it eligible
+            # for automatic work again.
             return PaymentVerificationServiceResult(payment=payment, refund=payment.refunds.first())
         provider_session_id = payment.provider_session_id
         provider = payment.provider

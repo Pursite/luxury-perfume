@@ -4,6 +4,7 @@ from django.contrib.admin.helpers import ActionForm
 
 from apps.payments.exceptions import RefundNotEligibleError
 from apps.payments.models import Payment, Refund
+from apps.payments.services.reconciliation import rearm_manual_review_payment
 from apps.payments.services.refunds import record_manual_refund_completion
 from apps.payments.tasks import execute_refund_task, reconcile_payment_task
 
@@ -84,7 +85,11 @@ class PaymentAdmin(ImmutableFinancialAdmin):
     @admin.action(description="Request payment reconciliation")
     def request_reconciliation(self, request, queryset):
         count = 0
-        for payment_id in queryset.values_list("pk", flat=True):
+        for payment_id, payment_status in queryset.values_list("pk", "status"):
+            if payment_status == Payment.Status.MANUAL_REVIEW:
+                rearm_manual_review_payment(payment_id=payment_id, requested_by=request.user)
+            elif payment_status not in Payment.RECONCILABLE_STATUSES:
+                continue
             reconcile_payment_task.delay(payment_id)
             count += 1
         self.message_user(request, f"{count} payment(s) queued for reconciliation.", level=messages.SUCCESS)
