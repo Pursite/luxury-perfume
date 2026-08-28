@@ -10,7 +10,8 @@ from apps.lib.log_context import get_correlation_id, get_request_id
 
 
 _SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b(password|otp|token|jwt|secret|credential|authorization)\b"
+    r"(?i)\b(password|otp|token|jwt|secret|credential|authorization|api_key|"
+    r"merchant_secret|webhook_signature|provider_session|pan|card|cvv|cvc|pin)\b"
     r"\s*([=:])\s*[^\s,|&]+"
 )
 _PHONE_NUMBER = re.compile(r"\b09\d{9}\b")
@@ -45,7 +46,10 @@ class RequestContextFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Emit a small, allowlisted JSON record suitable for Docker log drivers."""
 
-    _safe_extra_fields = ("category", "user_id", "path", "task_id")
+    _safe_extra_fields = (
+        "category", "user_id", "path", "task_id", "payment_uuid",
+        "order_uuid", "refund_uuid", "provider", "outcome",
+    )
 
     def format(self, record: logging.LogRecord) -> str:
         event = getattr(record, "event", record.getMessage())

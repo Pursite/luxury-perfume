@@ -3,15 +3,17 @@
 ## Overview
 
 Luxury Perfume is a Django 6 and Django REST Framework application. Its current
-Django applications are `apps.users`, `apps.products`, `apps.cart`, and
-`apps.lib`. The repository also contains an independent React customer
-storefront under `frontend/`.
+Django applications are `apps.users`, `apps.products`, `apps.cart`,
+`apps.orders`, `apps.payments`, and `apps.lib`. The repository also contains an
+independent React customer storefront under `frontend/`.
 
 ```text
 luxury-perfume/
 ├── apps/
 │   ├── lib/          # shared infrastructure
 │   ├── cart/         # authenticated purchase-intent carts
+│   ├── orders/       # checkout snapshots, reservations, and fulfillment state
+│   ├── payments/     # financial attempts, verification, and refunds
 │   ├── products/     # catalogue domain
 │   └── users/        # identity and profile domain
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
@@ -127,13 +129,16 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 
 - User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The task currently logs a placeholder result; an SMS-provider client is not implemented.
 - Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and validation of any referenced thumbnail make Celery redelivery idempotent.
+- Payments queues idempotent Refund execution after commit and uses periodic
+  database sweeps to recover due Payment reconciliation, Refund retries, and
+  retained transport-metadata scrubbing.
 
 ## Data, cache, and authentication
 
 PostgreSQL stores durable users, addresses, fragrance catalogue records,
-reusable note relations, product images, carts, and Simple JWT
-outstanding/blacklist records. The users, products, and Cart applications each
-have a current initial migration that defines their schema and constraints.
+reusable note relations, product images, carts, Orders, Payments, Refunds, and
+Simple JWT outstanding/blacklist records. The domain applications each have a
+current initial migration that defines their schema and constraints.
 The repository does not contain legacy identity, fragrance-domain, or
 ordered-note data migrations. The catalogue cache uses a versioned schema
 namespace so stale representations cannot be reused.
@@ -233,9 +238,37 @@ cancelled order.
 Celery Beat schedules a bounded (100 Orders) database query once per 60
 seconds. It is recovery/scheduling only: delayed or lost tasks never extend
 the database deadline, and creating a checkout synchronously reconciles an
-expired unswept waiting Order before a replacement attempt. Payments and
-Notifications are future explicit service integrations; no provider, signal,
-or external I/O participates in these transactions.
+expired unswept waiting Order before a replacement attempt. Provider I/O never
+participates in an Orders transaction.
+
+## Payments and Refunds
+
+`apps.payments` is a bounded financial domain layered on Orders. `Payment`
+uses an internal integer key plus an immutable public UUID, snapshots only the
+locked `Order.total`, and records normalized provider identities and recovery
+leases. `Refund` records one full captured-amount obligation per Payment.
+PostgreSQL constraints enforce idempotency, provider identity uniqueness, one
+open attempt and one Order-funding Payment, and one Refund per Payment.
+`MANUAL_REVIEW` remains an unresolved attempt for that uniqueness rule, but is
+not a reconcilable state: it has no operation lease or due reconciliation time
+until an explicit superuser service action rearms it.
+
+Initialization and verification use local/external/local phases: short
+transactions claim an operation, provider I/O runs without database locks, and
+the final transaction locks Order before Payment. Payments never writes Order
+state directly; it calls Orders transition services. Orders therefore remains
+authoritative for strict `now < reservation_expires_at` eligibility and all
+reservation/stock transitions. Late, duplicate, and amount-mismatched captures
+remain financially verified and create a durable full Refund.
+
+Celery sweeps due Payment reconciliation and Refund execution every 60 seconds
+and scrubs retained Payment IP/user-agent evidence daily. Database uniqueness
+and provider UUID idempotency—not Redis or task delivery—provide financial
+safety. A new Payment is created only after a trusted, canonical initiator IP
+has been obtained; this is enforced by the service before checkout can reserve
+stock. Financial lifecycle events use allowlisted structured correlation fields
+only, while IP and user-agent evidence stays in the database. The provider
+registry is disabled by default until a real adapter is selected.
 
 ## Customer storefront
 

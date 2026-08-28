@@ -92,8 +92,7 @@ and CartItem. This serializes only one user's Cart, preventing duplicate lazy
 Cart creation and lost same-item increments without a global lock or Product
 row lock. Database uniqueness and quantity checks remain authoritative. Cart
 does not reserve inventory, so stock may change immediately after Cart
-validation; future Order/checkout code must perform the final stock lock and
-decrement.
+validation; Order checkout performs the final stock lock and decrement.
 
 Orders are protected against price/status mass assignment: only server-side
 services derive monetary snapshots and state transitions. Customer reads are
@@ -102,6 +101,31 @@ are never authorization. Product and user commercial references use `PROTECT`;
 catalogue removal must deactivate Products and users with Orders require a
 future explicit retention/anonymization policy. Deletion services map those
 constraints to domain errors so the API/Admin do not expose raw database errors.
+
+Payments accepts no client price, currency, provider, merchant identity,
+callback URL, or return URL. Initialization derives the owner from JWT and the
+amount from a locked Order. Dedicated Payment throttles use the fail-closed
+security cache. Callback data is only a lookup hint: capture is accepted only
+after server-to-server provider verification, and Orders decides timeliness
+under its row lock. Redirect destinations must be HTTPS and match a configured
+host allowlist. A trusted, canonical initiator IP is mandatory before Payment
+initialization can create an Order, reserve stock, or call a provider; missing
+or malformed direct-peer/proxy information fails the request safely.
+
+The application stores normalized financial identities, amounts, timestamps,
+request correlation, and limited IP/user-agent evidence. It never stores or
+logs PAN, CVV/CVC, PIN, raw card credentials, Authorization values, provider
+secrets, or raw provider payloads. Payment IP/user-agent evidence is scrubbed
+after 180 days by default. Forwarded client IPs are ignored unless the
+immediate peer and proxy chain match configured trusted CIDRs.
+Ordinary structured logs emit only fixed financial events and allowlisted
+correlation identifiers; they never include IPs, user agents, provider
+identities, raw provider data, credentials, or card data.
+
+No real provider adapter or credential contract is present. Production checks
+reject enablement with an unknown provider, unsafe URLs/redirect hosts,
+non-`IRT` currency, or absent trusted-proxy policy. Card entry must remain on
+the provider-hosted page after an adapter and retention policy are approved.
 
 ## Data and upload integrity
 
