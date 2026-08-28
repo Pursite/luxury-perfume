@@ -256,7 +256,15 @@ def test_ordinary_staff_can_reactivate_customer_with_identity():
 
 
 def test_admin_password_change_hashes_password_and_revokes_refresh_tokens():
-    customer = UserFactory(is_staff=False, is_superuser=False)
+    replacement_password = "RiverCobalt!4729Magnet"
+    customer = UserFactory(
+        username="admin_password_customer",
+        email="admin-password-customer@example.test",
+        first_name="Deterministic",
+        last_name="Customer",
+        is_staff=False,
+        is_superuser=False,
+    )
     customer.set_password("OriginalAdminPassword123!")
     customer.save(update_fields=["password"])
     RefreshToken.for_user(customer)
@@ -265,8 +273,8 @@ def test_admin_password_change_hashes_password_and_revokes_refresh_tokens():
         customer,
         data={
             "usable_password": "true",
-            "password1": "ReplacementAdminPassword123!",
-            "password2": "ReplacementAdminPassword123!",
+            "password1": replacement_password,
+            "password2": replacement_password,
         },
     )
 
@@ -274,7 +282,7 @@ def test_admin_password_change_hashes_password_and_revokes_refresh_tokens():
     saved_user = form.save()
 
     saved_user.refresh_from_db()
-    assert saved_user.check_password("ReplacementAdminPassword123!") is True
+    assert saved_user.check_password(replacement_password) is True
     assert BlacklistedToken.objects.filter(token__user=saved_user).exists() is True
 
 
