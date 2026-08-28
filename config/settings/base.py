@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "apps.products",
     "apps.cart",
     "apps.orders",
+    "apps.payments",
 ]
 
 MIDDLEWARE = [
@@ -120,6 +121,8 @@ REST_FRAMEWORK = {
         ),
         "signup": env("SIGNUP_THROTTLE_RATE", default="5/hour"),
         "login": env("PASSWORD_LOGIN_THROTTLE_RATE", default="10/m"),
+        "payment_initialize": env("PAYMENT_INITIALIZE_THROTTLE_RATE", default="10/m"),
+        "payment_callback": env("PAYMENT_CALLBACK_THROTTLE_RATE", default="120/m"),
     },
 }
 
@@ -253,6 +256,31 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.orders.tasks.sweep_expired_orders",
         "schedule": 60.0,
     },
+    "payments-sweep-reconcilable": {
+        "task": "apps.payments.tasks.sweep_reconcilable_payments",
+        "schedule": 60.0,
+    },
+    "payments-sweep-pending-refunds": {
+        "task": "apps.payments.tasks.sweep_pending_refunds",
+        "schedule": 60.0,
+    },
+    "payments-scrub-audit-metadata": {
+        "task": "apps.payments.tasks.scrub_expired_payment_audit_metadata",
+        "schedule": 86400.0,
+    },
 }
+
+PAYMENTS_ENABLED = env.bool("PAYMENTS_ENABLED", default=False)
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="")
+PAYMENT_CURRENCY = env("PAYMENT_CURRENCY", default="IRT")
+PAYMENT_PUBLIC_BASE_URL = env("PAYMENT_PUBLIC_BASE_URL", default="")
+PAYMENT_FRONTEND_RESULT_URL = env("PAYMENT_FRONTEND_RESULT_URL", default="")
+PAYMENT_ALLOWED_REDIRECT_HOSTS = tuple(env.list("PAYMENT_ALLOWED_REDIRECT_HOSTS", default=[]))
+PAYMENT_PROVIDER_CONNECT_TIMEOUT_SECONDS = env.float("PAYMENT_PROVIDER_CONNECT_TIMEOUT_SECONDS", default=3)
+PAYMENT_PROVIDER_READ_TIMEOUT_SECONDS = env.float("PAYMENT_PROVIDER_READ_TIMEOUT_SECONDS", default=7)
+PAYMENT_RECONCILIATION_HORIZON_HOURS = env.int("PAYMENT_RECONCILIATION_HORIZON_HOURS", default=24)
+PAYMENT_TRUST_PROXY_HEADERS = env.bool("PAYMENT_TRUST_PROXY_HEADERS", default=False)
+PAYMENT_TRUSTED_PROXY_CIDRS = tuple(env.list("PAYMENT_TRUSTED_PROXY_CIDRS", default=[]))
+PAYMENT_AUDIT_RETENTION_DAYS = env.int("PAYMENT_AUDIT_RETENTION_DAYS", default=180)
 
 AUTH_USER_MODEL = "users.CustomUser"

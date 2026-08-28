@@ -10,7 +10,8 @@ from apps.lib.log_context import get_correlation_id, get_request_id
 
 
 _SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b(password|otp|token|jwt|secret|credential|authorization)\b"
+    r"(?i)\b(password|otp|token|jwt|secret|credential|authorization|api_key|"
+    r"merchant_secret|webhook_signature|provider_session|pan|card|cvv|cvc|pin)\b"
     r"\s*([=:])\s*[^\s,|&]+"
 )
 _PHONE_NUMBER = re.compile(r"\b09\d{9}\b")

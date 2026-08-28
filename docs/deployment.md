@@ -611,3 +611,17 @@ Orders adds a separate `celery-beat` service. Run exactly one Beat process; it
 schedules the Orders expiry sweep every 60 seconds and must not be replaced by
 `worker -B`. The database `reservation_expires_at` deadline remains
 authoritative if Beat, workers, or the broker are delayed.
+
+That same single Beat process schedules Payment reconciliation and pending
+Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily. No
+additional service is required. Keep `PAYMENTS_ENABLED=False` until a reviewed
+real provider adapter exists, and apply the additive `payments.0001_initial`
+migration before any later enablement.
+
+Provider enablement is a separate reviewed operation: configure the registered
+provider and provider-specific secrets, HTTPS public/result URLs, exact
+redirect hosts, and real Docker/Nginx trusted proxy CIDRs; run Django deployment
+checks; verify create/lookup/verification/full-refund idempotency in the
+provider sandbox; then recreate web, Celery, and the single Beat service.
+Disabling Payments stops new HTTP operations but does not erase unresolved
+Payment or Refund obligations; those require reconciliation or manual review.

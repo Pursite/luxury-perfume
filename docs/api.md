@@ -283,9 +283,37 @@ These endpoints are read-only. They expose immutable product, price, customer,
 and shipping snapshots; they do not create a checkout, reserve stock, accept a
 payment result, or mutate fulfillment. A foreign order UUID returns `404`.
 
-Order creation is currently an internal trusted service for future Payments
-integration. Currency denomination and shipping calculation are not an API
-contract yet.
+Order creation is an internal trusted service reached through Payment
+initialization. Existing Order decimal amounts are toman (`IRT`); shipping
+calculation remains outside the API contract.
+
+## Payments
+
+Payment handlers return `503` while `PAYMENTS_ENABLED=False`; normal DRF
+authentication, permission, and throttle checks still run before protected
+handlers. Disabled operation is the tracked default because no production
+provider adapter has been selected.
+
+`POST /api/v1/payments/initialize/` requires JWT authentication, a complete
+active profile, the fail-closed Payment throttle, and an
+`Idempotency-Key: <UUID>` header. The JSON body contains exactly one of
+`address_uuid` or `order_uuid`. Provider, amount, currency, user, callback URL,
+and return URL are rejected. New redirect-ready attempts return `201`,
+identical replays return `200`, and ambiguous/recoverable attempts return
+`202`. The response contains safe `payment`, `order`, optional `refund`, and
+`redirect_url` values. A `202` response also contains
+`retry_after_seconds` and the same bounded value in the `Retry-After` header.
+
+`GET /api/v1/payments/<uuid:payment_uuid>/` is authenticated and owner-only;
+foreign UUIDs return `404`. It omits provider sessions/transactions/receipts,
+diagnostics, request IDs, IP addresses, and user agents.
+
+`GET|POST /api/v1/payments/callback/<provider>/` is public but accepts only a
+registered server-side provider. The adapter validates callback shape and
+signature, then the backend verifies the existing provider session
+server-to-server. Browser status text is never payment proof. Browser callbacks
+receive a `303` to the configured frontend result URL containing only
+`payment_uuid`; client-supplied return URLs are ignored.
 
 - `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, and Cart quantity-update operations.
 - `201 Created` — direct signup, OTP signup verification, product/image creation, or a newly created CartItem.

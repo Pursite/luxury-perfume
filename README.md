@@ -23,11 +23,15 @@ authenticated carts; `frontend/` provides the customer experience.
 - Authenticated, owner-bound carts with live Product prices, stock, activity,
   and images. Cart writes are synchronous PostgreSQL transactions and never
   reserve stock or prices.
+- A disabled-by-default Payments backend with immutable-price Payment attempts,
+  full Refund obligations, provider-adapter contracts, owner-only status,
+  Orders integration, reconciliation tasks, and audit-data retention. No real
+  gateway adapter is selected, so production Payments cannot yet be enabled.
 - A responsive React storefront with a server-filtered catalogue,
   slug-addressed Product Detail gallery and fragrance pyramid,
   username/password JWT login, an authenticated Account Details experience,
   and the real authenticated Cart. SMS, password reset, Orders, Tickets, and
-  online payments remain visibly unavailable and are not simulated.
+  online payment UI remain visibly unavailable and are not simulated.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
 
@@ -132,8 +136,10 @@ change only container-specific addresses for this optional host workflow.
 Adjust `DB_PORT` and the Redis URL ports if the host services use non-default
 ports.
 
-The API prefixes are `/api/v1/users/`, `/api/v1/products/`, and
-`/api/v1/cart/`.
+The API prefixes are `/api/v1/users/`, `/api/v1/products/`, `/api/v1/cart/`,
+`/api/v1/orders/`, and `/api/v1/payments/`. Payment handlers return 503 while
+`PAYMENTS_ENABLED=False` after normal authentication, permission, and throttle
+checks.
 
 Authenticated customers can read their own serialized profile from
 `GET /api/v1/users/profile/`. The endpoint accepts no user identifier and
@@ -254,10 +260,12 @@ The users, authentication, profiles, fragrance products, categories, brands,
 reusable fragrance notes, product-image, Cart domain, and first customer React
 storefront are implemented. The project remains under active development.
 
-Orders, stock reservations, customer Order history, and manual Admin
-fulfillment are implemented. Payments, gateway/provider verification,
-payment reconciliation, Refunds, Notifications/SMS, a shipping-price
-algorithm, and an authoritative backend currency denomination are not.
+Orders, stock reservations, customer Order history, manual Admin fulfillment,
+and the provider-independent Payments/Refunds backend are implemented. The
+Payments backend defines existing decimal prices as toman (`IRT`) and is
+disabled by default. A real gateway adapter, provider credentials and sandbox
+approval, the checkout/result frontend, Notifications/SMS, and a shipping-price
+algorithm remain outstanding.
 
 The repository includes a Docker Compose deployment layout for development and
 a single VPS, plus a manual GitHub Actions production deployment workflow; see

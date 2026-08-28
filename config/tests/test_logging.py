@@ -66,6 +66,38 @@ def test_json_logging_redacts_sensitive_values_and_preserves_safe_context():
     assert "09123456789" not in payload["event"]
 
 
+def test_json_logging_redacts_payment_provider_and_card_secrets():
+    record = logging.LogRecord(
+        name="security",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="ignored",
+        args=(),
+        exc_info=None,
+    )
+    record.event = (
+        "api_key=provider-key merchant_secret=merchant-key "
+        "webhook_signature=signed provider_session=authority-123 "
+        "pan=6037991234567890 cvv=123 cvc=456 pin=9999"
+    )
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    encoded = payload["event"]
+    for secret in (
+        "provider-key",
+        "merchant-key",
+        "signed",
+        "authority-123",
+        "6037991234567890",
+        "123",
+        "456",
+        "9999",
+    ):
+        assert secret not in encoded
+
+
 def test_django_error_records_do_not_forward_untrusted_error_messages():
     record = logging.LogRecord(
         name="django.request",
