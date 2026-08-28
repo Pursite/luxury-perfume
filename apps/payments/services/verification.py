@@ -6,6 +6,7 @@ from decimal import InvalidOperation
 from uuid import uuid4
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.core.validators import DecimalValidator
 from django.utils import timezone
@@ -149,9 +150,12 @@ def _emit_verification_events(resolved):
 
 def _return_to_reconciliation(*, payment_id, token, code):
     with transaction.atomic():
-        payment = Payment.objects.select_for_update().get(pk=payment_id)
+        _order, payment, stale_terminal_authority, _other_applied = _lock_resolution_context(payment_id)
         if payment.operation_token != token:
             return PaymentVerificationServiceResult(payment=payment, pending=True)
+        if stale_terminal_authority:
+            _preserve_stale_failed_payment(payment, code)
+            return PaymentVerificationServiceResult(payment=payment)
         payment.status = Payment.Status.REDIRECT_READY
         payment.operation_token = None
         payment.operation_started_at = None
@@ -163,9 +167,12 @@ def _return_to_reconciliation(*, payment_id, token, code):
 
 def _move_to_manual_review(*, payment_id, token, code):
     with transaction.atomic():
-        payment = Payment.objects.select_for_update().get(pk=payment_id)
+        _order, payment, stale_terminal_authority, _other_applied = _lock_resolution_context(payment_id)
         if payment.operation_token != token:
             return PaymentVerificationServiceResult(payment=payment, refund=payment.refunds.first())
+        if stale_terminal_authority:
+            _preserve_stale_failed_payment(payment, code)
+            return PaymentVerificationServiceResult(payment=payment)
         payment.status = Payment.Status.MANUAL_REVIEW
         payment.manual_review_at = timezone.now()
         payment.failure_code = code
@@ -182,12 +189,13 @@ def _move_to_manual_review(*, payment_id, token, code):
 
 def _finalize_verification(*, payment_id, token, result):
     with transaction.atomic():
-        order_id = Payment.objects.only("order_id").get(pk=payment_id).order_id
-        order = Order.objects.select_for_update().get(pk=order_id)
-        payment = Payment.objects.select_for_update().get(pk=payment_id)
+        order, payment, stale_terminal_authority, other_applied = _lock_resolution_context(payment_id)
         if result.outcome != VerificationOutcome.VERIFIED and payment.operation_token != token:
             return PaymentVerificationServiceResult(payment=payment, refund=payment.refunds.first(), pending=True)
         if result.outcome == VerificationOutcome.AMBIGUOUS:
+            if stale_terminal_authority:
+                _preserve_stale_failed_payment(payment, result.diagnostic_code or "verification_ambiguous")
+                return PaymentVerificationServiceResult(payment=payment)
             payment.status = Payment.Status.REDIRECT_READY
             payment.operation_token = None
             payment.operation_started_at = None
@@ -205,7 +213,7 @@ def _finalize_verification(*, payment_id, token, result):
             payment.captured_currency = None
             payment.verified_at = None
             payment.save(update_fields=("status", "failed_at", "failure_code", "operation_token", "operation_started_at", "captured_amount", "captured_currency", "verified_at", "updated_at"))
-            if order.status == Order.Status.WAITING_FOR_PAYMENT:
+            if not stale_terminal_authority and order.status == Order.Status.WAITING_FOR_PAYMENT:
                 cancel_failed_payment(order_id=order.pk)
             return PaymentVerificationServiceResult(payment=payment)
 
@@ -232,10 +240,9 @@ def _finalize_verification(*, payment_id, token, result):
         ))
 
         mismatch = payment.captured_amount != payment.amount or payment.captured_currency != payment.currency
-        other_applied = Payment.objects.select_for_update().filter(order=order, applied_to_order_at__isnull=False).exclude(pk=payment.pk).exists()
         refund = None
         if mismatch:
-            if order.status == Order.Status.WAITING_FOR_PAYMENT:
+            if not stale_terminal_authority and order.status == Order.Status.WAITING_FOR_PAYMENT:
                 cancel_failed_payment(order_id=order.pk)
             refund = create_refund_obligation(payment=payment, reason=Refund.Reason.AMOUNT_MISMATCH)
         elif other_applied:
@@ -248,6 +255,46 @@ def _finalize_verification(*, payment_id, token, result):
                 payment.applied_to_order_at = payment.applied_to_order_at or timezone.now()
                 payment.save(update_fields=("applied_to_order_at", "updated_at"))
         return PaymentVerificationServiceResult(payment=payment, refund=refund)
+
+
+def _lock_resolution_context(payment_id):
+    """Lock the Order, then the callback Payment and any current open attempt."""
+    order_id = Payment.objects.only("order_id").get(pk=payment_id).order_id
+    order = Order.objects.select_for_update().get(pk=order_id)
+    payments = list(
+        Payment.objects.select_for_update()
+        .filter(order=order)
+        .filter(
+            Q(pk=payment_id)
+            | Q(status__in=Payment.OPEN_STATUSES)
+            | Q(applied_to_order_at__isnull=False)
+        )
+        .order_by("pk")
+    )
+    payment = next(item for item in payments if item.pk == payment_id)
+    has_current_open_attempt = any(
+        item.pk != payment.pk and item.status in Payment.OPEN_STATUSES
+        for item in payments
+    )
+    has_other_applied = any(item.pk != payment.pk and item.applied_to_order_at is not None for item in payments)
+    return (
+        order,
+        payment,
+        payment.status == Payment.Status.FAILED and has_current_open_attempt,
+        has_other_applied,
+    )
+
+
+def _preserve_stale_failed_payment(payment, code):
+    """Release a stale callback claim without granting it current order authority."""
+    payment.operation_token = None
+    payment.operation_started_at = None
+    payment.next_reconciliation_at = None
+    payment.failure_code = code[:64]
+    payment.save(update_fields=(
+        "operation_token", "operation_started_at", "next_reconciliation_at",
+        "failure_code", "updated_at",
+    ))
 
 
 def _validate_capture_result(result):

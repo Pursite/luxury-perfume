@@ -14,7 +14,12 @@ from apps.cart.models import Cart, CartItem
 from apps.orders.models import Order
 from apps.orders.services.checkout import ActiveCheckoutError
 from apps.orders.services.transitions import cancel_failed_payment, expire_unpaid_order
-from apps.payments.exceptions import PaymentAttemptInProgressError, RefundNotEligibleError
+from apps.payments.exceptions import (
+    PaymentAttemptInProgressError,
+    ProviderProtocolError,
+    ProviderSecurityError,
+    RefundNotEligibleError,
+)
 from apps.payments.models import Payment, Refund
 from apps.payments.providers.base import (
     InitiationOutcome,
@@ -160,6 +165,20 @@ class BarrierVerificationProvider(SessionVerificationProvider):
         )
 
 
+class CallbackOutcomeProvider(SessionVerificationProvider):
+    def __init__(self):
+        super().__init__()
+        self.outcomes = {}
+
+    def verify_payment(self, **kwargs):
+        with self.lock:
+            self.verify_calls += 1
+        outcome = self.outcomes[kwargs["provider_session_id"]]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
 def _checkout_and_initialize(settings, provider, *, provider_name, key):
     register_provider(provider_name, provider)
     settings.PAYMENT_PROVIDER = provider_name
@@ -179,6 +198,46 @@ def _checkout_and_initialize(settings, provider, *, provider_name, key):
         request_id="a" * 32,
     )
     return initialized, product
+
+
+def _old_failed_attempt_with_current_open_attempt(settings, provider, *, provider_name, key, retry_key):
+    old, product = _checkout_and_initialize(
+        settings,
+        provider,
+        provider_name=provider_name,
+        key=key,
+    )
+    Payment.objects.filter(pk=old.payment.pk).update(
+        status=Payment.Status.FAILED,
+        failed_at=timezone.now(),
+        failure_code="initiation_rejected",
+        operation_token=None,
+        operation_started_at=None,
+    )
+    current = initialization.initialize_payment(
+        user=old.order.user,
+        idempotency_key=retry_key,
+        order_uuid=old.order.uuid,
+        initiator_ip="198.51.100.8",
+        initiator_user_agent="browser",
+        request_id="h" * 32,
+    )
+    return old, current, product
+
+
+def _verify_in_separate_connection(*, provider_name, provider_session_id):
+    def verify():
+        close_old_connections()
+        try:
+            return verify_payment(
+                provider=provider_name,
+                provider_session_id=provider_session_id,
+            )
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(verify).result(timeout=20)
 
 
 def test_concurrent_identical_initialization_replays_one_durable_payment(settings, monkeypatch):
@@ -492,7 +551,7 @@ def test_concurrent_refund_execution_permits_one_provider_call():
     assert provider.refund_calls == 1
 
 
-def test_race_h_old_callback_and_new_attempt_fund_only_once(settings):
+def test_race_h1_old_failed_callback_verified_funds_order_once(settings):
     provider = SessionVerificationProvider()
     first, _product = _checkout_and_initialize(
         settings,
@@ -516,12 +575,12 @@ def test_race_h_old_callback_and_new_attempt_fund_only_once(settings):
         request_id="h" * 32,
     )
 
-    old_result = verify_payment(
-        provider="old-callback",
+    old_result = _verify_in_separate_connection(
+        provider_name="old-callback",
         provider_session_id=first.payment.provider_session_id,
     )
-    new_result = verify_payment(
-        provider="old-callback",
+    new_result = _verify_in_separate_connection(
+        provider_name="old-callback",
         provider_session_id=second.payment.provider_session_id,
     )
 
@@ -533,6 +592,143 @@ def test_race_h_old_callback_and_new_attempt_fund_only_once(settings):
     assert first.order.status == Order.Status.PROCESSING
     assert Payment.objects.filter(order=first.order, applied_to_order_at__isnull=False).count() == 1
     assert Refund.objects.filter(payment=second.payment, reason=Refund.Reason.DUPLICATE_PAYMENT).count() == 1
+
+
+def test_race_h2_old_failed_not_paid_callback_cannot_cancel_current_attempt(settings):
+    provider = CallbackOutcomeProvider()
+    old, current, product = _old_failed_attempt_with_current_open_attempt(
+        settings,
+        provider,
+        provider_name="stale-not-paid",
+        key="7dc13c21-a279-4813-8ee2-a04eed178432",
+        retry_key="bde4c2fb-9cbd-44b6-aad5-fbff6978a931",
+    )
+    provider.outcomes[old.payment.provider_session_id] = PaymentVerificationResult(
+        outcome=VerificationOutcome.NOT_PAID,
+        diagnostic_code="not_paid",
+    )
+
+    result = _verify_in_separate_connection(
+        provider_name="stale-not-paid",
+        provider_session_id=old.payment.provider_session_id,
+    )
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == old.payment.status == Payment.Status.FAILED
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 1
+    assert Refund.objects.filter(payment=old.payment).count() == 0
+
+
+def test_race_h3_old_failed_ambiguous_callback_cannot_reopen_alongside_current_attempt(settings):
+    provider = CallbackOutcomeProvider()
+    old, current, product = _old_failed_attempt_with_current_open_attempt(
+        settings,
+        provider,
+        provider_name="stale-ambiguous",
+        key="9486391e-d2e6-4f70-b03d-b8ea8df9e016",
+        retry_key="d4e3a87a-4d60-4d7d-9cf3-5902a40847a2",
+    )
+    provider.outcomes[old.payment.provider_session_id] = PaymentVerificationResult(
+        outcome=VerificationOutcome.AMBIGUOUS,
+        diagnostic_code="timeout",
+    )
+
+    result = _verify_in_separate_connection(
+        provider_name="stale-ambiguous",
+        provider_session_id=old.payment.provider_session_id,
+    )
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == old.payment.status == Payment.Status.FAILED
+    assert old.payment.status not in Payment.OPEN_STATUSES
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 1
+
+
+@pytest.mark.parametrize("outcome", [object(), ProviderProtocolError("bad provider result"), ProviderSecurityError("bad signature")])
+def test_race_h4_old_failed_provider_failure_cannot_supersede_current_attempt(settings, outcome):
+    provider = CallbackOutcomeProvider()
+    old, current, product = _old_failed_attempt_with_current_open_attempt(
+        settings,
+        provider,
+        provider_name="stale-provider-failure",
+        key="b021e6e5-2c70-42f7-8ba0-cd660d9c9dc6",
+        retry_key="e99406a5-bdac-4ee7-81b1-ae8ccfa8143a",
+    )
+    provider.outcomes[old.payment.provider_session_id] = outcome
+
+    result = _verify_in_separate_connection(
+        provider_name="stale-provider-failure",
+        provider_session_id=old.payment.provider_session_id,
+    )
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == old.payment.status == Payment.Status.FAILED
+    assert old.payment.status not in Payment.OPEN_STATUSES
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 1
+
+
+def test_race_h5_old_failed_mismatch_refunds_without_cancelling_current_attempt(settings):
+    provider = CallbackOutcomeProvider()
+    old, current, product = _old_failed_attempt_with_current_open_attempt(
+        settings,
+        provider,
+        provider_name="stale-mismatch",
+        key="a2e15bc4-a69a-4983-9c3d-d7d01fdd2728",
+        retry_key="7a44e287-4ab4-4128-8e4b-b7fda4815cb3",
+    )
+    provider.outcomes[old.payment.provider_session_id] = PaymentVerificationResult(
+        outcome=VerificationOutcome.VERIFIED,
+        provider_transaction_id="transaction-stale-mismatch",
+        captured_amount=old.payment.amount + Decimal("1.00"),
+        captured_currency="IRT",
+    )
+
+    result = _verify_in_separate_connection(
+        provider_name="stale-mismatch",
+        provider_session_id=old.payment.provider_session_id,
+    )
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == old.payment.status == Payment.Status.VERIFIED
+    assert Refund.objects.filter(payment=old.payment, reason=Refund.Reason.AMOUNT_MISMATCH).count() == 1
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 1
+    assert current.payment.status in Payment.OPEN_STATUSES
+
+    provider.outcomes[current.payment.provider_session_id] = PaymentVerificationResult(
+        outcome=VerificationOutcome.VERIFIED,
+        provider_transaction_id="transaction-current-match",
+        captured_amount=current.payment.amount,
+        captured_currency="IRT",
+    )
+    current_result = _verify_in_separate_connection(
+        provider_name="stale-mismatch",
+        provider_session_id=current.payment.provider_session_id,
+    )
+
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    assert current_result.payment.applied_to_order_at is not None
+    assert current.payment.applied_to_order_at is not None
+    assert old.order.status == Order.Status.PROCESSING
 
 
 def test_race_i_successful_verify_and_failed_cancellation_never_mix_reservations(settings):

@@ -124,6 +124,131 @@ def _initialize(provider, *, key="639d5086-942d-475a-b2ac-7694cc1bdebb"):
     return result, product
 
 
+def _old_failed_payment_with_current_open_attempt(provider):
+    old, product = _initialize(provider, key="aef7aa3e-b4b2-4081-9c7e-4352e9147d9a")
+    Payment.objects.filter(pk=old.payment.pk).update(
+        status=Payment.Status.FAILED,
+        failed_at=timezone.now(),
+        failure_code="initiation_rejected",
+        operation_token=None,
+        operation_started_at=None,
+    )
+    provider.initiation = PaymentInitiationResult(
+        outcome=InitiationOutcome.READY,
+        provider_session_id="session-current",
+        redirect_url="https://gateway.example.test/pay/session-current",
+    )
+    current = initialize_payment(
+        user=old.order.user,
+        idempotency_key="cd77606c-5b19-456e-b4ea-179a23af5dc3",
+        order_uuid=old.order.uuid,
+        initiator_ip="198.51.100.8",
+        initiator_user_agent="browser",
+        request_id="s" * 32,
+    )
+    return old, current, product
+
+
+def test_stale_failed_not_paid_callback_cannot_cancel_current_open_attempt(provider):
+    old, current, product = _old_failed_payment_with_current_open_attempt(provider)
+    provider.verification = PaymentVerificationResult(
+        outcome=VerificationOutcome.NOT_PAID,
+        diagnostic_code="not_paid",
+    )
+
+    result = verify_payment(provider="fake-payments", provider_session_id=old.payment.provider_session_id)
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == Payment.Status.FAILED
+    assert old.payment.status == Payment.Status.FAILED
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 2
+
+
+def test_stale_failed_ambiguous_callback_cannot_reopen_alongside_current_attempt(provider):
+    old, current, product = _old_failed_payment_with_current_open_attempt(provider)
+    provider.verification = PaymentVerificationResult(
+        outcome=VerificationOutcome.AMBIGUOUS,
+        diagnostic_code="timeout",
+    )
+
+    result = verify_payment(provider="fake-payments", provider_session_id=old.payment.provider_session_id)
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == Payment.Status.FAILED
+    assert old.payment.status == Payment.Status.FAILED
+    assert old.payment.status not in Payment.OPEN_STATUSES
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 2
+
+
+@pytest.mark.parametrize("outcome", [object(), ProviderProtocolError("bad result"), ProviderSecurityError("bad signature")])
+def test_stale_failed_provider_failure_cannot_open_or_review_alongside_current_attempt(provider, outcome):
+    old, current, product = _old_failed_payment_with_current_open_attempt(provider)
+    provider.verification = outcome
+
+    result = verify_payment(provider="fake-payments", provider_session_id=old.payment.provider_session_id)
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == Payment.Status.FAILED
+    assert old.payment.status == Payment.Status.FAILED
+    assert old.payment.status not in Payment.OPEN_STATUSES
+    assert current.payment.status in Payment.OPEN_STATUSES
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 2
+
+
+def test_stale_failed_amount_mismatch_refunds_without_cancelling_current_attempt(provider):
+    old, current, product = _old_failed_payment_with_current_open_attempt(provider)
+    provider.verification = PaymentVerificationResult(
+        outcome=VerificationOutcome.VERIFIED,
+        provider_transaction_id="transaction-stale-mismatch",
+        captured_amount=Decimal("99.00"),
+        captured_currency="IRT",
+    )
+
+    with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+        result = verify_payment(provider="fake-payments", provider_session_id=old.payment.provider_session_id)
+
+    old.payment.refresh_from_db()
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    product.refresh_from_db()
+    assert result.payment.status == old.payment.status == Payment.Status.VERIFIED
+    assert Refund.objects.filter(payment=old.payment, reason=Refund.Reason.AMOUNT_MISMATCH).count() == 1
+    assert old.order.status == Order.Status.WAITING_FOR_PAYMENT
+    assert product.stock == 2
+    assert current.payment.status in Payment.OPEN_STATUSES
+
+    provider.verification = PaymentVerificationResult(
+        outcome=VerificationOutcome.VERIFIED,
+        provider_transaction_id="transaction-current-match",
+        captured_amount=current.payment.amount,
+        captured_currency="IRT",
+    )
+    current_result = verify_payment(
+        provider="fake-payments",
+        provider_session_id=current.payment.provider_session_id,
+    )
+
+    current.payment.refresh_from_db()
+    old.order.refresh_from_db()
+    assert current_result.payment.applied_to_order_at is not None
+    assert current.payment.applied_to_order_at is not None
+    assert old.order.status == Order.Status.PROCESSING
+
+
 def test_initialization_emits_allowlisted_financial_audit_event(provider):
     handler = _AuditHandler()
     activity_logger.addHandler(handler)
