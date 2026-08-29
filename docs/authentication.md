@@ -8,6 +8,14 @@ the rotating refresh token in a persistent, host-only `HttpOnly` cookie.
 Protected requests use `Authorization: Bearer <access-token>`. All paths below
 are relative to `/api/v1/users/`.
 
+Human-readable API messages negotiate English (`en`) or Persian (`fa`) from a
+valid Django language cookie and then `Accept-Language`; compatible variants
+such as `fa-IR` select Persian, while unsupported languages fall back to
+English. JSON keys, error-field keys, status values, response codes, and input
+contracts are unchanged. Generic authentication failures remain semantically
+identical within either language, so language negotiation does not create an
+enumeration signal.
+
 ## Identities and passwords
 
 An active user needs a non-empty username or phone number. Usernames and email
@@ -96,7 +104,7 @@ exactly six-character ASCII-digit `otp`.
 Request OTP -> security cache -> Users-owned Celery task -> verify -> consume
 ```
 
-When `SMS_ENABLED=True`, the task renders the fixed Users OTP message and uses
+When `SMS_ENABLED=True`, the task renders the fixed Persian Users OTP message and uses
 the shared provider-neutral transport. It never creates notification-outbox
 rows or persists OTP message content. SMS remains disabled by default pending a
 separately reviewed production adapter. Phone number and OTP values still form
@@ -141,8 +149,8 @@ successful verification consumes the code, making it single-use.
 account, not onboarding progress. Username/password signup creates an active
 user immediately and returns tokens even though that user has no verified
 phone number or complete customer profile. Incomplete users can browse and use
-normal authenticated endpoints. Future checkout-like operations can opt in to
-the reusable `IsProfileComplete` permission; it is not applied globally.
+normal authenticated endpoints. Payment initialization currently requires the
+reusable `IsProfileComplete` permission; it is not applied globally.
 
 `is_profile_complete` is derived rather than stored. It is true only when a
 user has a username, a verified phone number, email, first and last

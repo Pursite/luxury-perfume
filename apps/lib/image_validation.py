@@ -4,6 +4,7 @@ from pathlib import Path
 import warnings
 
 from django.utils.text import get_valid_filename
+from django.utils.translation import gettext as _
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
@@ -34,11 +35,11 @@ class ValidatedCatalogueImageSerializer(serializers.Serializer):
 
     def validate_catalogue_image(self, value):
         if value.size > self.max_file_size:
-            raise serializers.ValidationError("Image size must not exceed 5 MB.")
+            raise serializers.ValidationError(_("Image size must not exceed 5 MB."))
 
         declared_mime_type = getattr(value, "declared_mime_type", None)
         if declared_mime_type not in self.allowed_mime_types:
-            raise serializers.ValidationError("Only JPEG, PNG, and WebP images are allowed.")
+            raise serializers.ValidationError(_("Only JPEG, PNG, and WebP images are allowed."))
 
         try:
             with warnings.catch_warnings():
@@ -60,17 +61,17 @@ class ValidatedCatalogueImageSerializer(serializers.Serializer):
             UnidentifiedImageError,
         ) as exc:
             raise serializers.ValidationError(
-                "Upload a valid, non-corrupted image file."
+                _("Upload a valid, non-corrupted image file.")
             ) from exc
 
         expected_format, extension = self.allowed_mime_types[declared_mime_type]
         if image_format != expected_format:
             raise serializers.ValidationError(
-                "Image content does not match its MIME type."
+                _("Image content does not match its MIME type.")
             )
         if width > self.max_dimension or height > self.max_dimension:
             raise serializers.ValidationError(
-                "Image dimensions must not exceed 6000 x 6000 pixels."
+                _("Image dimensions must not exceed 6000 x 6000 pixels.")
             )
 
         original_name = Path(str(value.name).replace("\\", "/")).name

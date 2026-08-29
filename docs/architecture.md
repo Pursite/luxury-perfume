@@ -67,8 +67,8 @@ reset, profile-phone verification, profile onboarding/update, and logout. Its
 current-profile selector scopes the read to the authenticated user and
 prefetches ordered addresses for the safe output serializer.
 `is_active` is account state, while `is_profile_complete` is a derived customer
-readiness property. The opt-in `IsProfileComplete` permission is available for
-future sensitive operations but does not restrict ordinary authenticated use.
+readiness property. The opt-in `IsProfileComplete` permission protects Payment
+initialization but does not restrict ordinary authenticated use.
 Profile-phone OTP state is bound to both the account and the candidate phone;
 address edits lock and require an explicitly owned address ID. It queues the
 Celery OTP task.
@@ -154,8 +154,10 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 
 PostgreSQL stores durable users, addresses, fragrance catalogue records,
 reusable note relations, product images, carts, Orders, Payments, Refunds, and
-Simple JWT outstanding/blacklist records. The domain applications each have a
-current initial migration that defines their schema and constraints.
+Simple JWT outstanding/blacklist records. Users, Products, Cart, and Orders
+currently have `0001_initial`; Payments additionally has
+`0002_manual_review_stops_automatic_reconciliation`; Notifications additionally
+has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
 The repository does not contain legacy identity, fragrance-domain, or
 ordered-note data migrations. The catalogue cache uses a versioned schema
 namespace so stale representations cannot be reused.
@@ -186,7 +188,20 @@ explicit credentialed CORS. See [authentication.md](authentication.md).
 
 ## Configuration and logging
 
-`config.settings.base` loads the root `.env` file with `django-environ`. Docker Compose also uses that file for interpolation and injects it into the `web` and `celery` services. Copy either tracked environment-specific example to `.env` to select the Django settings module. Production requires Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs, host/origin policy, and transport-hardening values.
+`config.settings.base` loads the root `.env` file with `django-environ`. Docker
+Compose also uses that file for interpolation and injects it into the `web`,
+`celery`, and `celery-beat` services. Copy either tracked environment-specific
+example to `.env` to select the Django settings module. Production requires
+Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs,
+host/origin policy, the exact server-owned shipping setting, and
+transport-hardening values.
+
+The backend supports `en` and `fa` through Django `LocaleMiddleware` and the
+project `locale/` catalogue. It negotiates only human-readable text; stable API
+keys, statuses, codes, stored enums, task/cache/audit identifiers, and Product
+content remain untranslated. The catalogue response cache is safe because it
+contains those stable raw values rather than localized choice labels. The React
+storefront remains English; frontend localization is deferred.
 
 Settings configure JSON logging for container output rather than application
 log files. Activity events use stdout; security and system events, plus Django
@@ -220,9 +235,11 @@ venv/bin/python manage.py makemigrations --check --dry-run \
 
 PostgreSQL row locking, case-insensitive identity constraints, concurrent
 signup, concurrent first Cart creation and same-item increments, unrelated-user
-Cart lock isolation, real transaction behavior, Redis security-cache state,
-normalized phone/IP throttle keys, and concurrent OTP consumption are covered
-by tests explicitly marked `integration`. `config.settings.integration` reads test service endpoints from
+Cart lock isolation, Order checkout/reservation transitions, Payment
+initialization/reconciliation transaction behavior, Notification delivery
+claims, Redis security-cache state, normalized phone/IP throttle keys, and
+concurrent OTP consumption are covered by tests explicitly marked `integration`.
+`config.settings.integration` reads test service endpoints from
 the environment; `docker/docker-compose.integration.yml` supplies isolated
 local defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
 
@@ -243,6 +260,13 @@ The trusted Orders checkout service locks Product rows in ascending numeric PK
 order, snapshots current `final_price` and product/customer/address data, creates
 one ACTIVE reservation per immutable OrderItem, decrements available stock once,
 and clears the captured CartItems in the same PostgreSQL transaction.
+
+For a newly created Order, checkout reads the one validated server setting,
+`ORDER_SHIPPING_FLAT_RATE_IRT`, and snapshots it as `shipping_amount` (the
+tracked default is exact `350000.00 IRT`, or 350,000 toman). It calculates
+`subtotal` from OrderItem line totals and `total = subtotal + shipping_amount`.
+An idempotent replay returns its stored Order before rereading the setting, so
+historical snapshots remain stable. Payment creation uses only `Order.total`.
 
 `Order.reservation_expires_at` is the only 15-minute reservation deadline;
 StockReservation has no expiry or quantity field. ACTIVE reservations consume
@@ -284,8 +308,9 @@ and provider UUID idempotency—not Redis or task delivery—provide financial
 safety. A new Payment is created only after a trusted, canonical initiator IP
 has been obtained; this is enforced by the service before checkout can reserve
 stock. Financial lifecycle events use allowlisted structured correlation fields
-only, while IP and user-agent evidence stays in the database. The provider
-registry is disabled by default until a real adapter is selected.
+only, while IP and user-agent evidence stays in the database. Payments is
+disabled by default because no real provider adapter is registered; the
+provider registry itself remains the mechanism for a later reviewed adapter.
 
 ## Customer storefront
 

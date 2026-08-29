@@ -58,13 +58,7 @@ class FakeProvider:
             provider_session_id="session-1",
             redirect_url="https://gateway.example.test/pay/session-1",
         )
-        self.verification = PaymentVerificationResult(
-            outcome=VerificationOutcome.VERIFIED,
-            provider_transaction_id="transaction-1",
-            provider_receipt_id="receipt-1",
-            captured_amount=Decimal("100.00"),
-            captured_currency="IRT",
-        )
+        self.verification = None
         self.refund = RefundResult(
             outcome=RefundOutcome.REFUNDED,
             provider_refund_id="refund-1",
@@ -80,7 +74,15 @@ class FakeProvider:
         self.verify_calls += 1
         if isinstance(self.verification, Exception):
             raise self.verification
-        return self.verification
+        if self.verification is not None:
+            return self.verification
+        return PaymentVerificationResult(
+            outcome=VerificationOutcome.VERIFIED,
+            provider_transaction_id="transaction-1",
+            provider_receipt_id="receipt-1",
+            captured_amount=kwargs["expected_amount"],
+            captured_currency="IRT",
+        )
 
     def refund_payment(self, **kwargs):
         self.refund_calls += 1
@@ -407,7 +409,7 @@ def test_initialization_commits_intent_before_provider_call_and_replays_same_key
     assert replay.created is False
     assert first.payment.pk == replay.payment.pk
     assert first.redirect_url == "https://gateway.example.test/pay/session-1"
-    assert first.payment.amount == first.order.total == Decimal("100.00")
+    assert first.payment.amount == first.order.total == Decimal("350100.00")
     assert first.payment.next_reconciliation_at is not None
     assert provider.create_calls == 1
     assert product.stock == 2
@@ -616,7 +618,7 @@ def test_late_capture_is_verified_and_creates_one_refund(provider, mocker):
     assert result.payment.status == Payment.Status.VERIFIED
     assert initialized.order.status == Order.Status.CANCELLED
     assert refund.reason == Refund.Reason.LATE_PAYMENT
-    assert refund.amount == Decimal("100.00")
+    assert refund.amount == Decimal("350100.00")
     assert product.stock == 3
 
 
@@ -644,7 +646,7 @@ def test_captured_currency_mismatch_preserves_truth_and_refund_obligation(provid
     provider.verification = PaymentVerificationResult(
         outcome=VerificationOutcome.VERIFIED,
         provider_transaction_id="transaction-currency-mismatch",
-        captured_amount=Decimal("100.00"),
+        captured_amount=Decimal("350100.00"),
         captured_currency="IRR",
     )
     mocker.patch("apps.payments.tasks.execute_refund_task.delay")

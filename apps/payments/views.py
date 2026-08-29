@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.http import Http404, HttpResponse
+from django.utils.translation import gettext, gettext_lazy
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -38,7 +39,7 @@ from apps.payments.throttles import PaymentCallbackRateThrottle, PaymentInitiali
 
 class PaymentsUnavailable(APIException):
     status_code = 503
-    default_detail = "Payment service is temporarily unavailable."
+    default_detail = gettext_lazy("Payment service is temporarily unavailable.")
     default_code = "payments_unavailable"
 
 
@@ -59,7 +60,7 @@ class PaymentInitializeAPIView(APIView):
         try:
             key = UUID(raw_key or "")
         except ValueError as exc:
-            raise serializers.ValidationError({"Idempotency-Key": "A valid UUID header is required."}) from exc
+            raise serializers.ValidationError({"Idempotency-Key": gettext("A valid UUID header is required.")}) from exc
         try:
             result = initialize_payment(
                 user=request.user,
@@ -73,7 +74,7 @@ class PaymentInitializeAPIView(APIView):
         except PaymentNotFoundError as exc:
             raise Http404 from exc
         except PaymentInitiatorIPError as exc:
-            raise serializers.ValidationError({"detail": "Unable to determine a trusted client address."}) from exc
+            raise serializers.ValidationError({"detail": gettext("Unable to determine a trusted client address.")}) from exc
         except (PaymentIdempotencyConflictError, PaymentAttemptInProgressError, PaymentEligibilityError, ActiveCheckoutError) as exc:
             return Response({"code": "payment_conflict", "detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except (PaymentProviderUnavailableError, PaymentProviderProtocolError) as exc:
@@ -127,9 +128,9 @@ class PaymentCallbackAPIView(APIView):
                 headers=request.headers,
             )
         except Exception as exc:
-            raise serializers.ValidationError({"callback": "Invalid callback data."}) from exc
+            raise serializers.ValidationError({"callback": gettext("Invalid callback data.")}) from exc
         if not isinstance(provider_session_id, str) or not provider_session_id or len(provider_session_id) > 255:
-            raise serializers.ValidationError({"callback": "Invalid callback data."})
+            raise serializers.ValidationError({"callback": gettext("Invalid callback data.")})
         try:
             result = verify_payment(
                 provider=provider,

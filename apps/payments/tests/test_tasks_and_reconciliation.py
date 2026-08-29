@@ -1,6 +1,4 @@
 from datetime import timedelta
-from decimal import Decimal
-
 import pytest
 from django.utils import timezone
 
@@ -35,7 +33,7 @@ class ReconcileProvider:
         return PaymentVerificationResult(
             outcome=VerificationOutcome.VERIFIED,
             provider_transaction_id="transaction-reconcile",
-            captured_amount=Decimal("100.00"),
+            captured_amount=kwargs["expected_amount"],
             captured_currency="IRT",
         )
 

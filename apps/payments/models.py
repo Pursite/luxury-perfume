@@ -5,16 +5,17 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 
 
 class Payment(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        REDIRECT_READY = "redirect_ready", "Redirect ready"
-        VERIFYING = "verifying", "Verifying"
-        VERIFIED = "verified", "Verified"
-        FAILED = "failed", "Failed"
-        MANUAL_REVIEW = "manual_review", "Manual review"
+        PENDING = "pending", _("Pending")
+        REDIRECT_READY = "redirect_ready", _("Redirect ready")
+        VERIFYING = "verifying", _("Verifying")
+        VERIFIED = "verified", _("Verified")
+        FAILED = "failed", _("Failed")
+        MANUAL_REVIEW = "manual_review", _("Manual review")
 
     OPEN_STATUSES = (Status.PENDING, Status.REDIRECT_READY, Status.VERIFYING, Status.MANUAL_REVIEW)
     RECONCILABLE_STATUSES = (Status.PENDING, Status.REDIRECT_READY, Status.VERIFYING)
@@ -132,15 +133,15 @@ class Payment(models.Model):
 
 class Refund(models.Model):
     class Reason(models.TextChoices):
-        LATE_PAYMENT = "late_payment", "Late payment"
-        DUPLICATE_PAYMENT = "duplicate_payment", "Duplicate payment"
-        AMOUNT_MISMATCH = "amount_mismatch", "Amount mismatch"
+        LATE_PAYMENT = "late_payment", _("Late payment")
+        DUPLICATE_PAYMENT = "duplicate_payment", _("Duplicate payment")
+        AMOUNT_MISMATCH = "amount_mismatch", _("Amount mismatch")
 
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        PROCESSING = "processing", "Processing"
-        REFUNDED = "refunded", "Refunded"
-        MANUAL_REVIEW = "manual_review", "Manual review"
+        PENDING = "pending", _("Pending")
+        PROCESSING = "processing", _("Processing")
+        REFUNDED = "refunded", _("Refunded")
+        MANUAL_REVIEW = "manual_review", _("Manual review")
 
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)

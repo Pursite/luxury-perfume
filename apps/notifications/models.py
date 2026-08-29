@@ -3,24 +3,25 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 
 
 class SmsDelivery(models.Model):
     class EventType(models.TextChoices):
-        CUSTOMER_ORDER_CONFIRMED = "CUSTOMER_ORDER_CONFIRMED", "Customer order confirmed"
-        OWNER_ORDER_PROCESSING = "OWNER_ORDER_PROCESSING", "Owner order processing"
-        CUSTOMER_ORDER_SHIPPED = "CUSTOMER_ORDER_SHIPPED", "Customer order shipped"
+        CUSTOMER_ORDER_CONFIRMED = "CUSTOMER_ORDER_CONFIRMED", _("Customer order confirmed")
+        OWNER_ORDER_PROCESSING = "OWNER_ORDER_PROCESSING", _("Owner order processing")
+        CUSTOMER_ORDER_SHIPPED = "CUSTOMER_ORDER_SHIPPED", _("Customer order shipped")
 
     class RecipientType(models.TextChoices):
-        CUSTOMER = "CUSTOMER", "Customer"
-        OWNER = "OWNER", "Owner"
+        CUSTOMER = "CUSTOMER", _("Customer")
+        OWNER = "OWNER", _("Owner")
 
     class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"
-        SENDING = "SENDING", "Sending"
-        SENT = "SENT", "Sent"
-        FAILED = "FAILED", "Failed"
-        MANUAL_REVIEW = "MANUAL_REVIEW", "Manual review"
+        PENDING = "PENDING", _("Pending")
+        SENDING = "SENDING", _("Sending")
+        SENT = "SENT", _("Sent")
+        FAILED = "FAILED", _("Failed")
+        MANUAL_REVIEW = "MANUAL_REVIEW", _("Manual review")
 
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)

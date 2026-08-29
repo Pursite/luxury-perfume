@@ -1,11 +1,12 @@
 from rest_framework import permissions
+from django.utils.translation import gettext_lazy as _
 from .loggers import AppLogger
 
 
 class IsProfileComplete(permissions.BasePermission):
     """Opt-in guard for operations that require verified customer details."""
 
-    message = "A complete customer profile is required for this operation."
+    message = _("A complete customer profile is required for this operation.")
 
     def has_permission(self, request, view):
         user = request.user
