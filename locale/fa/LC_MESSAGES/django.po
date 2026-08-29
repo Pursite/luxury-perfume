@@ -1,0 +1,195 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luxury-perfume\n"
+"POT-Creation-Date: 2026-08-29 00:00+0000\n"
+"PO-Revision-Date: 2026-08-29 00:00+0000\n"
+"Language: fa\n"
+"Language-Team: Persian\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: apps/users/selectors.py
+msgid "Username or password is incorrect."
+msgstr "نام کاربری یا رمز عبور نادرست است."
+
+msgid "Waiting for payment"
+msgstr "در انتظار پرداخت"
+
+msgid "Processing"
+msgstr "در حال پردازش"
+
+msgid "Shipped"
+msgstr "ارسال شده"
+
+msgid "Delivered"
+msgstr "تحویل شده"
+
+msgid "Cancelled"
+msgstr "لغو شده"
+
+msgid "Payment failed"
+msgstr "پرداخت ناموفق"
+
+msgid "Reservation expired"
+msgstr "مهلت رزرو منقضی شد"
+
+msgid "Active"
+msgstr "فعال"
+
+msgid "Consumed"
+msgstr "مصرف شده"
+
+msgid "Released"
+msgstr "آزاد شده"
+
+msgid "Pending"
+msgstr "در انتظار"
+
+msgid "Redirect ready"
+msgstr "آمادهٔ انتقال"
+
+msgid "Verifying"
+msgstr "در حال بررسی"
+
+msgid "Verified"
+msgstr "تأیید شده"
+
+msgid "Failed"
+msgstr "ناموفق"
+
+msgid "Manual review"
+msgstr "نیازمند بررسی دستی"
+
+msgid "Late payment"
+msgstr "پرداخت دیرهنگام"
+
+msgid "Duplicate payment"
+msgstr "پرداخت تکراری"
+
+msgid "Amount mismatch"
+msgstr "مغایرت مبلغ"
+
+msgid "Refunded"
+msgstr "بازپرداخت شده"
+
+msgid "Customer order confirmed"
+msgstr "سفارش مشتری تأیید شد"
+
+msgid "Owner order processing"
+msgstr "در حال پردازش سفارش مالک"
+
+msgid "Customer order shipped"
+msgstr "سفارش مشتری ارسال شد"
+
+msgid "Customer"
+msgstr "مشتری"
+
+msgid "Owner"
+msgstr "مالک"
+
+msgid "Sending"
+msgstr "در حال ارسال"
+
+msgid "Sent"
+msgstr "ارسال شد"
+
+msgid "The user no longer exists."
+msgstr "کاربر دیگر وجود ندارد."
+
+msgid "The idempotency key was used with another address."
+msgstr "کلید تکرارناپذیری با نشانی دیگری استفاده شده است."
+
+msgid "The user is inactive."
+msgstr "کاربر غیرفعال است."
+
+msgid "A complete profile and address are required."
+msgstr "تکمیل پروفایل و نشانی الزامی است."
+
+msgid "An active checkout already exists."
+msgstr "پرداخت فعال دیگری وجود دارد."
+
+msgid "The address does not belong to the user."
+msgstr "این نشانی به کاربر تعلق ندارد."
+
+msgid "The cart is empty."
+msgstr "سبد خرید خالی است."
+
+msgid "The cart contains too many distinct products."
+msgstr "سبد خرید شامل محصولات متمایز بیش از حد است."
+
+msgid "The cart changed during checkout."
+msgstr "سبد خرید هنگام پرداخت تغییر کرد."
+
+msgid "A cart product is unavailable."
+msgstr "یکی از محصولات سبد خرید در دسترس نیست."
+
+msgid "A cart product no longer has enough stock."
+msgstr "موجودی یکی از محصولات سبد خرید کافی نیست."
+
+msgid "Requested quantity exceeds available stock."
+msgstr "تعداد درخواستی از موجودی قابل عرضه بیشتر است."
+
+msgid "A complete customer profile is required for this operation."
+msgstr "تکمیل پروفایل مشتری برای این عملیات الزامی است."
+
+msgid "This field is not allowed."
+msgstr "این فیلد مجاز نیست."
+
+msgid "Exactly one of address_uuid or order_uuid is required."
+msgstr "دقیقاً یکی از address_uuid یا order_uuid الزامی است."
+
+msgid "Payment service is temporarily unavailable."
+msgstr "سرویس پرداخت موقتاً در دسترس نیست."
+
+msgid "A valid UUID header is required."
+msgstr "هدر UUID معتبر الزامی است."
+
+msgid "Unable to determine a trusted client address."
+msgstr "امکان تعیین نشانی قابل اعتماد کاربر وجود ندارد."
+
+msgid "Invalid callback data."
+msgstr "دادهٔ بازگشت نامعتبر است."
+
+msgid "Authentication protection is temporarily unavailable. Please try again later."
+msgstr "محافظت احراز هویت موقتاً در دسترس نیست. لطفاً بعداً دوباره تلاش کنید."
+
+msgid "Too many verification attempts. Please try again later."
+msgstr "تلاش‌های تأیید بیش از حد است. لطفاً بعداً دوباره تلاش کنید."
+
+msgid "Verification is already in progress. Please try again."
+msgstr "تأیید از قبل در حال انجام است. لطفاً دوباره تلاش کنید."
+
+msgid "Invalid or expired verification code."
+msgstr "کد تأیید نامعتبر یا منقضی است."
+
+msgid "Too many login attempts. Please try again later."
+msgstr "تلاش‌های ورود بیش از حد است. لطفاً بعداً دوباره تلاش کنید."
+
+msgid "Image size must not exceed 5 MB."
+msgstr "حجم تصویر نباید از ۵ مگابایت بیشتر باشد."
+
+msgid "Only JPEG, PNG, and WebP images are allowed."
+msgstr "فقط تصاویر JPEG، PNG و WebP مجاز هستند."
+
+msgid "Upload a valid, non-corrupted image file."
+msgstr "یک فایل تصویر معتبر و سالم بارگذاری کنید."
+
+msgid "Image content does not match its MIME type."
+msgstr "محتوای تصویر با نوع MIME آن مطابقت ندارد."
+
+msgid "Image dimensions must not exceed 6000 x 6000 pixels."
+msgstr "ابعاد تصویر نباید از ۶۰۰۰ × ۶۰۰۰ پیکسل بیشتر باشد."
+
+msgid "For example: home or office."
+msgstr "برای نمونه: خانه یا محل کار."
+
+msgid "Phone number must be entered in the format: '09123456789'."
+msgstr "شماره تلفن باید به شکل «09123456789» وارد شود."
+
+msgid "OTP must contain six ASCII digits."
+msgstr "رمز یک‌بارمصرف باید شامل شش رقم ASCII باشد."
+
+msgid "Unable to create an account with the provided information."
+msgstr "ایجاد حساب با اطلاعات ارائه‌شده ممکن نیست."

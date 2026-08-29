@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import Http404
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
 
 from apps.users.forms import (
     CustomAdminPasswordChangeForm,
@@ -30,6 +31,11 @@ def _is_privileged_user(user):
 class AddressInline(admin.TabularInline):
     model = Address
     extra = 1
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "title":
+            kwargs["help_text"] = _("For example: home or office.")
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 
 @admin.register(CustomUser)
@@ -212,6 +218,11 @@ class AddressAdmin(admin.ModelAdmin):
     list_display = ("user", "title", "postal_code")
     search_fields = ("user__phone_number", "title", "full_address")
     list_select_related = ("user",)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "title":
+            kwargs["help_text"] = _("For example: home or office.")
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

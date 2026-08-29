@@ -7,6 +7,7 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from apps.products.models import Product
 from apps.users.models import Address
@@ -39,15 +40,15 @@ class OrderManager(models.Manager):
 
 class Order(models.Model):
     class Status(models.TextChoices):
-        WAITING_FOR_PAYMENT = "waiting_for_payment", "Waiting for payment"
-        PROCESSING = "processing", "Processing"
-        SHIPPED = "shipped", "Shipped"
-        DELIVERED = "delivered", "Delivered"
-        CANCELLED = "cancelled", "Cancelled"
+        WAITING_FOR_PAYMENT = "waiting_for_payment", _("Waiting for payment")
+        PROCESSING = "processing", _("Processing")
+        SHIPPED = "shipped", _("Shipped")
+        DELIVERED = "delivered", _("Delivered")
+        CANCELLED = "cancelled", _("Cancelled")
 
     class CancellationReason(models.TextChoices):
-        PAYMENT_FAILED = "payment_failed", "Payment failed"
-        RESERVATION_EXPIRED = "reservation_expired", "Reservation expired"
+        PAYMENT_FAILED = "payment_failed", _("Payment failed")
+        RESERVATION_EXPIRED = "reservation_expired", _("Reservation expired")
 
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -153,13 +154,13 @@ class OrderItem(models.Model):
 
 class StockReservation(models.Model):
     class Status(models.TextChoices):
-        ACTIVE = "active", "Active"
-        CONSUMED = "consumed", "Consumed"
-        RELEASED = "released", "Released"
+        ACTIVE = "active", _("Active")
+        CONSUMED = "consumed", _("Consumed")
+        RELEASED = "released", _("Released")
 
     class ReleaseReason(models.TextChoices):
-        PAYMENT_FAILED = "payment_failed", "Payment failed"
-        RESERVATION_EXPIRED = "reservation_expired", "Reservation expired"
+        PAYMENT_FAILED = "payment_failed", _("Payment failed")
+        RESERVATION_EXPIRED = "reservation_expired", _("Reservation expired")
 
     id = models.BigAutoField(primary_key=True)
     order_item = models.OneToOneField(OrderItem, on_delete=models.CASCADE, related_name="reservation")

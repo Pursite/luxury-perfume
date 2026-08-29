@@ -5,6 +5,7 @@ import pytest
 from django.urls import reverse
 
 from apps.cart.models import Cart, CartItem
+from apps.orders.models import Order
 from apps.payments.models import Payment
 from apps.payments.providers.base import (
     InitiationOutcome,
@@ -14,6 +15,7 @@ from apps.payments.providers.base import (
 )
 from apps.payments.providers.registry import register_provider
 from apps.products.tests.factories import ProductFactory
+from apps.products.models import Product
 from apps.users.tests.factories import AddressFactory, UserFactory
 
 
@@ -43,7 +45,7 @@ class ApiProvider:
         return PaymentVerificationResult(
             outcome=VerificationOutcome.VERIFIED,
             provider_transaction_id="transaction-api",
-            captured_amount=Decimal("100.00"),
+            captured_amount=kwargs["expected_amount"],
             captured_currency="IRT",
         )
 
@@ -93,7 +95,7 @@ def test_initialize_returns_only_safe_server_derived_financial_fields(api_client
     response = _initialize(api_client, address)
 
     assert response.status_code == 201
-    assert response.json()["payment"]["amount"] == "100.00"
+    assert response.json()["payment"]["amount"] == "350100.00"
     assert response.json()["payment"]["currency"] == "IRT"
     assert response.json()["redirect_url"] == "https://gateway.example.test/pay/session-api"
     encoded = response.content.decode()
@@ -111,6 +113,7 @@ def test_initialize_rejects_client_controlled_financial_and_redirect_fields(api_
         {
             "address_uuid": str(address.pk),
             "amount": "1.00",
+            "shipping_amount": "1.00",
             "provider": "attacker",
             "return_url": "https://attacker.test",
         },
@@ -119,6 +122,28 @@ def test_initialize_rejects_client_controlled_financial_and_redirect_fields(api_
     )
 
     assert response.status_code == 400
+    assert Order.objects.count() == 0
+    assert Payment.objects.count() == 0
+    assert Product.objects.get().stock == 2
+    assert api_provider.create_calls == 0
+
+
+def test_initialize_localizes_human_input_errors_without_translating_the_field_key(api_client, api_provider):
+    """Translating serializer keys would break clients while omitting messages would defeat negotiation."""
+    address = _ready_user()
+    api_client.force_authenticate(address.user)
+
+    response = api_client.post(
+        reverse("payments:initialize"),
+        {"address_uuid": str(address.pk), "shipping_amount": "1.00"},
+        format="json",
+        HTTP_ACCEPT_LANGUAGE="fa-IR",
+        HTTP_IDEMPOTENCY_KEY="8e6a16c8-a7ca-4d3a-8f89-f9c632c1b7ef",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"shipping_amount": "این فیلد مجاز نیست."}
+    assert Order.objects.count() == 0
     assert api_provider.create_calls == 0
 
 

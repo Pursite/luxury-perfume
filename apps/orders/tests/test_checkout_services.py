@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.cart.models import Cart, CartItem
 from apps.orders.models import Order, StockReservation
@@ -41,6 +41,8 @@ class CreateWaitingOrderTests(TestCase):
         self.assertTrue(created)
         self.assertEqual(order.status, Order.Status.WAITING_FOR_PAYMENT)
         self.assertEqual(order.subtotal, Decimal("200.00"))
+        self.assertEqual(order.shipping_amount, Decimal("350000.00"))
+        self.assertEqual(order.total, Decimal("350200.00"))
         self.assertEqual(product.stock, 3)
         self.assertFalse(CartItem.objects.filter(cart=cart).exists())
         item = order.items.get()
@@ -83,6 +85,22 @@ class CreateWaitingOrderTests(TestCase):
         with self.assertRaises(IdempotencyConflictError):
             create_waiting_order(user=address.user, address_id=other_address.pk, idempotency_key=key)
         self.assertEqual(Order.objects.filter(user=address.user).count(), 1)
+
+    @override_settings(ORDER_SHIPPING_FLAT_RATE_IRT="350000.00")
+    def test_replay_keeps_its_original_shipping_snapshot_when_configuration_changes(self):
+        """Reading the rate before idempotency replay would rewrite historical checkout semantics."""
+        address, _ = self._ready_checkout()
+        key = "7fe97c28-c525-46a2-90b0-0ebee60c9d49"
+        first, created = create_waiting_order(user=address.user, address_id=address.pk, idempotency_key=key)
+
+        with override_settings(ORDER_SHIPPING_FLAT_RATE_IRT="400000.00"):
+            replay, replay_created = create_waiting_order(user=address.user, address_id=address.pk, idempotency_key=key)
+
+        self.assertTrue(created)
+        self.assertFalse(replay_created)
+        self.assertEqual(first.shipping_amount, Decimal("350000.00"))
+        self.assertEqual(replay.shipping_amount, Decimal("350000.00"))
+        self.assertEqual(replay.total, Decimal("350100.00"))
 
     def test_replay_survives_deleted_address_and_incomplete_current_profile(self):
         address, _ = self._ready_checkout()

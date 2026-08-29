@@ -2,12 +2,13 @@
 
 from django.conf import settings
 from django.core.cache import caches
+from django.utils.translation import gettext, gettext_lazy
 from rest_framework.exceptions import APIException, Throttled, ValidationError
 
 
 class SecurityCacheUnavailable(APIException):
     status_code = 503
-    default_detail = "Authentication protection is temporarily unavailable. Please try again later."
+    default_detail = gettext_lazy("Authentication protection is temporarily unavailable. Please try again later.")
 
 
 class OTPVerificationGuard:
@@ -42,16 +43,16 @@ class OTPVerificationGuard:
         try:
             if self.cache.get(self.lock_key):
                 raise Throttled(
-                    detail="Too many verification attempts. Please try again later."
+                    detail=gettext("Too many verification attempts. Please try again later.")
                 )
             if not self.cache.add(lease, 1, timeout=5):
                 raise Throttled(
-                    detail="Verification is already in progress. Please try again."
+                    detail=gettext("Verification is already in progress. Please try again.")
                 )
             try:
                 if self.cache.get(self.lock_key):
                     raise Throttled(
-                        detail="Too many verification attempts. Please try again later."
+                        detail=gettext("Too many verification attempts. Please try again later.")
                     )
                 saved = self.cache.get(self.code_key)
                 from secrets import compare_digest
@@ -60,7 +61,7 @@ class OTPVerificationGuard:
                     self.cache.add(self.attempts_key, 0, timeout=settings.OTP_EXPIRY_SECONDS)
                     if self.cache.incr(self.attempts_key) >= settings.OTP_VERIFICATION_MAX_ATTEMPTS:
                         self.cache.set(self.lock_key, 1, settings.OTP_VERIFICATION_LOCK_SECONDS)
-                    raise ValidationError({"otp": "Invalid or expired verification code."})
+                    raise ValidationError({"otp": gettext("Invalid or expired verification code.")})
                 result = on_success() if on_success is not None else None
                 self.cache.delete_many([self.code_key, self.attempts_key, self.lock_key])
                 return result
@@ -93,7 +94,7 @@ class PasswordLoginGuard:
         try:
             if self.cache.get(self.lock_key):
                 raise Throttled(
-                    detail="Too many login attempts. Please try again later."
+                    detail=gettext("Too many login attempts. Please try again later.")
                 )
         except Throttled:
             raise

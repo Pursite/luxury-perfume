@@ -1,7 +1,7 @@
 # Docker Compose deployment
 
 This deployment model is intended for one VPS. Docker Compose runs Django,
-Celery, PostgreSQL, and Redis. Nginx is installed and managed directly on the
+Celery, Celery Beat, PostgreSQL, and Redis. Nginx is installed and managed directly on the
 host; it terminates TLS, serves the React build plus Django static/media files,
 and proxies Django only through `127.0.0.1:8000`.
 
@@ -16,10 +16,10 @@ No Nginx, certificate, or Certbot container is used or required.
 - `docker/docker-compose.dev.yml` owns the local application build
   configuration, source mounts, the `luxury-perfume` development project name,
   and the loopback Django port for development.
-- `docker/docker-compose.prod.yml` requires `APP_IMAGE` for both Django and
-  Celery, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
+- `docker/docker-compose.prod.yml` requires `APP_IMAGE` for Django, Celery,
+  and Celery Beat, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
   PostgreSQL and Redis remain internal to Docker with their existing named
-  volumes. It also configures Docker's `local` log driver for all four services
+  volumes. It also configures Docker's `local` log driver for all five services
   with a 10 MiB maximum file size and three files per service.
 
 Always pass the base file first, followed by the intended override.
@@ -110,6 +110,27 @@ and the Redis service hostnames unchanged for this Compose layout. Then validate
 the selected production configuration with a non-secret image reference. The
 deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
 it to `.env`.
+
+Keep `ORDER_SHIPPING_FLAT_RATE_IRT=350000.00` unless a reviewed product-policy
+change explicitly changes the server-owned flat-rate snapshot. The application
+image includes the committed `locale/fa/LC_MESSAGES/django.mo` catalogue.
+Catalogues are maintained with GNU gettext/Django `makemessages` and
+`compilemessages`, then committed as both `.po` and `.mo`; gettext is not a
+runtime-image dependency. Django negotiates human messages at runtime while
+machine API values remain unchanged.
+
+From a maintenance environment with GNU gettext installed, regenerate only the
+backend catalogue and then review Persian text before compiling it:
+
+```bash
+python manage.py makemessages -l fa --ignore 'venv/*' --ignore '.venv/*' \
+  --ignore 'frontend/node_modules/*' --ignore 'frontend/dist/*' \
+  --ignore 'docs/superpowers/*'
+python manage.py compilemessages -l fa
+```
+
+Commit both `locale/fa/LC_MESSAGES/django.po` and `django.mo`. No gettext
+package is needed at runtime because Django reads the committed binary catalog.
 
 Production authentication uses a host-only, Secure, HttpOnly refresh cookie on
 `shop.exonplus.ir`; no refresh token is placed in frontend storage. Keep the
@@ -278,8 +299,9 @@ release in `frontend-releases/<commit-sha>/` through a stopped scratch carrier
 container. The artifact is structurally and origin validated before activation.
 The existing `db` and `redis` services are started without recreating them;
 after they are healthy, `check --deploy`, forward migrations, and `collectstatic`
-run. Only then is `web` recreated and its readiness endpoint checked. Celery is
-recreated separately and must remain running, with no restart, for five samples
+run. Only then is `web` recreated and its readiness endpoint checked. Celery
+and the single Beat process are recreated separately; the worker must remain
+running, with no restart, for five samples
 over eight seconds. Finally `frontend-current` is switched with one atomic
 symlink rename. It never runs `docker compose down`, removes volumes, prunes
 Docker resources, uses `git clean`, or modifies Nginx, VPN services, database
@@ -309,7 +331,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py migrate --noinput
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py collectstatic --noinput
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build --no-deps --force-recreate web celery
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build --no-deps --force-recreate web celery celery-beat
 ./scripts/frontend-release.sh activate /srv/luxury-perfume <matching-commit-sha> "$FRONTEND_IMAGE"
 ```
 
@@ -344,14 +366,12 @@ collide. This is an immediate URL cutover: clients must construct product
 detail, mutation, and image-upload URLs from the response `slug`; UUID product
 URLs return 404 after deployment.
 
-The users and products migration histories have been reset and each currently
-starts with `0001_initial.py`. Those initial migrations define the current
-schema and constraints directly; there are no legacy identity,
-fragrance-domain, or ordered-note data migrations or release gates in this
-repository. This runbook therefore applies to the new-deployment database
-contract described above. Do not apply these initial migrations blindly to an
-older installation with a different migration history; such an installation
-requires an explicitly reviewed schema-reconciliation or data-import plan.
+Users, Products, Cart, and Orders currently have `0001_initial`; Payments also
+has `0002_manual_review_stops_automatic_reconciliation`; Notifications also
+has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
+This runbook describes the current new-deployment migration inventory. Production
+migration-history/schema reconciliation and compatibility verification for an
+older installation are deferred and require a separately reviewed plan.
 
 The same image runs Django and Celery as UID/GID `10001`, not root. The web
 image defaults to Gunicorn on container port `8000`, while Compose overrides
@@ -377,13 +397,14 @@ OTP values, phone numbers, email addresses, request bodies, cache keys, or
 sensitive exception text to any logger.
 
 The production Compose override applies Docker's `local` logging driver with
-`max-size=10m` and `max-file=3` to PostgreSQL, Redis, web, and Celery. Docker
+`max-size=10m` and `max-file=3` to PostgreSQL, Redis, web, Celery, and Celery
+Beat. Docker
 rotates and compresses these internal files; use Compose instead of reading
 the Docker data directory directly:
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
-  logs --tail=100 web celery
+  logs --tail=100 web celery celery-beat
 docker inspect -f '{{.HostConfig.LogConfig.Type}}' luxury-perfume-web-1
 ```
 
@@ -607,19 +628,16 @@ short-lived build intermediates; the immutable SHA image tags are the rollback
 retention boundary, so do not delete a release image that may be needed for
 rollback.
 
-In particular, application images from before the fragrance-domain migration
-expect columns that the forward migration removes and are not valid code-only
-rollback targets afterward. Roll back only to a published `luxury-perfume`
-image whose code is compatible with the applied schema; any older recovery
-requires a separately designed database restore or schema procedure.
-Database/media backup and restore automation remains intentionally
-unimplemented.
+Roll back only to a published `luxury-perfume` image whose code is compatible
+with the applied schema; any older recovery requires a separately designed
+database restore or schema procedure. Database/media backup and restore
+automation remains intentionally unimplemented.
 
 Useful operational checks:
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 web celery
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 web celery celery-beat
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec web python manage.py check --deploy
 ```
 
@@ -629,8 +647,10 @@ schedules the Orders expiry sweep every 60 seconds and must not be replaced by
 authoritative if Beat, workers, or the broker are delayed.
 
 That same single Beat process schedules Payment reconciliation and pending
-Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily. No
-additional service is required. Keep `PAYMENTS_ENABLED=False` until a reviewed
+Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily.
+It also schedules due Notification delivery every 60 seconds and terminal SMS
+recipient scrubbing daily. No additional service is required. Keep
+`PAYMENTS_ENABLED=False` until a reviewed
 real provider adapter exists, and apply the additive `payments.0001_initial`
 and `payments.0002_manual_review_stops_automatic_reconciliation` migrations
 before any later enablement. Manual-review Payments intentionally have no
@@ -644,3 +664,8 @@ checks; verify create/lookup/verification/full-refund idempotency in the
 provider sandbox; then recreate web, Celery, and the single Beat service.
 Disabling Payments stops new HTTP operations but does not erase unresolved
 Payment or Refund obligations; those require reconciliation or manual review.
+
+The operational checks in this document are runbook guidance, not an
+implemented monitoring or alerting system. Monitoring/alerting, real Payment
+and SMS providers, backups/restores, and production migration-history/schema
+compatibility verification remain deferred.

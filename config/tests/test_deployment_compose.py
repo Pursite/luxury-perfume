@@ -71,6 +71,10 @@ def test_ci_application_image_job_is_read_only_and_publish_is_immutable():
         "outputs: type=docker,dest=/tmp/luxury-perfume-application.tar"
         in application_image_job
     )
+    assert "docker load --input /tmp/luxury-perfume-application.tar" in application_image_job
+    assert "DJANGO_SETTINGS_MODULE=config.settings.test" in application_image_job
+    assert "Username or password is incorrect." in application_image_job
+    assert "نام کاربری یا رمز عبور نادرست است." in application_image_job
     assert "APP_IMAGE: ghcr.io/pursite/luxury-perfume" in application_image_job
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in application_image_job
     assert "name: luxury-perfume-image-${{ github.sha }}" in application_image_job

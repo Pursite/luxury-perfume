@@ -219,6 +219,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke-test the committed Persian translation catalogue in the final image
+        run: |
+          docker load --input /tmp/luxury-perfume-application.tar
+          docker run --rm \
+            --env DJANGO_SETTINGS_MODULE=config.settings.test \
+            luxury-perfume:application \
+            python -c "import django; django.setup(); from django.utils import translation; translation.activate('fa'); assert translation.gettext('Username or password is incorrect.') == 'نام کاربری یا رمز عبور نادرست است.'"
+
       - name: Upload application image artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
