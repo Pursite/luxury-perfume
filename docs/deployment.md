@@ -174,6 +174,17 @@ Keep `.env` private and out of source control. The production sample sets
 `DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
 those with publicly reachable database or cache endpoints for this layout.
 
+## SMS notifications
+
+Order SMS is disabled by default (`SMS_ENABLED=False`) and this release does
+not contain a real provider adapter or provider credentials. Keep it disabled
+until a separately reviewed adapter proves HTTPS-only transport, fixed
+timeouts, safe response validation, and idempotent client-reference behavior.
+When SMS is enabled, `manage.py check --deploy` requires a registered provider,
+positive retry/timeout settings, and one canonical `09XXXXXXXXX` owner alert
+phone. The existing worker and single Beat service process durable outbox rows;
+turning SMS off pauses new sends and sweeps without deleting unresolved rows.
+
 ## Repository and package identity
 
 The intended GitHub repository is `Pursite/luxury-perfume`. Repository renaming

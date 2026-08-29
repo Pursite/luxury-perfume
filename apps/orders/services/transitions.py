@@ -108,6 +108,9 @@ def confirm_verified_payment(*, order_id: int) -> TransitionResult:
         order.status = Order.Status.PROCESSING
         order.processing_at = timezone.now()
         order.save(update_fields=("status", "processing_at", "updated_at"))
+        from apps.notifications.services.events import create_processing_sms_deliveries
+
+        create_processing_sms_deliveries(order=order)
         return _result(order, previous, True, TransitionOutcome.APPLIED)
     elif order.status == Order.Status.CANCELLED:
         changed = order.late_payment_detected_at is None
@@ -129,6 +132,9 @@ def mark_order_shipped(*, order_id: int) -> Order:
     order.status = Order.Status.SHIPPED
     order.shipped_at = timezone.now()
     order.save(update_fields=("status", "shipped_at", "updated_at"))
+    from apps.notifications.services.events import create_shipped_sms_delivery
+
+    create_shipped_sms_delivery(order=order)
     return order
 
 

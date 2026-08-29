@@ -14,7 +14,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"merchant_secret|webhook_signature|provider_session|pan|card|cvv|cvc|pin)\b"
     r"\s*([=:])\s*[^\s,|&]+"
 )
-_PHONE_NUMBER = re.compile(r"\b09\d{9}\b")
+_PHONE_NUMBER = re.compile(r"(?:\b09\d{9}\b|\+989\d{9}\b)")
 _EMAIL_ADDRESS = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
 _JWT = re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+\b")
 
@@ -49,6 +49,7 @@ class JsonFormatter(logging.Formatter):
     _safe_extra_fields = (
         "category", "user_id", "path", "task_id", "payment_uuid",
         "order_uuid", "refund_uuid", "provider", "outcome",
+        "notification_uuid", "event_type", "attempt",
     )
 
     def format(self, record: logging.LogRecord) -> str:

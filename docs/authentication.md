@@ -93,10 +93,15 @@ Each OTP flow requires canonical `phone_number`; verification also requires an
 exactly six-character ASCII-digit `otp`.
 
 ```text
-Request OTP -> security cache -> placeholder Celery task -> verify -> consume
+Request OTP -> security cache -> Users-owned Celery task -> verify -> consume
 ```
 
-The Celery task remains a placeholder and does not call an SMS provider.
+When `SMS_ENABLED=True`, the task renders the fixed Users OTP message and uses
+the shared provider-neutral transport. It never creates notification-outbox
+rows or persists OTP message content. SMS remains disabled by default pending a
+separately reviewed production adapter. Phone number and OTP values still form
+the bounded Celery task payload, so Redis broker and AOF access must remain
+tightly restricted.
 
 - `POST signup/send-otp/` and `POST signup/verify-otp/` create a phone-only,
   active account after successful verification. Its stored phone number is

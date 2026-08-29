@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "apps.cart",
     "apps.orders",
     "apps.payments",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -268,6 +269,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.payments.tasks.scrub_expired_payment_audit_metadata",
         "schedule": 86400.0,
     },
+    "notifications-sweep-due-sms-deliveries": {
+        "task": "apps.notifications.tasks.sweep_due_sms_deliveries",
+        "schedule": 60.0,
+    },
+    "notifications-scrub-expired-sms-recipients": {
+        "task": "apps.notifications.tasks.scrub_expired_sms_recipients",
+        "schedule": 86400.0,
+    },
 }
 
 PAYMENTS_ENABLED = env.bool("PAYMENTS_ENABLED", default=False)
@@ -282,5 +291,16 @@ PAYMENT_RECONCILIATION_HORIZON_HOURS = env.int("PAYMENT_RECONCILIATION_HORIZON_H
 PAYMENT_TRUST_PROXY_HEADERS = env.bool("PAYMENT_TRUST_PROXY_HEADERS", default=False)
 PAYMENT_TRUSTED_PROXY_CIDRS = tuple(env.list("PAYMENT_TRUSTED_PROXY_CIDRS", default=[]))
 PAYMENT_AUDIT_RETENTION_DAYS = env.int("PAYMENT_AUDIT_RETENTION_DAYS", default=180)
+
+SMS_ENABLED = env.bool("SMS_ENABLED", default=False)
+SMS_PROVIDER = env("SMS_PROVIDER", default="")
+SMS_CONNECT_TIMEOUT_SECONDS = env.float("SMS_CONNECT_TIMEOUT_SECONDS", default=3)
+SMS_READ_TIMEOUT_SECONDS = env.float("SMS_READ_TIMEOUT_SECONDS", default=7)
+SMS_OPERATION_LEASE_SECONDS = env.int("SMS_OPERATION_LEASE_SECONDS", default=30)
+SMS_MAX_ATTEMPTS = env.int("SMS_MAX_ATTEMPTS", default=5)
+SMS_RETRY_BASE_SECONDS = env.int("SMS_RETRY_BASE_SECONDS", default=5)
+SMS_RETRY_MAX_SECONDS = env.int("SMS_RETRY_MAX_SECONDS", default=300)
+SMS_RECIPIENT_RETENTION_DAYS = env.int("SMS_RECIPIENT_RETENTION_DAYS", default=180)
+ORDER_PROCESSING_ALERT_PHONE = env("ORDER_PROCESSING_ALERT_PHONE", default="")
 
 AUTH_USER_MODEL = "users.CustomUser"

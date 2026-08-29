@@ -287,6 +287,11 @@ Order creation is an internal trusted service reached through Payment
 initialization. Existing Order decimal amounts are toman (`IRT`); shipping
 calculation remains outside the API contract.
 
+Notifications add no public SMS endpoint. When enabled, a verified Payment
+transition that actually changes an Order to `PROCESSING` creates the customer
+confirmation and owner-processing obligations; `PROCESSING` to `SHIPPED`
+creates the customer-shipment obligation. Replayed transitions create none.
+
 ## Payments
 
 Payment handlers return `503` while `PAYMENTS_ENABLED=False`; normal DRF

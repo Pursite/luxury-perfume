@@ -28,10 +28,14 @@ authenticated carts; `frontend/` provides the customer experience.
   Orders integration, reconciliation tasks, trusted initiator-IP evidence, and
   audit-data retention. No real gateway adapter is selected, so production
   Payments cannot yet be enabled.
+- A disabled-by-default SMS outbox for paid-order confirmation, owner
+  processing alerts, and shipment notices. It has no public API and no real
+  provider adapter yet; a future provider must be separately reviewed before
+  SMS can be enabled.
 - A responsive React storefront with a server-filtered catalogue,
   slug-addressed Product Detail gallery and fragrance pyramid,
   username/password JWT login, an authenticated Account Details experience,
-  and the real authenticated Cart. SMS, password reset, Orders, Tickets, and
+  and the real authenticated Cart. SMS UI, Orders, Tickets, and
   online payment UI remain visibly unavailable and are not simulated.
 
 See [authentication details](docs/authentication.md), the [API reference](docs/api.md), and the [security model](docs/security.md).
