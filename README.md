@@ -2,8 +2,9 @@
 
 A Django REST Framework backend and Luxury Perfume React storefront for a perfume,
 cologne, and body-splash store. Django provides user authentication and profile
-management, a public fragrance catalogue with staff-only mutations, and
-authenticated carts; `frontend/` provides the customer experience.
+management, a public fragrance catalogue with staff-only mutations,
+authenticated carts, server-owned Orders, Payments/Refunds, and an SMS outbox;
+`frontend/` provides the customer experience.
 
 ## Implemented features
 
@@ -57,7 +58,9 @@ tooling is layered on top through
 Requests are coordinated by views, validated and represented by serializers,
 then delegated to services for mutations or selectors for reusable reads.
 Models and database constraints enforce persisted invariants; Celery handles
-OTP-task and image-thumbnail background work. `apps.cart` remains entirely
+OTP delivery, image thumbnails, Order-expiry recovery, Payment/Refund recovery,
+Notification delivery, and retention work through the worker and Beat.
+`apps.cart` remains entirely
 synchronous and database-backed. `apps.lib` contains shared infrastructure
 such as cache, security-cache, logging, pagination, permissions, throttles,
 and image validation.
@@ -205,8 +208,10 @@ Override the dedicated `INTEGRATION_DB_*`,
 `INTEGRATION_CACHE_REDIS_URL`, and `INTEGRATION_SECURITY_REDIS_URL`
 environment variables when using existing test services. The integration suite
 covers case-insensitive identity constraints and concurrent signup, Cart
-creation and increment races, unrelated-user Cart lock isolation, Redis
-OTP-consumption races, and security-throttle keys. Never point integration
+creation and increment races, unrelated-user Cart lock isolation, Orders
+stock/reservation transactions, Payment transaction and reconciliation races,
+Notification delivery concurrency, Redis OTP-consumption races, and
+security-throttle keys. Never point integration
 tests at production databases or Redis databases.
 
 Run the frontend checks with Node 24 LTS:
@@ -235,7 +240,7 @@ revision labels. The backend jobs are named `Application image` and `Publish app
 `Publish frontend image`. The frontend image is only a scratch filesystem
 carrier; it is not a production runtime.
 
-Production deploys the same backend image for Django and Celery, pinned to its
+Production deploys the same backend image for Django, Celery, and Celery Beat, pinned to its
 resolved content digest, alongside the matching frontend carrier artifact. The
 VPS extracts that artifact into an immutable SHA-addressed release and
 atomically switches `frontend-current`; no Node/npm build occurs on the VPS.
@@ -266,11 +271,22 @@ reusable fragrance notes, product-image, Cart domain, and first customer React
 storefront are implemented. The project remains under active development.
 
 Orders, stock reservations, customer Order history, manual Admin fulfillment,
-and the provider-independent Payments/Refunds backend are implemented. The
-Payments backend defines existing decimal prices as toman (`IRT`) and is
-disabled by default. A real gateway adapter, provider credentials and sandbox
-approval, the checkout/result frontend, Notifications/SMS, and a shipping-price
-algorithm remain outstanding.
+the provider-independent Payments/Refunds backend, and the durable SMS-outbox
+architecture are implemented. New Orders snapshot the single server-owned flat
+shipping rate, `350000.00 IRT` (350,000 toman), and set `total = subtotal +
+shipping_amount`. Payments define decimal prices as toman (`IRT`) and remain
+disabled by default because no real gateway adapter is registered. SMS remains
+disabled because no real provider adapter is registered.
+
+The backend can negotiate human-readable API messages in English (`en`) and
+Persian (`fa`). JSON keys, status values, codes, URLs, and other machine
+contracts remain stable. The current React storefront remains English (apart
+from its existing Persian development notice); frontend localization is
+deferred.
+
+Deferred production hardening includes real Payment and SMS providers,
+monitoring/alerting, PostgreSQL/media backup and tested restores, production
+migration-history/schema reconciliation, and provider-specific localization.
 
 The repository includes a Docker Compose deployment layout for development and
 a single VPS, plus a manual GitHub Actions production deployment workflow; see

@@ -9,9 +9,17 @@ Authorization: Bearer <access-token>
 ```
 
 User routes begin `/api/v1/users/`; product routes begin `/api/v1/products/`;
-Cart routes begin `/api/v1/cart/`. Examples with placeholder tokens, UUIDs, or
-product values are illustrative unless their fields are explicitly listed
-below.
+Cart routes begin `/api/v1/cart/`; Order routes begin `/api/v1/orders/`; and
+Payment routes begin `/api/v1/payments/`. Examples with placeholder tokens,
+UUIDs, or product values are illustrative unless their fields are explicitly
+listed below.
+
+Human-readable messages negotiate Django language in the usual order: a valid
+language cookie, then `Accept-Language` (including compatible variants such as
+`fa-IR`), then English. Supported languages are `en` and `fa`; unsupported or
+missing preferences fall back to English. JSON field names, validation keys,
+status values, response `code` values, URLs, query parameters, and headers are
+stable machine contracts and are never translated.
 
 ## Users
 
@@ -231,8 +239,10 @@ checkout UI.
 
 Cart is purchase intent only. It does not reserve or decrement stock, freeze
 prices, create Orders, perform checkout, call payments, or send notifications.
-Future checkout/Order code must own authoritative stock locking, stock
-decrement, and price snapshots.
+The authoritative checkout service is internal to the Orders/Payments workflow:
+it locks Product rows, decrements stock, creates immutable Order/OrderItem
+snapshots and reservations, and clears the captured Cart in one PostgreSQL
+transaction.
 
 ## React storefront consumption
 
@@ -284,8 +294,11 @@ and shipping snapshots; they do not create a checkout, reserve stock, accept a
 payment result, or mutate fulfillment. A foreign order UUID returns `404`.
 
 Order creation is an internal trusted service reached through Payment
-initialization. Existing Order decimal amounts are toman (`IRT`); shipping
-calculation remains outside the API contract.
+initialization. Existing Order decimal amounts are toman (`IRT`). New Orders
+snapshot the exact server-owned `350000.00 IRT` flat shipping charge (350,000
+toman); clients cannot submit a shipping amount. `subtotal` is the sum of
+immutable OrderItem line totals and `total = subtotal + shipping_amount`.
+Historical Order snapshots are not recalculated if configuration changes.
 
 Notifications add no public SMS endpoint. When enabled, only a verified
 Payment transition that actually changes an Order to `PROCESSING` creates a
@@ -306,7 +319,9 @@ provider adapter has been selected.
 active profile, the fail-closed Payment throttle, and an
 `Idempotency-Key: <UUID>` header. The JSON body contains exactly one of
 `address_uuid` or `order_uuid`. Provider, amount, currency, user, callback URL,
-and return URL are rejected. New redirect-ready attempts return `201`,
+return URL, and `shipping_amount` are rejected. A Payment amount is derived
+only from the locked `Order.total`; no client field or independent shipping
+calculation can alter it. New redirect-ready attempts return `201`,
 identical replays return `200`, and ambiguous/recoverable attempts return
 `202`. The response contains safe `payment`, `order`, optional `refund`, and
 `redirect_url` values. A `202` response also contains
@@ -327,12 +342,15 @@ server-to-server. Browser status text is never payment proof. Browser callbacks
 receive a `303` to the configured frontend result URL containing only
 `payment_uuid`; client-supplied return URLs are ignored.
 
-- `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, and Cart quantity-update operations.
-- `201 Created` — direct signup, OTP signup verification, product/image creation, or a newly created CartItem.
+- `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, Cart quantity-update operations, and an identical completed Payment initialization replay.
+- `201 Created` — direct signup, OTP signup verification, product/image creation, a newly created CartItem, or a new redirect-ready Payment initialization.
+- `202 Accepted` — a Payment initialization or provider callback is pending/recoverable; initialization includes `retry_after_seconds` and `Retry-After`.
 - `204 No Content` — product, product-image, or Cart item deletion and Cart clearing.
 - `400 Bad Request` — serializer validation, Cart stock limits, generic identity/OTP errors, or a logout refresh that is not owned by the requester.
 - `401 Unauthorized` — missing, invalid, or stale JWT credentials on a protected endpoint; failed username/password authentication; or invalid/replayed refresh tokens.
-- `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation.
+- `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation, or a Payment initiator lacks a complete active profile.
 - `404 Not Found` — unknown or non-visible product/image, inactive or missing Cart-add Product, or missing owned CartItem.
+- `303 See Other` — a browser Payment callback redirects to the configured result URL with only `payment_uuid`.
+- `409 Conflict` — a Payment idempotency, active-checkout, eligibility, or in-progress-attempt conflict; the stable code is `payment_conflict`.
 - `429 Too Many Requests` — a configured throttle, temporary OTP lock, password-login lock, or active verification lease.
-- `503 Service Unavailable` — authentication protection cannot access the security cache safely.
+- `503 Service Unavailable` — authentication protection cannot access the security cache safely, or any Payment handler is disabled (`PAYMENTS_ENABLED=False`) or lacks a usable registered provider. The disabled-service behavior applies after its normal authentication, permission, and throttle checks.

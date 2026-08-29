@@ -1,4 +1,5 @@
 from django.http import Http404
+from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -30,7 +31,7 @@ def _cart_response(*, request, response_status=status.HTTP_200_OK) -> Response:
 
 def _raise_stock_validation_error(exc: CartStockExceededError) -> None:
     raise ValidationError(
-        {"quantity": ["Requested quantity exceeds available stock."]}
+        {"quantity": [_("Requested quantity exceeds available stock.")]}
     ) from exc
 
 

@@ -20,6 +20,10 @@ Gunicorn, Docker Compose, and Pytest.
 `apps.users` owns authentication, OTP, JWT, profiles, and addresses.
 `apps.products` owns the fragrance catalogue, products, categories, brands,
 fragrance notes, images, filtering, caching, and thumbnail processing.
+`apps.cart` owns owner-bound purchase-intent carts and synchronous Cart writes.
+`apps.orders` owns checkout snapshots, stock reservations, and fulfillment
+transitions. `apps.payments` owns Payment attempts, verification, and Refunds.
+`apps.notifications` owns the durable Order-SMS outbox and delivery state.
 `apps.lib` owns shared infrastructure.
 
 ---
@@ -99,6 +103,11 @@ that must survive concurrency.
 Stock, cart, orders, and payments require explicit race-condition and lost-update
 analysis.
 
+New Orders snapshot the exact server-owned
+`ORDER_SHIPPING_FLAT_RATE_IRT` value. Clients cannot submit shipping, Payments
+derive their amount only from `Order.total`, and historical Order snapshots are
+never recalculated.
+
 ---
 
 ## ORM and Performance
@@ -176,6 +185,11 @@ Do not silently change:
 - ordering
 - visibility rules
 - error semantics
+
+Human-readable API messages may be localized for `en` and `fa`; stable machine
+contracts must not be translated. This includes JSON keys, status and enum
+values, response codes, URLs, identifiers, provider/failure codes, Celery task
+names, cache keys, audit/log event names, and system-check IDs.
 
 Products use internal database IDs, stable UUID response identifiers, and
 immutable lowercase public slugs.

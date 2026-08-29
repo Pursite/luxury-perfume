@@ -136,6 +136,11 @@ states, keyboard-operable navigation and confirmation, and reduced-motion
 support. Missing Product imagery uses a neutral Luxury Perfume treatment rather than
 fake photography.
 
+The backend may negotiate human-readable API messages in `en` or `fa`, but the
+current React UI remains English. It treats backend error text as display text
+and does not branch on exact English wording. Frontend localization is deferred;
+this boundary does not change React routes, UI behavior, styling, or tests.
+
 The payment, SMS authentication, Account phone, password-reset, Orders, and
 Tickets controls are real disabled buttons.
 Separate focusable wrappers own their accessible unavailable tooltips; they

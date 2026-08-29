@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.utils.translation import gettext_lazy as _
 
 from apps.orders.models import Order
 from apps.payments.models import Payment, Refund
@@ -11,12 +12,12 @@ class StrictInitializeInputSerializer(serializers.Serializer):
     def to_internal_value(self, data):
         unknown = set(data) - set(self.fields)
         if unknown:
-            raise serializers.ValidationError({key: "This field is not allowed." for key in sorted(unknown)})
+            raise serializers.ValidationError({key: _("This field is not allowed.") for key in sorted(unknown)})
         return super().to_internal_value(data)
 
     def validate(self, attrs):
         if ("address_uuid" in attrs) == ("order_uuid" in attrs):
-            raise serializers.ValidationError("Exactly one of address_uuid or order_uuid is required.")
+            raise serializers.ValidationError(_("Exactly one of address_uuid or order_uuid is required."))
         return attrs
 
 

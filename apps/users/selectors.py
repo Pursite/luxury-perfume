@@ -2,6 +2,7 @@ from typing import Optional
 from uuid import UUID
 from django.contrib.auth.hashers import check_password, make_password
 from django.db.models import Prefetch
+from django.utils.translation import gettext as _
 from rest_framework.exceptions import AuthenticationFailed
 
 from .models import Address, CustomUser
@@ -41,7 +42,7 @@ class UserSelector:
     @staticmethod
     def authenticate_by_username_password(username: str, password: str) -> CustomUser:
         """Authenticate without disclosing account existence or account state."""
-        generic_error = "Username or password is incorrect."
+        generic_error = _("Username or password is incorrect.")
         username = CustomUser.normalize_username(username)
         users = list(
             CustomUser.objects.filter(username__iexact=username).order_by("pk")[:2]
