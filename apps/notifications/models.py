@@ -154,7 +154,7 @@ class SmsDelivery(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=("status", "-created_at"), name="notifications_status_created_idx"),
+            models.Index(fields=("status", "-created_at"), name="notif_status_created_idx"),
             models.Index(
                 fields=("next_retry_at", "id"),
                 condition=Q(status__in=("PENDING", "SENDING")),
