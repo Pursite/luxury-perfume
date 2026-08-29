@@ -20,7 +20,8 @@ SCRUB_MAX_BATCHES = 100
 def execute_sms_delivery_task(delivery_id):
     from apps.notifications.services.delivery import execute_delivery
 
-    return execute_delivery(delivery_id=delivery_id)
+    execute_delivery(delivery_id=delivery_id)
+    return None
 
 
 @shared_task(**TASK_OPTIONS)

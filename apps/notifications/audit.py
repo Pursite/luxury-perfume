@@ -13,7 +13,18 @@ _EVENTS = {
 }
 
 
-def emit_notification_event(event, *, delivery=None, order=None, provider=None, attempt=None, outcome=None):
+def emit_notification_event(
+    event,
+    *,
+    delivery=None,
+    order=None,
+    notification_uuid=None,
+    order_uuid=None,
+    event_type=None,
+    provider=None,
+    attempt=None,
+    outcome=None,
+):
     if event not in _EVENTS:
         raise ValueError("Unknown notification audit event.")
     order = order or (delivery.order if delivery is not None else None)
@@ -24,8 +35,14 @@ def emit_notification_event(event, *, delivery=None, order=None, provider=None, 
             event_type=delivery.event_type,
             attempt=delivery.attempt_count,
         )
+    elif notification_uuid is not None:
+        extra["notification_uuid"] = str(notification_uuid)
+        if event_type is not None:
+            extra["event_type"] = event_type
     if order is not None:
         extra["order_uuid"] = str(order.uuid)
+    elif order_uuid is not None:
+        extra["order_uuid"] = str(order_uuid)
     if provider:
         extra["provider"] = provider
     if attempt is not None:

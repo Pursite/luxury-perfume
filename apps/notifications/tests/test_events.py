@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.db import transaction
 from django.test import TestCase, override_settings
@@ -120,3 +121,100 @@ class NotificationTransitionTests(TestCase):
         order.refresh_from_db()
         assert order.status == "waiting_for_payment"
         assert SmsDelivery.objects.filter(order=order).count() == 0
+
+    def test_creation_audit_is_emitted_only_after_commit(self):
+        order = self._order()
+
+        with (
+            patch("apps.notifications.services.events.emit_notification_event") as audit,
+            patch("apps.notifications.services.events._enqueue_after_commit"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+            assert not audit.called
+
+        assert [call.args[0] for call in audit.call_args_list] == ["notification_created"]
+
+    def test_rolled_back_creation_emits_no_notification_created_audit(self):
+        order = self._order()
+
+        with (
+            patch("apps.notifications.services.events.emit_notification_event") as audit,
+            patch("apps.notifications.services.events._enqueue_after_commit"),
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(RuntimeError),
+        ):
+            with transaction.atomic():
+                confirm_verified_payment(order_id=order.pk)
+                raise RuntimeError("force rollback")
+
+        assert not audit.called
+
+    def test_replayed_processing_emits_no_second_creation_audit(self):
+        order = self._order()
+
+        with (
+            patch("apps.notifications.services.events.emit_notification_event") as audit,
+            patch("apps.notifications.services.events._enqueue_after_commit"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+        assert [call.args[0] for call in audit.call_args_list] == ["notification_created"]
+
+        audit.reset_mock()
+        with (
+            patch("apps.notifications.services.events._enqueue_after_commit"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+        assert not audit.called
+
+    def test_customer_and_owner_creation_audits_each_emit_once_after_commit(self):
+        UserFactory(phone_number="09121111111", is_staff=True, is_superuser=True)
+        UserFactory(phone_number="09122222222", is_staff=True, is_superuser=True)
+        order = self._order()
+
+        with (
+            patch("apps.notifications.services.events.emit_notification_event") as audit,
+            patch("apps.notifications.services.events._enqueue_after_commit"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+            assert not audit.called
+
+        assert [call.args[0] for call in audit.call_args_list] == [
+            "notification_created",
+            "notification_created",
+            "notification_created",
+        ]
+
+    def test_enqueue_remains_deferred_until_after_commit(self):
+        order = self._order()
+
+        with (
+            patch("apps.notifications.tasks.execute_sms_delivery_task.apply_async") as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+            assert not enqueue.called
+
+        enqueue.assert_called_once_with(args=(SmsDelivery.objects.get(order=order).pk,), retry=False)
+
+    def test_broker_failure_keeps_committed_delivery_and_audits_failure(self):
+        order = self._order()
+
+        with (
+            patch(
+                "apps.notifications.tasks.execute_sms_delivery_task.apply_async",
+                side_effect=RuntimeError("broker unavailable"),
+            ),
+            patch("apps.notifications.services.events.emit_notification_event") as audit,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            confirm_verified_payment(order_id=order.pk)
+
+        assert SmsDelivery.objects.filter(order=order).count() == 1
+        assert [call.args[0] for call in audit.call_args_list] == [
+            "notification_created",
+            "sms_enqueue_failed",
+        ]

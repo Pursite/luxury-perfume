@@ -20,6 +20,22 @@ def _enqueue_after_commit(delivery):
     transaction.on_commit(enqueue)
 
 
+def _audit_delivery_created_after_commit(delivery, order):
+    notification_uuid = str(delivery.uuid)
+    order_uuid = str(order.uuid)
+    event_type = delivery.event_type
+    attempt = delivery.attempt_count
+    transaction.on_commit(
+        lambda: emit_notification_event(
+            "notification_created",
+            notification_uuid=notification_uuid,
+            order_uuid=order_uuid,
+            event_type=event_type,
+            attempt=attempt,
+        )
+    )
+
+
 def _create_delivery(*, order, event_type, recipient_type, recipient_phone, recipient_user=None):
     phone = normalize_iranian_mobile(recipient_phone)
     now = timezone.now()
@@ -47,7 +63,7 @@ def _create_delivery(*, order, event_type, recipient_type, recipient_phone, reci
         if recipient_user is not None:
             lookup["recipient_user"] = recipient_user
         return SmsDelivery.objects.get(**lookup)
-    emit_notification_event("notification_created", delivery=delivery, order=order)
+    _audit_delivery_created_after_commit(delivery, order)
     if delivery.status == SmsDelivery.Status.PENDING:
         _enqueue_after_commit(delivery)
     return delivery

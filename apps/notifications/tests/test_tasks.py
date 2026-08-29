@@ -1,14 +1,22 @@
-from decimal import Decimal
 from datetime import timedelta
+from decimal import Decimal
+import json
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
 from django.db import IntegrityError
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.cart.models import Cart, CartItem
+from apps.lib.sms.base import SmsSendOutcome, SmsSendResult, SmsTransportError
+from apps.lib.sms.registry import register_provider
+from apps.lib.tests.fakes import FakeSmsProvider
 from apps.notifications.models import SmsDelivery
-from apps.notifications.tasks import scrub_expired_sms_recipients, sweep_due_sms_deliveries
+from apps.notifications.tasks import (
+    execute_sms_delivery_task,
+    scrub_expired_sms_recipients,
+    sweep_due_sms_deliveries,
+)
 from apps.orders.services.checkout import create_waiting_order
 from apps.products.tests.factories import ProductFactory
 from apps.users.tests.factories import AddressFactory, UserFactory
@@ -16,7 +24,7 @@ from apps.users.tests.factories import AddressFactory, UserFactory
 
 @override_settings(SMS_ENABLED=True, SMS_RECIPIENT_RETENTION_DAYS=180)
 class SmsTaskTests(TestCase):
-    def _delivery(self, *, status, recipient_phone=None, **values):
+    def _delivery(self, *, status, recipient_phone=None, provider="test-sms", **values):
         address = AddressFactory()
         recipient_phone = recipient_phone or address.user.phone_number
         product = ProductFactory(stock=2, price=Decimal("10.00"), discount_price=None)
@@ -32,11 +40,83 @@ class SmsTaskTests(TestCase):
             "event_type": SmsDelivery.EventType.CUSTOMER_ORDER_CONFIRMED,
             "recipient_type": SmsDelivery.RecipientType.CUSTOMER,
             "recipient_phone": recipient_phone,
-            "provider": "test-sms",
+            "provider": provider,
             "status": status,
         }
         base.update(values)
         return SmsDelivery.objects.create(**base)
+
+    @override_settings(SMS_PROVIDER="task-success")
+    def test_delivery_task_returns_json_serializable_none_after_success(self):
+        register_provider("task-success", FakeSmsProvider())
+        delivery = self._delivery(
+            status=SmsDelivery.Status.PENDING,
+            provider="task-success",
+            next_retry_at=timezone.now(),
+        )
+
+        result = execute_sms_delivery_task.run(delivery.pk)
+
+        delivery.refresh_from_db()
+        assert result is None
+        assert json.dumps(result) == "null"
+        assert delivery.status == SmsDelivery.Status.SENT
+
+    @override_settings(SMS_PROVIDER="task-retry")
+    def test_delivery_task_returns_none_after_retry(self):
+        register_provider("task-retry", FakeSmsProvider(exception=SmsTransportError()))
+        delivery = self._delivery(
+            status=SmsDelivery.Status.PENDING,
+            provider="task-retry",
+            next_retry_at=timezone.now(),
+        )
+
+        result = execute_sms_delivery_task.run(delivery.pk)
+
+        delivery.refresh_from_db()
+        assert result is None
+        assert delivery.status == SmsDelivery.Status.PENDING
+        assert delivery.attempt_count == 1
+
+    @override_settings(SMS_PROVIDER="task-failure")
+    def test_delivery_task_returns_none_after_terminal_failure(self):
+        register_provider(
+            "task-failure",
+            FakeSmsProvider(
+                result=SmsSendResult(
+                    outcome=SmsSendOutcome.REJECTED,
+                    diagnostic_code="invalid_recipient",
+                )
+            ),
+        )
+        delivery = self._delivery(
+            status=SmsDelivery.Status.PENDING,
+            provider="task-failure",
+            next_retry_at=timezone.now(),
+        )
+
+        result = execute_sms_delivery_task.run(delivery.pk)
+
+        delivery.refresh_from_db()
+        assert result is None
+        assert delivery.status == SmsDelivery.Status.FAILED
+
+    @override_settings(SMS_PROVIDER="task-manual-review")
+    def test_delivery_task_returns_none_after_manual_review(self):
+        provider = FakeSmsProvider(result=SmsSendResult(outcome=SmsSendOutcome.AMBIGUOUS))
+        provider.supports_idempotent_send = False
+        register_provider("task-manual-review", provider)
+        delivery = self._delivery(
+            status=SmsDelivery.Status.PENDING,
+            provider="task-manual-review",
+            next_retry_at=timezone.now(),
+        )
+
+        result = execute_sms_delivery_task.run(delivery.pk)
+
+        delivery.refresh_from_db()
+        assert result is None
+        assert delivery.status == SmsDelivery.Status.MANUAL_REVIEW
 
     def test_sweeper_queues_only_due_pending_deliveries(self):
         due = self._delivery(status=SmsDelivery.Status.PENDING, next_retry_at=timezone.now())
