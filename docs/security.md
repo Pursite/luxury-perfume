@@ -147,7 +147,7 @@ snapshot.
 
 ## Configuration, logging, and transport
 
-Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Structured logs use allowlisted fields and redact common secret/PII patterns. Callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, email addresses, cache keys, or sensitive internal errors. Authentication and SMS-placeholder events use fixed generic names; system errors record an exception type, never an exception message or traceback.
+Runtime configuration is loaded from the ignored root `.env`. Production requires distinct Django and JWT signing keys; use at least 32 random bytes for the JWT key. Never put real values in tracked environment examples. Structured logs use allowlisted fields and redact common secret/PII patterns. Callers must not include passwords, OTPs, JWTs, credentials, raw phone numbers, email addresses, cache keys, provider message IDs, rendered SMS, or sensitive internal errors. SMS audit events use fixed generic names; system errors record an exception type, never an exception message or traceback.
 
 For local development Django allows only the documented Vite origins at ports
 5173. Production Django is hosted at `shop.exonplus.ir` and allows the
@@ -166,7 +166,7 @@ case-fold constraints, concurrent signup, Cart creation/increment races and
 unrelated-user lock isolation, Redis throttle keys, and concurrent OTP
 consumption.
 
-- OTP delivery remains a Celery placeholder; no SMS provider is implemented.
+- No real SMS provider adapter is implemented, so SMS remains disabled in production. The durable Order outbox records event type and recipient snapshot, never rendered message content; accepted delivery means provider acceptance, not handset receipt. Order text remains fixed server-controlled source text until a provider is selected and an approved-template strategy is separately reviewed. Processing alerts are limited to active superusers with valid account phones; missing or malformed superuser phones are skipped, and ordinary staff are not recipients. Non-idempotent ambiguous sends require manual review rather than an automatic duplicate attempt.
 - OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
 - Redis leases serialize consumption but do not make all verification keys one atomic transaction.
 - The repository does not yet provide managed object storage or automated dependency-vulnerability monitoring.

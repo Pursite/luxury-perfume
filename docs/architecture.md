@@ -4,7 +4,7 @@
 
 Luxury Perfume is a Django 6 and Django REST Framework application. Its current
 Django applications are `apps.users`, `apps.products`, `apps.cart`,
-`apps.orders`, `apps.payments`, and `apps.lib`. The repository also contains an
+`apps.orders`, `apps.payments`, `apps.notifications`, and `apps.lib`. The repository also contains an
 independent React customer storefront under `frontend/`.
 
 ```text
@@ -14,6 +14,7 @@ luxury-perfume/
 │   ├── cart/         # authenticated purchase-intent carts
 │   ├── orders/       # checkout snapshots, reservations, and fulfillment state
 │   ├── payments/     # financial attempts, verification, and refunds
+│   ├── notifications/ # durable Order SMS outbox and delivery state
 │   ├── products/     # catalogue domain
 │   └── users/        # identity and profile domain
 ├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
@@ -121,13 +122,29 @@ reservation, checkout, Order, payment, or notification responsibility.
 
 ### `apps.lib`
 
-Contains shared base models, cache helpers, the security-cache guards, logging helpers, pagination, permissions, throttles, and reusable catalogue-image validation. It is for cross-application or project-wide infrastructure, not domain-specific business logic.
+Contains shared base models, cache helpers, the security-cache guards, logging helpers, pagination, permissions, throttles, reusable catalogue-image validation, and the provider-neutral SMS transport contract. It is for cross-application or project-wide infrastructure, not domain-specific business logic.
+
+### `apps.notifications`
+
+Owns durable SMS delivery obligations for canonical Order transitions only. The
+Orders transition service inserts outbox records in its current transaction and
+uses `transaction.on_commit()` to queue a Celery delivery ID. Provider calls
+occur only in the worker after its short delivery-row claim transaction has
+committed. Notifications never changes Order, Payment, Refund, stock, or
+reservation state. SMS remains disabled by default and no production adapter is
+registered in this repository. A successful `PROCESSING` transition creates a
+customer confirmation plus one owner obligation for each active superuser with
+a valid account phone; missing or invalid superuser phones and ordinary staff
+are intentionally skipped. The owner phone is snapshotted on the durable row.
+Order text is fixed server-controlled source text; provider-approved templates
+or patterns are deferred until a real provider is selected.
 
 ## Background work
 
 Celery is configured in `config/celery.py` and discovers application tasks.
 
-- User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The task currently logs a placeholder result; an SMS-provider client is not implemented.
+- User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The Users-owned task uses the shared provider-neutral transport when SMS is enabled; it does not create Notification rows or persist OTP messages.
+- Notifications queues delivery by integer outbox ID and periodically sweeps due delivery and retention-scrub work. `SENT` means provider-accepted, not handset-delivered.
 - Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and validation of any referenced thumbnail make Celery redelivery idempotent.
 - Payments queues idempotent Refund execution after commit and uses periodic
   database sweeps to recover due Payment reconciliation, Refund retries, and
