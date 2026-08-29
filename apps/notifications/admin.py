@@ -16,10 +16,10 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
     list_filter = ("event_type", "recipient_type", "provider", "status", "created_at")
     search_fields = ("uuid", "order__uuid")
     date_hierarchy = "created_at"
-    list_select_related = ("order", "order__user")
+    list_select_related = ("order", "order__user", "recipient_user")
     actions = ("rearm_selected_manual_review",)
     readonly_fields = (
-        "id", "uuid", "order", "event_type", "recipient_type", "masked_recipient",
+        "id", "uuid", "order", "event_type", "recipient_type", "recipient_user_identifier", "masked_recipient",
         "provider", "status", "attempt_count", "provider_message_id", "operation_token",
         "operation_started_at", "last_attempt_at", "next_retry_at", "sent_at", "failed_at",
         "manual_review_at", "failure_code", "audit_scrubbed_at", "created_at", "updated_at",
@@ -27,7 +27,7 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
     fields = readonly_fields
 
     def get_queryset(self, request):
-        queryset = super().get_queryset(request).select_related("order__user")
+        queryset = super().get_queryset(request).select_related("order__user", "recipient_user")
         if not request.user.is_superuser:
             queryset = queryset.filter(order__user__is_staff=False, order__user__is_superuser=False)
         return queryset
@@ -55,6 +55,10 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
     @admin.display(description="Recipient")
     def masked_recipient(self, obj):
         return mask_iranian_mobile(obj.recipient_phone)
+
+    @admin.display(description="Recipient user")
+    def recipient_user_identifier(self, obj):
+        return str(obj.recipient_user_id) if obj.recipient_user_id else ""
 
     def get_readonly_fields(self, request, obj=None):
         return super().get_readonly_fields(request, obj)

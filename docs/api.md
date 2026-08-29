@@ -287,10 +287,13 @@ Order creation is an internal trusted service reached through Payment
 initialization. Existing Order decimal amounts are toman (`IRT`); shipping
 calculation remains outside the API contract.
 
-Notifications add no public SMS endpoint. When enabled, a verified Payment
-transition that actually changes an Order to `PROCESSING` creates the customer
-confirmation and owner-processing obligations; `PROCESSING` to `SHIPPED`
-creates the customer-shipment obligation. Replayed transitions create none.
+Notifications add no public SMS endpoint. When enabled, only a verified
+Payment transition that actually changes an Order to `PROCESSING` creates a
+customer confirmation and one processing obligation for every active
+superuser whose account has a valid canonical Iranian mobile number.
+Superusers without a valid phone are intentionally skipped; ordinary staff do
+not receive this alert. `PROCESSING` to `SHIPPED` creates one customer-shipment
+obligation. Replayed transitions create none.
 
 ## Payments
 

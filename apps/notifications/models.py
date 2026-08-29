@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
@@ -24,6 +25,13 @@ class SmsDelivery(models.Model):
     id = models.BigAutoField(primary_key=True)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     order = models.ForeignKey("orders.Order", on_delete=models.PROTECT, related_name="sms_deliveries")
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="received_sms_deliveries",
+        null=True,
+        blank=True,
+    )
     event_type = models.CharField(max_length=32, choices=EventType.choices)
     recipient_type = models.CharField(max_length=8, choices=RecipientType.choices)
     recipient_phone = models.CharField(max_length=11, null=True, blank=True)
@@ -46,7 +54,16 @@ class SmsDelivery(models.Model):
     class Meta:
         ordering = ("-created_at", "-id")
         constraints = [
-            models.UniqueConstraint(fields=("order", "event_type"), name="notifications_order_event_unique"),
+            models.UniqueConstraint(
+                fields=("order", "event_type"),
+                condition=Q(recipient_type="CUSTOMER"),
+                name="notifications_customer_order_event_unique",
+            ),
+            models.UniqueConstraint(
+                fields=("order", "event_type", "recipient_user"),
+                condition=Q(event_type="OWNER_ORDER_PROCESSING"),
+                name="notifications_owner_order_recipient_unique",
+            ),
             models.UniqueConstraint(
                 fields=("provider", "provider_message_id"),
                 condition=Q(provider_message_id__isnull=False),
@@ -59,6 +76,16 @@ class SmsDelivery(models.Model):
                     | Q(event_type="CUSTOMER_ORDER_SHIPPED", recipient_type="CUSTOMER")
                 ),
                 name="notifications_event_recipient_match",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(event_type="OWNER_ORDER_PROCESSING", recipient_user__isnull=False)
+                    | Q(
+                        event_type__in=("CUSTOMER_ORDER_CONFIRMED", "CUSTOMER_ORDER_SHIPPED"),
+                        recipient_user__isnull=True,
+                    )
+                ),
+                name="notifications_event_recipient_user_match",
             ),
             models.CheckConstraint(
                 condition=Q(recipient_phone__isnull=True) | Q(recipient_phone__regex=r"^09[0-9]{9}$"),

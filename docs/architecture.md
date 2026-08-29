@@ -132,7 +132,12 @@ uses `transaction.on_commit()` to queue a Celery delivery ID. Provider calls
 occur only in the worker after its short delivery-row claim transaction has
 committed. Notifications never changes Order, Payment, Refund, stock, or
 reservation state. SMS remains disabled by default and no production adapter is
-registered in this repository.
+registered in this repository. A successful `PROCESSING` transition creates a
+customer confirmation plus one owner obligation for each active superuser with
+a valid account phone; missing or invalid superuser phones and ordinary staff
+are intentionally skipped. The owner phone is snapshotted on the durable row.
+Order text is fixed server-controlled source text; provider-approved templates
+or patterns are deferred until a real provider is selected.
 
 ## Background work
 

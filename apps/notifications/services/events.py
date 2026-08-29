@@ -5,6 +5,7 @@ from django.utils import timezone
 from apps.lib.sms.phone import normalize_iranian_mobile
 from apps.notifications.audit import emit_notification_event
 from apps.notifications.models import SmsDelivery
+from apps.users.models import CustomUser
 
 
 def _enqueue_after_commit(delivery):
@@ -19,13 +20,14 @@ def _enqueue_after_commit(delivery):
     transaction.on_commit(enqueue)
 
 
-def _create_delivery(*, order, event_type, recipient_type, recipient_phone):
+def _create_delivery(*, order, event_type, recipient_type, recipient_phone, recipient_user=None):
     phone = normalize_iranian_mobile(recipient_phone)
     now = timezone.now()
     values = {
         "order": order,
         "event_type": event_type,
         "recipient_type": recipient_type,
+        "recipient_user": recipient_user,
         "recipient_phone": phone,
         "provider": getattr(settings, "SMS_PROVIDER", ""),
     }
@@ -38,9 +40,13 @@ def _create_delivery(*, order, event_type, recipient_type, recipient_phone):
     else:
         values.update(status=SmsDelivery.Status.PENDING, next_retry_at=now)
     try:
-        delivery = SmsDelivery.objects.create(**values)
+        with transaction.atomic():
+            delivery = SmsDelivery.objects.create(**values)
     except IntegrityError:
-        return SmsDelivery.objects.get(order=order, event_type=event_type)
+        lookup = {"order": order, "event_type": event_type}
+        if recipient_user is not None:
+            lookup["recipient_user"] = recipient_user
+        return SmsDelivery.objects.get(**lookup)
     emit_notification_event("notification_created", delivery=delivery, order=order)
     if delivery.status == SmsDelivery.Status.PENDING:
         _enqueue_after_commit(delivery)
@@ -50,20 +56,28 @@ def _create_delivery(*, order, event_type, recipient_type, recipient_phone):
 def create_processing_sms_deliveries(*, order):
     if not getattr(settings, "SMS_ENABLED", False):
         return ()
-    return (
+    deliveries = [
         _create_delivery(
             order=order,
             event_type=SmsDelivery.EventType.CUSTOMER_ORDER_CONFIRMED,
             recipient_type=SmsDelivery.RecipientType.CUSTOMER,
             recipient_phone=order.customer_phone_number,
-        ),
-        _create_delivery(
-            order=order,
-            event_type=SmsDelivery.EventType.OWNER_ORDER_PROCESSING,
-            recipient_type=SmsDelivery.RecipientType.OWNER,
-            recipient_phone=getattr(settings, "ORDER_PROCESSING_ALERT_PHONE", ""),
-        ),
-    )
+        )
+    ]
+    for owner in CustomUser.objects.filter(is_active=True, is_superuser=True).only("id", "phone_number"):
+        phone = normalize_iranian_mobile(owner.phone_number)
+        if phone is None:
+            continue
+        deliveries.append(
+            _create_delivery(
+                order=order,
+                event_type=SmsDelivery.EventType.OWNER_ORDER_PROCESSING,
+                recipient_type=SmsDelivery.RecipientType.OWNER,
+                recipient_phone=phone,
+                recipient_user=owner,
+            )
+        )
+    return tuple(deliveries)
 
 
 def create_shipped_sms_delivery(*, order):

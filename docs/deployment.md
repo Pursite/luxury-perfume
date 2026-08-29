@@ -181,9 +181,14 @@ not contain a real provider adapter or provider credentials. Keep it disabled
 until a separately reviewed adapter proves HTTPS-only transport, fixed
 timeouts, safe response validation, and idempotent client-reference behavior.
 When SMS is enabled, `manage.py check --deploy` requires a registered provider,
-positive retry/timeout settings, and one canonical `09XXXXXXXXX` owner alert
-phone. The existing worker and single Beat service process durable outbox rows;
-turning SMS off pauses new sends and sweeps without deleting unresolved rows.
+and positive retry/timeout settings. Owner recipients are active superusers
+with valid canonical `09XXXXXXXXX` phone numbers stored on their accounts;
+there is no owner/business phone environment variable. Superusers without a
+valid phone are skipped and ordinary staff are not notified. Order SMS text is
+server-controlled source text today; provider-approved templates or patterns
+will be reviewed only when a real provider is selected. The existing worker and
+single Beat service process durable outbox rows; turning SMS off pauses new
+sends and sweeps without deleting unresolved rows.
 
 ## Repository and package identity
 

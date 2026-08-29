@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.cart.models import Cart, CartItem
@@ -10,7 +11,7 @@ from apps.notifications.models import SmsDelivery
 from apps.notifications.tasks import scrub_expired_sms_recipients, sweep_due_sms_deliveries
 from apps.orders.services.checkout import create_waiting_order
 from apps.products.tests.factories import ProductFactory
-from apps.users.tests.factories import AddressFactory
+from apps.users.tests.factories import AddressFactory, UserFactory
 
 
 @override_settings(SMS_ENABLED=True, SMS_RECIPIENT_RETENTION_DAYS=180)
@@ -70,3 +71,33 @@ class SmsTaskTests(TestCase):
         assert old_sent.recipient_phone is None
         assert old_sent.audit_scrubbed_at is not None
         assert pending.recipient_phone == "09129876544"
+
+    def test_scrubbing_owner_phone_does_not_remove_owner_idempotency_identity(self):
+        owner = UserFactory(phone_number="09121111111", is_staff=True, is_superuser=True)
+        delivery = self._delivery(
+            status=SmsDelivery.Status.SENT,
+            recipient_phone=owner.phone_number,
+            event_type=SmsDelivery.EventType.OWNER_ORDER_PROCESSING,
+            recipient_type=SmsDelivery.RecipientType.OWNER,
+            recipient_user=owner,
+            sent_at=timezone.now() - timedelta(days=181),
+            provider_message_id="owner-message-123",
+        )
+        SmsDelivery.objects.filter(pk=delivery.pk).update(created_at=timezone.now() - timedelta(days=181))
+
+        assert scrub_expired_sms_recipients.run() == 1
+
+        delivery.refresh_from_db()
+        assert delivery.recipient_phone is None
+        assert delivery.recipient_user_id == owner.pk
+        with self.assertRaises(IntegrityError):
+            SmsDelivery.objects.create(
+                order=delivery.order,
+                event_type=SmsDelivery.EventType.OWNER_ORDER_PROCESSING,
+                recipient_type=SmsDelivery.RecipientType.OWNER,
+                recipient_user=owner,
+                recipient_phone="09122222222",
+                provider="test-sms",
+                status=SmsDelivery.Status.PENDING,
+                next_retry_at=timezone.now(),
+            )

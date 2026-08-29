@@ -166,7 +166,7 @@ case-fold constraints, concurrent signup, Cart creation/increment races and
 unrelated-user lock isolation, Redis throttle keys, and concurrent OTP
 consumption.
 
-- No real SMS provider adapter is implemented, so SMS remains disabled in production. The durable Order outbox records event type and recipient snapshot, never rendered message content; accepted delivery means provider acceptance, not handset receipt. Non-idempotent ambiguous sends require manual review rather than an automatic duplicate attempt.
+- No real SMS provider adapter is implemented, so SMS remains disabled in production. The durable Order outbox records event type and recipient snapshot, never rendered message content; accepted delivery means provider acceptance, not handset receipt. Order text remains fixed server-controlled source text until a provider is selected and an approved-template strategy is separately reviewed. Processing alerts are limited to active superusers with valid account phones; missing or malformed superuser phones are skipped, and ordinary staff are not recipients. Non-idempotent ambiguous sends require manual review rather than an automatic duplicate attempt.
 - OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
 - Redis leases serialize consumption but do not make all verification keys one atomic transaction.
 - The repository does not yet provide managed object storage or automated dependency-vulnerability monitoring.

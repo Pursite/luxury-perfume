@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.core.checks import Error, register
 
-from apps.lib.sms.phone import normalize_iranian_mobile
 from apps.lib.sms.registry import ProviderNotRegistered, get_provider
 
 
@@ -20,8 +19,6 @@ def check_sms_settings(app_configs, **kwargs):
             raise ProviderNotRegistered
     except ProviderNotRegistered:
         errors.append(Error("SMS_PROVIDER is not registered.", id="notifications.E001"))
-    if normalize_iranian_mobile(getattr(settings, "ORDER_PROCESSING_ALERT_PHONE", "")) is None:
-        errors.append(Error("ORDER_PROCESSING_ALERT_PHONE must be a canonical Iranian mobile number.", id="notifications.E002"))
     numeric = (
         "SMS_CONNECT_TIMEOUT_SECONDS",
         "SMS_READ_TIMEOUT_SECONDS",
