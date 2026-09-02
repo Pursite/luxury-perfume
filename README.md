@@ -74,18 +74,23 @@ For the complete design, see [architecture.md](docs/architecture.md).
 
 ## Production logging
 
-Application logs are JSON records written to container output: activity events
-go to stdout, while security and system errors go to stderr. Every HTTP
+Application logs are JSON records written to container output: the `activity`
+logger goes to stdout, while the `security`, `system`, and Django error loggers
+go to stderr. Financial lifecycle records use the activity logger with a
+separate allowlisted `financial` category. Every HTTP
 response includes a server-generated `X-Request-ID`; the same value is present
 as `request_id` and `correlation_id` in logs produced while that request is
-handled. Queued OTP task activity records include `task_id`, and the worker
-uses that task ID as its correlation ID.
+handled. Tasks based on the shared correlated-task class use the Celery task ID
+as `correlation_id`; OTP enqueue records also expose that safe `task_id`.
 
 The production Compose override uses Docker's `local` driver with a 10 MiB
 maximum file size and three files per service. Use `docker compose logs` to
 inspect them; do not read Docker's internal log files. Log events deliberately
 exclude request bodies, query strings, client IPs, phone numbers, OTPs,
-passwords, JWTs, credentials, and exception messages.
+passwords, JWTs, credentials, provider session/transaction/message
+identifiers, and exception messages. Financial records may include the
+configured provider label, public Payment/Order/Refund UUIDs, and a bounded
+outcome code; they do not include provider payloads or transport evidence.
 
 ## Development setup
 
@@ -287,6 +292,9 @@ deferred.
 Deferred production hardening includes real Payment and SMS providers,
 monitoring/alerting, PostgreSQL/media backup and tested restores, production
 migration-history/schema reconciliation, and provider-specific localization.
+Host monitoring, backup scheduling, backup storage, and restore drills are
+external production operations; this repository does not configure or claim
+to run them.
 
 The repository includes a Docker Compose deployment layout for development and
 a single VPS, plus a manual GitHub Actions production deployment workflow; see

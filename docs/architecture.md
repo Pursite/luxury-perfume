@@ -55,7 +55,8 @@ Output serializer and HTTP response
   case-insensitive username/email uniqueness, product discount prices,
   positive fragrance volume, introduction-year bounds, unique barcodes, and
   primary product images, one Cart per user, one CartItem per Cart/Product,
-  and positive CartItem quantities.
+  positive CartItem quantities, Order/reservation lifecycle consistency, and
+  Payment/Refund/SMS-outbox identities and state transitions.
 
 ## Applications
 
@@ -86,6 +87,11 @@ same versioned response cache serves anonymous and authenticated non-staff
 requests because their representations are identical; staff requests bypass it
 because they may retrieve inactive product details. Product visibility uses
 `Product.is_active`, independently of account-state `User.is_active`.
+The list selector joins Category/Brand and prefetches only the ranked primary
+image needed by each row; the detail selector joins Category/Brand and
+prefetches images plus ordered note links and their FragranceNotes. These query
+shapes keep serializer output N+1-safe without loading the full detail graph for
+every catalogue row.
 Products use immutable lowercase slugs as their public URL identifiers;
 canonical UUID-shaped slugs are rejected so legacy UUID text cannot be
 ambiguous with a slug. The stable product UUID remains in API representations
@@ -139,6 +145,35 @@ are intentionally skipped. The owner phone is snapshotted on the durable row.
 Order text is fixed server-controlled source text; provider-approved templates
 or patterns are deferred until a real provider is selected.
 
+Delivery rows move through `PENDING`, `SENDING`, `SENT`, `FAILED`, or
+`MANUAL_REVIEW`. A short operation token/lease claims a send before provider
+I/O. Known pre-acceptance transport failures and ambiguous outcomes from an
+idempotent provider are retried with bounded exponential backoff and jitter.
+Provider rejection is terminal `FAILED`; protocol/configuration failures,
+non-idempotent ambiguity, stale non-idempotent leases, exhausted attempts, and
+provider-message identity conflicts require manual review. `SENT` records keep
+the provider message ID as delivery evidence. Terminal recipient snapshots are
+scrubbed after the configured retention period, while durable Order/event and
+owner-recipient identities remain.
+
+### `apps.orders`
+
+Owns authenticated, owner-filtered Order history, the internal authoritative
+checkout service, immutable customer/address/Product/price snapshots,
+StockReservations, reservation expiry/release/consumption, and fulfillment
+transitions. Checkout is not a public Order mutation endpoint; Payment
+initialization invokes it. Admin Orders are read-only except for the service-
+backed `processing → shipped` and `shipped → delivered` actions.
+
+### `apps.payments`
+
+Owns provider-neutral Payment attempts, callbacks, server-to-server
+verification, reconciliation, full Refund obligations, safe customer status
+output, and audited superuser recovery actions. It accepts no client-controlled
+amount, currency, provider, callback, or redirect destination. Provider I/O
+runs between short database claim/finalization transactions. The subsystem is
+disabled by default and this repository registers no real provider adapter.
+
 ## Background work
 
 Celery is configured in `config/celery.py` and discovers application tasks.
@@ -149,6 +184,21 @@ Celery is configured in `config/celery.py` and discovers application tasks.
 - Payments queues idempotent Refund execution after commit and uses periodic
   database sweeps to recover due Payment reconciliation, Refund retries, and
   retained transport-metadata scrubbing.
+
+The single Celery Beat process has exactly these schedules:
+
+| Schedule | Interval | Purpose |
+| --- | --- | --- |
+| `orders-sweep-expired-reservations` | 60 seconds | Queue at most 100 database-expired waiting Orders for idempotent release/cancellation. |
+| `payments-sweep-reconcilable` | 60 seconds | Queue due `PENDING`, `REDIRECT_READY`, and `VERIFYING` Payments; `MANUAL_REVIEW` is excluded. |
+| `payments-sweep-pending-refunds` | 60 seconds | Queue due `PENDING`/stale `PROCESSING` Refund obligations. |
+| `payments-scrub-audit-metadata` | 24 hours | Remove expired Payment IP/user-agent transport evidence. |
+| `notifications-sweep-due-sms-deliveries` | 60 seconds | Queue due `PENDING`/stale `SENDING` outbox rows while SMS is enabled. |
+| `notifications-scrub-expired-sms-recipients` | 24 hours | Remove expired phone snapshots from terminal `SENT`/`FAILED` rows while SMS is enabled. |
+
+Beat and Celery delivery are recovery mechanisms, not sources of truth.
+PostgreSQL deadlines, constraints, statuses, leases, and idempotency identities
+remain authoritative when the broker, worker, or scheduler is delayed.
 
 ## Data, cache, and authentication
 
@@ -161,6 +211,30 @@ has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
 The repository does not contain legacy identity, fragrance-domain, or
 ordered-note data migrations. The catalogue cache uses a versioned schema
 namespace so stale representations cannot be reused.
+
+### Durable database invariants
+
+- Users: active accounts retain at least one identity; non-empty usernames and
+  emails are unique case-insensitively, and phones are unique.
+- Products: SKU, UUID, slug, and non-null barcode uniqueness; non-negative
+  stock; positive prices/volume; discounts below regular price; one primary
+  image; and unique ordered fragrance-note positions/notes within each layer.
+- Cart: one Cart per user, one Product line per Cart, and quantity at least one.
+- Orders: one user/idempotency-key result, at most one waiting Order per user,
+  `total = subtotal + shipping_amount`, valid status/timestamp combinations,
+  one Product snapshot per Order, exact line totals, and one reservation per
+  OrderItem with a consistent lifecycle. User and Product commercial references
+  use `PROTECT`; deleting a source Address only clears the live reference while
+  preserving its UUID and shipping snapshot.
+- Payments and Refunds: globally unique Payment idempotency keys; unique
+  provider session/transaction/refund identities; at most one open attempt and
+  one applied Payment per Order; verified/failed/manual-review evidence checks;
+  one full Refund obligation per Payment; and no automatic work attached to a
+  manual-review Payment.
+- Notifications: unique customer Order/event obligations, unique owner
+  Order/event/recipient obligations, unique provider message identities, valid
+  event/recipient pairings, canonical actionable phones, paired leases, and
+  status/evidence consistency.
 
 Redis has two configured cache aliases with separate URLs:
 
@@ -204,9 +278,10 @@ contains those stable raw values rather than localized choice labels. The React
 storefront remains English; frontend localization is deferred.
 
 Settings configure JSON logging for container output rather than application
-log files. Activity events use stdout; security and system events, plus Django
-errors, use stderr. The logger category remains `activity`, `security`, or
-`system`, so operational filtering does not depend on a filename.
+log files. The `activity` logger uses stdout; `security`, `system`, and Django
+error loggers use stderr. Most record categories are `activity`, `security`, or
+`system`; allowlisted financial lifecycle events use category `financial` on
+the activity logger. Operational filtering does not depend on a filename.
 
 `RequestIDMiddleware` generates an opaque ID for every HTTP request, returns
 it as `X-Request-ID`, and scopes it to structured application logs as both
@@ -214,9 +289,12 @@ it as `X-Request-ID`, and scopes it to structured application logs as both
 `task_id`; while executing that task, the worker uses the task ID as its
 correlation ID. Records contain only an allowlisted set of fields: timestamp,
 level, logger/category, event, IDs, authenticated user ID, a safe route path,
-and exception type. They never serialize request bodies, headers, query
+and exception type. Financial/notification events may additionally contain
+public domain UUIDs, the configured provider label, event type, attempt, and a
+bounded outcome. Records never serialize request bodies, headers, query
 strings, exception messages, passwords, OTP codes, JWTs, credentials, phone
-numbers, or other sensitive PII.
+numbers, provider session/transaction/message identities, or other sensitive
+PII.
 
 ## Testing
 
@@ -311,6 +389,10 @@ stock. Financial lifecycle events use allowlisted structured correlation fields
 only, while IP and user-agent evidence stays in the database. Payments is
 disabled by default because no real provider adapter is registered; the
 provider registry itself remains the mechanism for a later reviewed adapter.
+Superuser Admin actions can explicitly rearm a `MANUAL_REVIEW` Payment, retry
+a manual-review Refund, or record one externally completed Refund with an
+external reference and explicit confirmation. Delegated staff may inspect only
+the safe, owner-bounded fields and cannot perform these financial actions.
 
 ## Customer storefront
 
@@ -357,3 +439,8 @@ for host Nginx. CI packages that output in a SHA-labeled `FROM scratch` carrier
 image; deployment extracts it into an immutable release directory and
 atomically switches the active symlink. There is no Vite server or Node runtime
 in production, and the carrier image is never run as a frontend service.
+
+Host monitoring, alerting, database/media backup automation, backup storage,
+and restore drills are external production operations. No repository file
+configures them; the deployment runbook states the required boundary without
+inventing host-managed implementation.

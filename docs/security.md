@@ -82,7 +82,7 @@ transaction.
 `User.is_active` is reserved for account enablement and disablement; profile
 progress never changes it. Profile completeness is derived from username,
 verified phone number, email, names, and an address. `IsProfileComplete` is an
-opt-in permission for future sensitive customer operations and is not a global
+opt-in permission used by Payment initialization and is not a global
 authentication gate. The authenticated profile-phone flow only stores a phone
 after OTP success and uses a locked user row plus the unique database
 constraint to reject ownership races.
@@ -119,8 +119,10 @@ secrets, or raw provider payloads. Payment IP/user-agent evidence is scrubbed
 after 180 days by default. Forwarded client IPs are ignored unless the
 immediate peer and proxy chain match configured trusted CIDRs.
 Ordinary structured logs emit only fixed financial events and allowlisted
-correlation identifiers; they never include IPs, user agents, provider
-identities, raw provider data, credentials, or card data.
+correlation identifiers. Financial records may include public Payment, Order,
+and Refund UUIDs, the configured provider label, and a bounded outcome; they
+never include IPs, user agents, provider session/transaction/receipt
+identifiers, raw provider data, credentials, or card data.
 
 No real provider adapter or credential contract is present. Production checks
 reject enablement with an unknown provider, unsafe URLs/redirect hosts,
@@ -187,5 +189,8 @@ throttle keys, and concurrent OTP consumption.
 - OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
 - Redis leases serialize consumption but do not make all verification keys one atomic transaction.
 - The repository does not yet provide managed object storage or automated dependency-vulnerability monitoring.
+- Host monitoring/alerting and PostgreSQL/media backup, storage, and restore
+  procedures are external production operations; this repository does not
+  configure or verify them.
 
 Review security-sensitive changes for authorization, authentication, input validation, secret handling, cache failure, logging, uploads, concurrency, and database integrity. Report suspected vulnerabilities privately to the repository maintainer.

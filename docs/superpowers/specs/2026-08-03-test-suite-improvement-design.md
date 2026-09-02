@@ -1,5 +1,9 @@
 # Test Suite Improvement Design
 
+> Historical design record. This dated document is not a current project
+> reference. See [Testing](../../../README.md#testing) and the current
+> [architecture](../../architecture.md) for the implemented repository state.
+
 ## Objective
 
 Improve the Django/DRF test suite so it verifies security-sensitive behavior,

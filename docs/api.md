@@ -111,6 +111,11 @@ summaries add `country`. An image object has integer `id`, `image`, `thumbnail`,
 The product `uuid` remains a stable response identifier but is not a URL lookup
 value.
 
+A Product referenced by immutable OrderItem history cannot be deleted because
+the database relationship uses `PROTECT`; that DELETE returns `409`. Staff can
+set `is_active=false` when a commercially referenced Product must leave the
+catalogue.
+
 ### Fragrance choices
 
 - `concentration`: `unspecified`, `extrait_de_parfum`, `parfum`,
@@ -139,7 +144,8 @@ value.
   `concentration`,
   `target_audience`, `fragrance_family`, `introduction_year`,
   `suitable_season`, `suitable_usage_time`, UUID `note` across all three note
-  layers, `min_price`, `max_price`, and boolean `in_stock` (`true` selects
+  layers, `min_price` and `max_price` against the regular `price` field, and
+  boolean `in_stock` (`true` selects
   stock above zero; `false` selects zero stock).
 
 A paginated response has this exact shape:
@@ -280,8 +286,6 @@ strings and live availability fields; it does not calculate an authoritative
 price, resize/delete unavailable lines, reserve stock, or attempt checkout.
 The visible payment control is disabled and makes no request.
 
-## Status codes
-
 ## Orders
 
 Authenticated customers can read only their own commercial history:
@@ -299,6 +303,20 @@ snapshot the exact server-owned `350000.00 IRT` flat shipping charge (350,000
 toman); clients cannot submit a shipping amount. `subtotal` is the sum of
 immutable OrderItem line totals and `total = subtotal + shipping_amount`.
 Historical Order snapshots are not recalculated if configuration changes.
+
+`GET /api/v1/orders/` uses the same page-number envelope as Products (default
+12, maximum 100). Each result has `uuid`, `status`, `subtotal`,
+`shipping_amount`, `total`, `reservation_expires_at`, and `created_at`.
+
+`GET /api/v1/orders/<order_uuid>/` returns those fields plus
+`customer_first_name`, `customer_last_name`, `customer_phone_number`,
+`customer_email`, `shipping_title`, `shipping_full_address`,
+`shipping_postal_code`, `cancellation_reason`, `processing_at`, `shipped_at`,
+`delivered_at`, `cancelled_at`, and `items`. Each item contains
+`product_uuid`, `product_name`, `product_sku`, `unit_price`, `quantity`, and
+`line_total`. The UUID/name/SKU, customer/address data, and decimal amounts are
+historical snapshots; neither endpoint substitutes current Product, profile,
+or Address values.
 
 Notifications add no public SMS endpoint. When enabled, only a verified
 Payment transition that actually changes an Order to `PROCESSING` creates a
@@ -335,6 +353,37 @@ effect.
 foreign UUIDs return `404`. It omits provider sessions/transactions/receipts,
 diagnostics, request IDs, IP addresses, and user agents.
 
+The safe Payment representation is:
+
+```json
+{
+  "payment": {
+    "uuid": "<payment-uuid>",
+    "status": "redirect_ready",
+    "amount": "350100.00",
+    "currency": "IRT",
+    "provider_requested_at": "<datetime-or-null>",
+    "redirect_ready_at": "<datetime-or-null>",
+    "verified_at": null,
+    "failed_at": null,
+    "manual_review_at": null,
+    "created_at": "<datetime>",
+    "updated_at": "<datetime>"
+  },
+  "order": {
+    "uuid": "<order-uuid>",
+    "status": "waiting_for_payment",
+    "reservation_expires_at": "<datetime-or-null>"
+  },
+  "refund": null
+}
+```
+
+When present, `refund` contains `uuid`, `status`, `reason`, `amount`,
+`currency`, `created_at`, `refunded_at`, and `manual_review_at`.
+Initialization responses add `redirect_url`; pending initialization responses
+also add `retry_after_seconds`. Payment detail does not add either field.
+
 `GET|POST /api/v1/payments/callback/<provider>/` is public but accepts only a
 registered server-side provider. The adapter validates callback shape and
 signature, then the backend verifies the existing provider session
@@ -342,15 +391,30 @@ server-to-server. Browser status text is never payment proof. Browser callbacks
 receive a `303` to the configured frontend result URL containing only
 `payment_uuid`; client-supplied return URLs are ignored.
 
+Non-browser callbacks return `202` while verification remains pending and
+`204` after the callback has been handled without a pending operation. Both
+responses have no payment-result body; neither is proof that a Payment was
+captured.
+
+## Status codes
+
 - `200 OK` — successful reads, login, profile, logout, password-reset, Cart increment, Cart quantity-update operations, and an identical completed Payment initialization replay.
 - `201 Created` — direct signup, OTP signup verification, product/image creation, a newly created CartItem, or a new redirect-ready Payment initialization.
 - `202 Accepted` — a Payment initialization or provider callback is pending/recoverable; initialization includes `retry_after_seconds` and `Retry-After`.
-- `204 No Content` — product, product-image, or Cart item deletion and Cart clearing.
-- `400 Bad Request` — serializer validation, Cart stock limits, generic identity/OTP errors, or a logout refresh that is not owned by the requester.
+- `204 No Content` — product, product-image, or Cart item deletion, Cart
+  clearing, and a handled non-browser Payment callback with no pending work.
+- `400 Bad Request` — serializer validation, Cart stock limits, generic
+  identity/OTP errors, invalid Payment callback input, or failure to derive a
+  trusted client IP for Payment initialization.
 - `401 Unauthorized` — missing, invalid, or stale JWT credentials on a protected endpoint; failed username/password authentication; or invalid/replayed refresh tokens.
-- `403 Forbidden` — an authenticated non-staff user attempted a staff-only operation, or a Payment initiator lacks a complete active profile.
+- `403 Forbidden` — an authenticated non-staff user attempted a staff-only
+  operation, a Payment initiator lacks a complete active profile, or a
+  cookie-setting, refresh, or logout authentication request has a missing or
+  untrusted Origin.
 - `404 Not Found` — unknown or non-visible product/image, inactive or missing Cart-add Product, or missing owned CartItem.
 - `303 See Other` — a browser Payment callback redirects to the configured result URL with only `payment_uuid`.
-- `409 Conflict` — a Payment idempotency, active-checkout, eligibility, or in-progress-attempt conflict; the stable code is `payment_conflict`.
+- `409 Conflict` — a Product is protected by commercial OrderItem history, or
+  a Payment idempotency, active-checkout, eligibility, or in-progress-attempt
+  conflict. Payment conflicts use the stable code `payment_conflict`.
 - `429 Too Many Requests` — a configured throttle, temporary OTP lock, password-login lock, or active verification lease.
 - `503 Service Unavailable` — authentication protection cannot access the security cache safely, or any Payment handler is disabled (`PAYMENTS_ENABLED=False`) or lacks a usable registered provider. The disabled-service behavior applies after its normal authentication, permission, and throttle checks.

@@ -300,9 +300,9 @@ container. The artifact is structurally and origin validated before activation.
 The existing `db` and `redis` services are started without recreating them;
 after they are healthy, `check --deploy`, forward migrations, and `collectstatic`
 run. Only then is `web` recreated and its readiness endpoint checked. Celery
-and the single Beat process are recreated separately; the worker must remain
-running, with no restart, for five samples
-over eight seconds. Finally `frontend-current` is switched with one atomic
+and the single Beat process are recreated separately; both containers must
+remain running, without a restart, for five samples over eight seconds.
+Finally `frontend-current` is switched with one atomic
 symlink rename. It never runs `docker compose down`, removes volumes, prunes
 Docker resources, uses `git clean`, or modifies Nginx, VPN services, database
 data, media, static files, or the server's `.env`. A failure before the symlink
@@ -382,19 +382,23 @@ Redis have no host port mappings in the production merge.
 ## Production logs
 
 Application processes do not create log files in the image or persistent
-mounts. Django activity events are JSON on stdout; security and system events,
-including Django errors, are JSON on stderr. Gunicorn writes access logs to
-stdout and error logs to stderr. Its access records contain the response
-`X-Request-ID`, method, path without a query string, status, duration, response
-size, and process ID; they intentionally omit query strings, client IPs,
-referrers, and user agents.
+mounts. The Django `activity` logger writes JSON to stdout; the `security`,
+`system`, and Django error loggers write JSON to stderr. Financial lifecycle
+records use the activity logger with an allowlisted `financial` category.
+Gunicorn writes access logs to stdout and error logs to stderr. Its access
+records contain the response `X-Request-ID`, method, path without a query
+string, status, duration, response size, and process ID; they intentionally
+omit query strings, client IPs, referrers, and user agents.
 
 `RequestIDMiddleware` creates the opaque `X-Request-ID` server-side for every
-HTTP request. It is also the request's application-log correlation ID. OTP
-enqueue records contain a Celery `task_id`; the worker uses that task ID as the
-correlation ID while it runs the task. Do not send secrets, tokens, passwords,
-OTP values, phone numbers, email addresses, request bodies, cache keys, or
-sensitive exception text to any logger.
+HTTP request. It is also the request's application-log correlation ID. Tasks
+using the shared correlated-task base use their Celery task ID as the worker
+correlation ID; OTP enqueue records also contain that safe `task_id`. Do not
+send secrets, tokens, passwords, OTP values, phone numbers, email addresses,
+request bodies, cache keys, provider session/transaction/message identifiers,
+or sensitive exception text to any logger. Allowlisted financial events may
+contain public Payment/Order/Refund UUIDs, the configured provider label, and
+a bounded outcome, but never provider payloads or transport evidence.
 
 The production Compose override applies Docker's `local` logging driver with
 `max-size=10m` and `max-file=3` to PostgreSQL, Redis, web, Celery, and Celery
@@ -614,6 +618,11 @@ procedures separately before relying on production migrations. Docker volumes
 and files on the same VPS are not a backup; never run `docker compose down -v`
 on production because it removes PostgreSQL and Redis volumes.
 
+Host monitoring/alerting is likewise external to this repository. The health
+endpoints, Docker health state, bounded local logs, and commands below provide
+signals for an operator or external monitor, but no repository-managed host
+monitoring agent, alert route, backup scheduler, or remote backup target exists.
+
 For a code-only rollback, dispatch **Deploy production** with an already
 published, previously tested full commit SHA. The workflow checks out that
 revision, pulls both matching backend and frontend images, extracts or reuses
@@ -641,10 +650,10 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec web python manage.py check --deploy
 ```
 
-Orders adds a separate `celery-beat` service. Run exactly one Beat process; it
-schedules the Orders expiry sweep every 60 seconds and must not be replaced by
-`worker -B`. The database `reservation_expires_at` deadline remains
-authoritative if Beat, workers, or the broker are delayed.
+The production topology includes a separate `celery-beat` service. Run exactly
+one Beat process; it schedules the Orders expiry sweep every 60 seconds and
+must not be replaced by `worker -B`. The database `reservation_expires_at`
+deadline remains authoritative if Beat, workers, or the broker are delayed.
 
 That same single Beat process schedules Payment reconciliation and pending
 Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily.
