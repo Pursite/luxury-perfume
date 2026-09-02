@@ -109,7 +109,11 @@ the shared provider-neutral transport. It never creates notification-outbox
 rows or persists OTP message content. SMS remains disabled by default pending a
 separately reviewed production adapter. Phone number and OTP values still form
 the bounded Celery task payload, so Redis broker and AOF access must remain
-tightly restricted.
+tightly restricted. The task retries known pre-acceptance transport failures
+up to three times with Celery backoff/jitter. It retries an ambiguous result
+only when the adapter declares idempotent send support. Authentication OTP
+delivery has no durable Notification row or manual-review state; non-retryable
+failure/ambiguity is safely logged and the cache expiry still bounds the code.
 
 - `POST signup/send-otp/` and `POST signup/verify-otp/` create a phone-only,
   active account after successful verification. Its stored phone number is

@@ -1,5 +1,9 @@
 # GHCR Application Image Delivery Implementation Plan
 
+> Historical implementation record. This dated plan is not an operations
+> runbook. See the current [deployment guide](../../deployment.md) for the
+> workflow and Compose behavior implemented on this branch.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build, publish, and deploy one digest-pinned GHCR application image for every verified `main` commit without exposing production secrets or retaining VPS registry credentials.
