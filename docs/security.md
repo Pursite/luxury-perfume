@@ -25,7 +25,7 @@ delegated staff cannot inspect carts owned by staff or superusers. Admin
 password changes and customer deactivation blacklist all outstanding refresh
 tokens.
 
-Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` reads a host-only, `HttpOnly`, Secure-in-production `exon_refresh_token` cookie at `/api/v1/users/`, rotates it, and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: profile password changes and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists the cookie's refresh token when valid and expires the cookie, even when the access token is expired. Login, signup, OTP verification, password reset, refresh, and logout responses use `Cache-Control: no-store` and compatible no-cache headers.
+Simple JWT accepts Bearer access tokens. `POST /api/v1/users/token/refresh/` reads a host-only, `HttpOnly`, Secure-in-production `exon_refresh_token` cookie at `/api/v1/users/`, rotates it, and blacklists the superseded value. Tokens include Simple JWT's password-hash revocation claim: authenticated password changes/setup and OTP resets blacklist all outstanding refresh tokens and reject previously issued access tokens. Logout blacklists the cookie's refresh token when valid and expires the cookie, even when the access token is expired. Login, signup, OTP verification, password reset, refresh, and logout responses use `Cache-Control: no-store` and compatible no-cache headers.
 
 The React storefront centralizes bearer-token handling. Its access token is
 memory-only and its rotating refresh token is stored only in the persistent
@@ -48,14 +48,15 @@ The protected Account page keeps profile responses and form drafts in React
 memory only; it does not persist profile PII in `localStorage` or
 `sessionStorage`. `GET /api/v1/users/profile/` derives ownership exclusively
 from the access token, accepts no user identifier, and uses the safe user
-output serializer. Disabled phone verification, password reset, Orders, and
-Tickets controls have no route or API side effect.
+output serializer. Backend account capabilities govern separate password
+change/setup controls; recovery remains unavailable without configured SMS.
+Disabled phone verification, Orders, and Tickets controls make no request.
 
 Username/password failures remain generic for unknown, incorrect, inactive, and unusable-password accounts. Unknown and legacy-ambiguous paths execute a dummy hash before returning. Usernames are looked up case-insensitively without selecting an arbitrary legacy conflict.
 
 ## Throttling and security cache
 
-The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, catalogue-read, refresh, and two OTP dimensions. Public Product list/detail reads use the ordinary-cache `catalogue` scope (`PRODUCT_CATALOGUE_THROTTLE_RATE`, default `120/m`) so unrelated anonymous API traffic cannot exhaust catalogue availability. Product mutations retain the existing authenticated user throttle. Refresh uses the fail-closed security-cache `token_refresh` scope (`TOKEN_REFRESH_THROTTLE_RATE`, default `30/m`). Every OTP request and verification route applies independent limits keyed by canonical phone number and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
+The global DRF anonymous/authenticated throttles are supplemented by signup, password-login, catalogue-read, refresh, and two OTP dimensions. Public Product list/detail reads use the ordinary-cache `catalogue` scope (`PRODUCT_CATALOGUE_THROTTLE_RATE`, default `120/m`) so unrelated anonymous API traffic cannot exhaust catalogue availability. Product mutations retain the existing authenticated user throttle. Refresh uses the fail-closed security-cache `token_refresh` scope (`TOKEN_REFRESH_THROTTLE_RATE`, default `30/m`). OTP request and verification routes apply independent limits keyed by canonical phone number (authenticated account for initial setup) and trusted client IP. Phone settings are `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE`; IP settings are `OTP_REQUEST_IP_THROTTLE_RATE` and `OTP_VERIFY_IP_THROTTLE_RATE`. The default request limits are one request per phone and ten requests per IP each minute: a strict per-phone control that still accommodates shared NATs.
 
 OTP throttles, codes, failed-attempt counters, temporary locks, verification
 leases, the password-login guard, password-login/signup throttle histories, and
@@ -63,9 +64,10 @@ refresh throttles use only the `security` cache alias. It does not ignore
 errors: security-cache failures return 503 instead of allowing an unprotected
 request. The ordinary `default` cache is separate and may tolerate failures
 for catalogue caching and catalogue-read throttling.
-Production sets `DRF_NUM_PROXIES` to one because only host-managed Nginx can
-reach loopback Gunicorn; do not trust forwarded client IP headers in another
-topology without changing that setting.
+Authentication uses explicit `AUTH_TRUST_PROXY_HEADERS` and
+`AUTH_TRUSTED_PROXY_CIDRS`, with trust disabled by default. Only a trusted
+connecting peer can supply forwarded client addresses. Proxy counts alone do
+not establish trust; keep the Gunicorn publication restricted.
 
 Phone input is canonical ASCII `09[0-9]{9}` and OTP input is six ASCII digits.
 Invalid alternate digit sets or formatting are rejected before application logic.
@@ -74,10 +76,14 @@ profile-phone purpose bound to the authenticated user's ID.
 `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and
 `OTP_VERIFICATION_LOCK_SECONDS` control expiry and the separate per-phone
 verification lock. Verification compares with `secrets.compare_digest` and
-uses an atomic Redis lease so only one concurrent consumer succeeds. Issuing a
-new code does not reset failed attempts or an active lock, and a successful
-verification consumes the code. The multi-key sequence is not a Redis
-transaction.
+uses a token-owned Redis admission lease with atomic compare-and-delete release.
+A durable PostgreSQL scope row serializes resend and verification and commits
+redemption with account changes. Lease expiry cannot permit duplicate success.
+Rollback preserves retry eligibility; cleanup failure cannot reopen redemption.
+Resends rotate generations without resetting attempts or lockouts. SMS-dependent
+services fail closed when delivery is unavailable. Generic profile writes cannot
+change credentials; authenticated changes require the current password and
+initial setup requires fresh, user-bound OTP verification.
 
 `User.is_active` is reserved for account enablement and disablement; profile
 progress never changes it. Profile completeness is derived from username,
@@ -187,7 +193,7 @@ throttle keys, and concurrent OTP consumption.
   monitoring and alerting, PostgreSQL/media backups and tested restores, and
   production migration-history/schema compatibility verification are deferred.
 - OTP values are cache values, not password hashes; Redis access and AOF copies must remain tightly restricted.
-- Redis leases serialize consumption but do not make all verification keys one atomic transaction.
+- Redis and PostgreSQL have no distributed transaction. Generation mismatches fail closed; durable redemption prevents replay after committed account changes.
 - The repository does not yet provide managed object storage or automated dependency-vulnerability monitoring.
 - Host monitoring/alerting and PostgreSQL/media backup, storage, and restore
   procedures are external production operations; this repository does not

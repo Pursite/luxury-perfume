@@ -1,8 +1,8 @@
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext as _
 from rest_framework.exceptions import ValidationError
 from apps.lib.loggers import AppLogger
 from ..models import CustomUser, Address
-from ..jwt import revoke_user_refresh_tokens
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
@@ -13,9 +13,9 @@ class UserAuthService:
         # This service is also used directly in tests and management code.  Keep
         # onboarding unable to accidentally persist a raw password even when a
         # caller bypasses the request serializer.
-        if "password" in validated_data:
+        if "password" in validated_data or "current_password" in validated_data:
             raise ValidationError({
-                "credentials": "Use profile update to change credentials.",
+                "credentials": _("Use the dedicated password endpoint."),
             })
         address_data = validated_data.pop('address')
 
@@ -55,16 +55,13 @@ class UserAuthService:
 
     @classmethod
     def update_user_profile(cls, user: CustomUser, validated_data: dict) -> CustomUser:
-        password = validated_data.pop('password', None)
+        if "password" in validated_data or "current_password" in validated_data:
+            raise ValidationError({"password": _("Use the dedicated password endpoint.")})
         address_data = validated_data.pop('address', None)
 
         try:
             with transaction.atomic():
                 user = CustomUser.objects.select_for_update().get(pk=user.pk)
-                if password:
-                    user.set_password(password)
-                    revoke_user_refresh_tokens(user)
-
                 for attr, value in validated_data.items():
                     setattr(user, attr, value)
 

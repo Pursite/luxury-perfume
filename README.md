@@ -9,7 +9,8 @@ authenticated carts, server-owned Orders, Payments/Refunds, and an SMS outbox;
 ## Implemented features
 
 - Username/password signup and login; phone/OTP signup and login; password
-  reset by OTP; authenticated phone verification for username/password users.
+  reset and initial password setup by OTP when SMS is operational; current-password-verified
+  authenticated changes; authenticated phone verification for username/password users.
 - JWT access tokens with a persistent HttpOnly rotating refresh cookie, explicit refresh rotation and blacklisting, password-change session revocation, and idempotent logout.
 - Derived profile completion plus repeatable profile/address updates. Accounts
   remain active and usable while customer details are incomplete.
@@ -81,7 +82,7 @@ separate allowlisted `financial` category. Every HTTP
 response includes a server-generated `X-Request-ID`; the same value is present
 as `request_id` and `correlation_id` in logs produced while that request is
 handled. Tasks based on the shared correlated-task class use the Celery task ID
-as `correlation_id`; OTP enqueue records also expose that safe `task_id`.
+as `correlation_id`.
 
 The production Compose override uses Docker's `local` driver with a 10 MiB
 maximum file size and three files per service. Use `docker compose logs` to

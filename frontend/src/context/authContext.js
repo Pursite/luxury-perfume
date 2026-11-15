@@ -6,6 +6,7 @@ export const anonymousAuth = {
   sessionError: "",
   login: async () => {},
   signup: async () => {},
+  recover: async () => {},
   logout: async () => {},
   retrySession: async () => false,
 };

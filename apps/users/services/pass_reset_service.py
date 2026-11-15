@@ -10,6 +10,8 @@ from apps.users.tasks import send_otp_sms_task
 from apps.users.jwt import issue_tokens_for_user, revoke_user_refresh_tokens
 from apps.users.password_policy import validate_password_policy
 
+from .sms_availability import ensure_sms_available
+
 
 class PasswordResetService:
     purpose = "password-reset"
@@ -29,21 +31,22 @@ class PasswordResetService:
 
     @classmethod
     def send_reset_otp(cls, phone_number: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
-        user_exists = UserSelector.check_user_exists_by_phone(phone_number)
+        user = UserSelector.get_user_by_phone(phone_number)
+        user_exists = user and user.is_active and user.has_usable_password()
         if not user_exists:
             AppLogger.log_security(msg="Password reset requested for an unknown phone.")
             return cls._request_response()
 
         otp_code = cls._generate_otp_code()
-        cls._guard(phone_number).store_code(otp_code)
+        otp_code = cls._guard(phone_number).store_code(otp_code)
 
-        task = send_otp_sms_task.delay(phone_number, otp_code)
+        transaction.on_commit(lambda: send_otp_sms_task.delay(phone_number, otp_code))
 
         AppLogger.log_activity(
             msg="Password reset OTP generated and queued via Celery",
             status="INFO",
-            task_id=task.id,
         )
 
         return cls._request_response()
@@ -60,6 +63,7 @@ class PasswordResetService:
 
     @classmethod
     def verify_and_reset_password(cls, phone_number: str, submitted_otp: str, new_password: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
 
         def reset_verified_user_password():
@@ -68,23 +72,18 @@ class PasswordResetService:
                     phone_number=phone_number,
                     is_active=True,
                 ).first()
-                if not user:
-                    return None
+                if not user or not user.has_usable_password():
+                    raise ValidationError(cls.generic_otp_error)
                 validate_password_policy(new_password, user)
                 user.set_password(new_password)
                 revoke_user_refresh_tokens(user)
                 user.save()
-                return user
+                return user, issue_tokens_for_user(user)
 
-        user = cls._guard(phone_number).verify(
+        user, tokens = cls._guard(phone_number).verify(
             submitted_otp,
             on_success=reset_verified_user_password,
         )
-        if user is None:
-            raise ValidationError(cls.generic_otp_error)
-
-        tokens = issue_tokens_for_user(user)
-
         AppLogger.log_activity(msg="User password reset successfully via OTP", user=user, status="INFO")
 
         return {

@@ -23,3 +23,10 @@ export function logoutSession() {
     retryAuth: false,
   }));
 }
+
+
+export function resetPassword(payload) {
+  return request("/api/v1/users/password-reset/verify-and-reset/", {
+    method: "POST", body: payload, credentials: "include",
+  });
+}

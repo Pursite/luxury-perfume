@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import CustomUser, Address
 from .password_policy import validate_password_policy
 from .selectors import UserSelector
+from .services.sms_availability import sms_available
 
 from django.core.validators import RegexValidator
 from django.utils.translation import gettext_lazy as _
@@ -51,6 +52,8 @@ class UserPassLoginInputSerializer(serializers.Serializer):
     password = serializers.CharField(
         write_only=True,
         style={'input_type': 'password'},
+        trim_whitespace=False,
+        max_length=PASSWORD_MAX_LENGTH,
         error_messages={'required': _('password is required.')}
     )
 
@@ -103,6 +106,11 @@ class AddressUpdateInputSerializer(AddressInputSerializer):
 
 
 class CompleteProfileInputSerializer(serializers.Serializer):
+    def validate(self, attrs):
+        if "password" in self.initial_data or "current_password" in self.initial_data:
+            raise serializers.ValidationError({"password": _("Use the dedicated password endpoint.")})
+        return attrs
+
     username = serializers.CharField(
         validators=[username_regex],
         min_length=5,
@@ -136,12 +144,17 @@ class CompleteProfileInputSerializer(serializers.Serializer):
 
 class UserOutputSerializer(serializers.ModelSerializer):
     addresses = AddressSerializer(many=True, read_only=True)
+    has_usable_password = serializers.BooleanField(read_only=True)
+    sms_available = serializers.SerializerMethodField()
+
+    def get_sms_available(self, obj):
+        return bool(sms_available())
 
     class Meta:
         model = CustomUser
         fields = [
             'id', 'phone_number', 'username', 'email',
-            'first_name', 'last_name', 'is_profile_complete', 'addresses'
+            'first_name', 'last_name', 'is_profile_complete', 'addresses', 'has_usable_password', 'sms_available'
         ]
 
 
@@ -183,19 +196,8 @@ class UserProfileUpdateInputSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        password = attrs.get("password")
-        if password is None:
-            return attrs
-        user = self.context["request"].user
-        candidate = CustomUser(
-            pk=user.pk,
-            phone_number=user.phone_number,
-            username=attrs.get("username", user.username),
-            email=attrs.get("email", user.email),
-            first_name=attrs.get("first_name", user.first_name),
-            last_name=attrs.get("last_name", user.last_name),
-        )
-        validate_password_policy(password, candidate)
+        if "password" in self.initial_data or "current_password" in self.initial_data:
+            raise serializers.ValidationError({"password": _("Use the dedicated password endpoint.")})
         return attrs
 
 
@@ -256,3 +258,17 @@ class UserSignupOutputSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = ("username",)
         read_only_fields = fields
+
+
+class PasswordChangeInputSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=PASSWORD_MAX_LENGTH)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=PASSWORD_MAX_LENGTH)
+
+
+class PasswordSetInputSerializer(serializers.Serializer):
+    otp = serializers.CharField(
+        min_length=6,
+        max_length=6,
+        validators=[RegexValidator(r"^[0-9]{6}$", _("OTP must contain six ASCII digits."))],
+    )
+    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=PASSWORD_MAX_LENGTH)

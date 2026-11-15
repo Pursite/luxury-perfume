@@ -7,7 +7,7 @@ from apps.users.services.profile_phone_service import ProfilePhoneVerificationSe
 from apps.users.tests.factories import UserFactory
 
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("operational_sms")]
 
 
 class TestProfilePhoneVerificationAPI:

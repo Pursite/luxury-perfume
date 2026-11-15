@@ -310,3 +310,7 @@ SMS_RETRY_BASE_SECONDS = env.int("SMS_RETRY_BASE_SECONDS", default=5)
 SMS_RETRY_MAX_SECONDS = env.int("SMS_RETRY_MAX_SECONDS", default=300)
 SMS_RECIPIENT_RETENTION_DAYS = env.int("SMS_RECIPIENT_RETENTION_DAYS", default=180)
 AUTH_USER_MODEL = "users.CustomUser"
+
+# Only explicitly reviewed connecting proxies may supply authentication client IPs.
+AUTH_TRUST_PROXY_HEADERS = env.bool("AUTH_TRUST_PROXY_HEADERS", default=False)
+AUTH_TRUSTED_PROXY_CIDRS = tuple(env.list("AUTH_TRUSTED_PROXY_CIDRS", default=[]))

@@ -1,5 +1,7 @@
 import secrets
 
+from django.db import transaction
+
 from rest_framework.exceptions import ValidationError, AuthenticationFailed
 from apps.lib.security_cache import OTPVerificationGuard, PasswordLoginGuard
 from apps.lib.loggers import AppLogger
@@ -7,6 +9,8 @@ from ..selectors import UserSelector
 from ..tasks import send_otp_sms_task
 from ..models import CustomUser
 from ..jwt import issue_tokens_for_user
+
+from .sms_availability import ensure_sms_available
 
 
 class LoginOtpService:
@@ -55,6 +59,7 @@ class LoginOtpService:
 
     @classmethod
     def send_login_otp(cls, phone_number: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
         user_exists = UserSelector.check_user_exists_by_phone(phone_number)
         if not user_exists:
@@ -62,14 +67,13 @@ class LoginOtpService:
             return cls._request_response()
 
         otp_code = cls._generate_otp_code()
-        cls._guard(phone_number).store_code(otp_code)
+        otp_code = cls._guard(phone_number).store_code(otp_code)
 
-        task = send_otp_sms_task.delay(phone_number, otp_code)
+        transaction.on_commit(lambda: send_otp_sms_task.delay(phone_number, otp_code))
 
         AppLogger.log_activity(
             msg="Login OTP token generated and queued via Celery",
             status="INFO",
-            task_id=task.id,
         )
 
         return cls._request_response()
@@ -85,14 +89,16 @@ class LoginOtpService:
 
     @classmethod
     def verify_login_otp(cls, phone_number: str, submitted_otp: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
-        cls._guard(phone_number).verify(submitted_otp)
 
-        user = UserSelector.get_user_by_phone(phone_number)
-        if not user or not user.is_active:
-            raise ValidationError(cls.generic_otp_error)
+        def authenticate_verified_user():
+            user = CustomUser.objects.select_for_update().filter(phone_number=phone_number, is_active=True).first()
+            if not user:
+                raise ValidationError(cls.generic_otp_error)
+            return user, issue_tokens_for_user(user)
 
-        tokens = issue_tokens_for_user(user)
+        user, tokens = cls._guard(phone_number).verify(submitted_otp, on_success=authenticate_verified_user)
 
         AppLogger.log_activity(msg="User logged in successfully via OTP", user=user, status="INFO")
 

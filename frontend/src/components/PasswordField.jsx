@@ -10,6 +10,7 @@ const PasswordField = forwardRef(function PasswordField({
   invalid,
   minLength,
   maxLength,
+  disabled,
 }, ref) {
   const [visible, setVisible] = useState(false);
 
@@ -17,6 +18,7 @@ const PasswordField = forwardRef(function PasswordField({
     <div className="password-control">
       <input
         ref={ref}
+        disabled={disabled}
         id={id}
         name={name}
         type={visible ? "text" : "password"}
@@ -30,6 +32,7 @@ const PasswordField = forwardRef(function PasswordField({
       />
       <button
         type="button"
+        disabled={disabled}
         aria-label={visible ? "Hide password" : "Show password"}
         aria-pressed={visible}
         onClick={() => setVisible((current) => !current)}

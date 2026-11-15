@@ -142,6 +142,8 @@ export const cartResponse = {
 };
 
 export const profileResponse = {
+  has_usable_password: false,
+  sms_available: false,
   id: "44444444-4444-4444-8444-444444444444",
   phone_number: null,
   username: "customer_name",

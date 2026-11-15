@@ -5,6 +5,10 @@ from .jwt import PasswordRevocationTokenRefreshView
 app_name = 'apps.users'
 
 urlpatterns = [
+    path('auth-capabilities/', views.AuthCapabilitiesAPIView.as_view(), name='auth_capabilities'),
+    path('password/change/', views.PasswordChangeAPIView.as_view(), name='password_change'),
+    path('password/set/send-otp/', views.PasswordSetSendAPIView.as_view(), name='password_set_send'),
+    path('password/set/verify/', views.PasswordSetVerifyAPIView.as_view(), name='password_set_verify'),
     path('signup/', views.UserSignupAPIView.as_view(), name='signup'),
     path('signup/send-otp/', views.SendOTPCodeAPIView.as_view(), name='signup_send_otp'),
     path('signup/verify-otp/', views.VerifyOTPAPIView.as_view(), name='signup_verify_otp'),

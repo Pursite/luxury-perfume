@@ -166,3 +166,12 @@ class Address(BaseModel):
 
     def __str__(self):
         return f"{self.user} - {self.title}"
+
+
+class OTPChallenge(models.Model):
+    """Durable redemption state; codes and recipients remain outside PostgreSQL."""
+
+    scope = models.CharField(max_length=64, primary_key=True)
+    generation = models.UUIDField()
+    expires_at = models.DateTimeField(db_index=True)
+    redeemed_at = models.DateTimeField(null=True, blank=True)

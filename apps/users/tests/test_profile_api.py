@@ -63,6 +63,8 @@ class TestProfileFlow:
             "last_name",
             "is_profile_complete",
             "addresses",
+            "has_usable_password",
+            "sms_available",
         }
         assert response.data["data"]["id"] == str(user.pk)
         assert response.data["data"]["username"] == "current_customer"
@@ -74,7 +76,7 @@ class TestProfileFlow:
             set(address) == {"id", "title", "full_address", "postal_code"}
             for address in response.data["data"]["addresses"]
         )
-        serialized = repr(response.data).lower()
+        serialized = repr({k: v for k, v in response.data["data"].items() if k != "has_usable_password"}).lower()
         for unsafe_field in (
             "password",
             "token",
@@ -214,19 +216,13 @@ class TestProfileFlow:
         assert user.username == "old_user"  # فیلدهای دیگر نباید تغییر کنند
 
     def test_update_profile_password(self, api_client):
-        """Success path: Updating password successfully hashes the new password."""
         user = UserFactory()
+        original = user.password
         api_client.force_authenticate(user=user)
-
-        payload = {
-            "password": "NewStrongPass123!@"
-        }
-
-        response = api_client.patch(self.UPDATE_PROFILE_URL, data=payload, format='json')
-
-        assert response.status_code == status.HTTP_200_OK
+        response = api_client.patch(self.UPDATE_PROFILE_URL, {"password": "NewStrongPass123!@"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
-        assert user.check_password("NewStrongPass123!@") is True
+        assert user.password == original
 
     def test_update_profile_rejects_password_similar_to_new_email_without_persisting(
         self,
@@ -382,9 +378,9 @@ class TestProfileFlow:
         stale_access = str(refresh.access_token)
         api_client.force_authenticate(user=user)
 
-        password_update = api_client.patch(
-            self.UPDATE_PROFILE_URL,
-            {"password": "NewStrongPass123!@"},
+        password_update = api_client.post(
+            reverse("users:password_change"),
+            {"current_password": "OriginalPassword123!", "password": "NewStrongPass123!@"},
             format="json",
         )
         api_client.force_authenticate(user=None)
