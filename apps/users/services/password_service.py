@@ -36,7 +36,12 @@ def setup_guard(user):
 
 
 def _ensure_setup_eligible(user):
-    if not user.is_active or user.has_usable_password() or not user.phone_number:
+    if (
+        not user.is_active
+        or user.has_usable_password()
+        or not user.phone_number
+        or not CustomUser.normalize_username(user.username)
+    ):
         raise ValidationError(
             {
                 "detail": _(

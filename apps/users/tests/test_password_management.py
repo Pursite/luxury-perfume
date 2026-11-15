@@ -359,3 +359,47 @@ def test_forged_headers_cannot_evade_password_attempt_lockout(api_client, settin
         HTTP_X_FORWARDED_FOR="198.51.100.99",
     )
     assert response.status_code == 429
+
+
+@pytest.mark.usefixtures("operational_sms")
+@pytest.mark.parametrize("username", [None, "", "   "])
+@pytest.mark.parametrize("endpoint", ["password_set_send", "password_set_verify"])
+def test_initial_setup_requires_an_existing_username(
+    api_client, mocker, django_capture_on_commit_callbacks, username, endpoint
+):
+    from apps.users.models import CustomUser, OTPChallenge
+    from apps.users.services.password_service import setup_guard
+
+    user = UserFactory(phone_number="09123456789", username=None)
+    user.set_unusable_password()
+    user.save()
+    # Include legacy blank values that normal model saves canonicalize to None.
+    CustomUser.objects.filter(pk=user.pk).update(username=username)
+    user.refresh_from_db()
+    refresh = RefreshToken.for_user(user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+    guard = setup_guard(user)
+    payload = {}
+    if endpoint == "password_set_verify":
+        guard.store_code("123456")
+        payload = {"otp": "123456", "password": "NewStrongPass123!"}
+    delivery = mocker.patch(
+        "apps.users.services.password_service.send_otp_sms_task.delay"
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = api_client.post(reverse(f"users:{endpoint}"), payload, format="json")
+
+    assert response.status_code == 400
+    assert response.data == {
+        "detail": "Verified initial password setup is unavailable for this account."
+    }
+    delivery.assert_not_called()
+    user.refresh_from_db()
+    assert not user.has_usable_password()
+    if endpoint == "password_set_verify":
+        assert OTPChallenge.objects.get(scope=guard.scope).redeemed_at is None
+        assert guard.cache.get(guard.code_key)["code"] == "123456"
+    else:
+        assert not OTPChallenge.objects.filter(scope=guard.scope).exists()
+        assert guard.cache.get(guard.code_key) is None

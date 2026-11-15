@@ -162,7 +162,8 @@ fails closed and requires reissuance; there is no distributed transaction.
 `POST password/change/` requires `current_password` and `password`, verifies the
 current password under a user-row lock, and rejects OTP-only accounts.
 `POST password/set/send-otp/` and `POST password/set/verify/` provide authenticated
-initial setup using a fresh user-bound OTP and the verified account phone. The
+initial setup using a fresh user-bound OTP and the verified account phone.
+Both setup endpoints require an existing non-blank username. The
 verification body is `otp` and `password`; an existing usable password prevents
 setup. Both operations invalidate prior access and refresh tokens and expire
 the refresh cookie. The storefront asks phone-only users to save a username
