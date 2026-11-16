@@ -15,8 +15,6 @@ Docker Compose is the primary and recommended backend development environment. T
 
 For testing-specific commands and environments, see [Testing](testing.md).
 
----
-
 ## Requirements
 
 ### Recommended workflow
@@ -27,7 +25,17 @@ Install:
 * Git;
 * Node.js through `nvm` for frontend development.
 
-The backend container uses Python 3.12 and installs the pinned dependencies from `requirements/requirements.txt`.
+The runtime versions are defined by the build and package files:
+
+| Component | Repository runtime |
+| --- | --- |
+| Python | 3.12 in `docker/Dockerfile` |
+| Django / DRF | 6.0.6 / 3.17.1 in `requirements/requirements.txt` |
+| PostgreSQL | `postgres:16-alpine` |
+| Redis | `redis:7-alpine` |
+| Node.js | 24.19.0 in `frontend/.nvmrc`; engines require `>=24.15.0 <25` |
+
+The backend image installs pinned dependencies from `requirements/requirements.txt`.
 
 The frontend uses the Node version declared in `frontend/.nvmrc`.
 
@@ -41,8 +49,6 @@ Running Django directly on the host additionally requires:
 * a Python virtual environment.
 
 Docker Compose remains the canonical development path unless host execution is specifically needed.
-
----
 
 ## Repository Layout
 
@@ -89,25 +95,23 @@ Response
 
 For the complete architectural model, see [Architecture](architecture.md).
 
----
+## Backend Development
 
-# Backend Development
-
-## 1. Clone the Repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Pursite/luxury-perfume.git
 cd luxury-perfume
 ```
 
----
+### 2. Create the Development Environment File
 
-## 2. Create the Development Environment File
-
-Copy the tracked development template to the ignored root `.env` file:
+Run backend commands from the repository root. Create the ignored root `.env` only if it does not already exist; preserve existing local settings:
 
 ```bash
-cp docker/env/.env.development.example .env
+if [ ! -e .env ]; then
+  cp docker/env/.env.development.example .env
+fi
 ```
 
 The development template is designed for Docker Compose and already points Django and Celery to the internal Compose service names:
@@ -123,11 +127,9 @@ CELERY_RESULT_BACKEND=redis://redis:6379/3
 
 Do not replace `db` or `redis` with `localhost` when the backend is running inside Docker Compose.
 
-Django automatically reads the root `.env` file.
+Django automatically reads the root `.env` file. Compose uses `--env-file .env` for interpolation and the service `env_file` entries to supply application-container settings.
 
----
-
-## Environment File Rules
+### Environment File Rules
 
 The root `.env` is runtime configuration and must remain local.
 
@@ -146,9 +148,7 @@ The tracked files under `docker/env/` are templates only.
 
 Development values such as the included Django `SECRET_KEY`, JWT signing key, and database password are intentionally development-only and must never be reused in production.
 
----
-
-## Development Service Topology
+### Development Service Topology
 
 The Compose development stack contains:
 
@@ -171,7 +171,15 @@ PostgreSQL    Redis
       Worker        Scheduler
 ```
 
-Only Django is published to the host by the development Compose override.
+| Service | Role |
+| --- | --- |
+| `web` | Django development server and HTTP API |
+| `db` | PostgreSQL application data |
+| `redis` | Cache, security state, Celery broker and results |
+| `celery` | Background task worker |
+| `celery-beat` | Periodic task scheduler |
+
+Only Django is published to the host by the development Compose override, bound to `127.0.0.1:${DJANGO_HOST_PORT:-8000}`.
 
 PostgreSQL and Redis remain inside the Docker network.
 
@@ -181,9 +189,7 @@ By default Django is available at:
 http://127.0.0.1:8000
 ```
 
----
-
-## 3. Validate the Compose Configuration
+### 3. Validate the Compose Configuration
 
 Before starting the stack, validate the merged Compose configuration:
 
@@ -199,9 +205,7 @@ A successful command produces no configuration error.
 
 This is especially useful after changing `.env`, Docker configuration, or Compose files.
 
----
-
-## 4. Start the Backend Stack
+### 4. Start the Backend Stack
 
 Build and start all backend development services:
 
@@ -225,11 +229,9 @@ celery-beat
 
 The Django source tree is bind-mounted into the application containers during development.
 
-Changes to Python source files are therefore visible inside the running development containers without rebuilding the image for every edit.
+Changes to Python source files are therefore visible inside the running development containers without rebuilding the image for every edit. Django runserver reloads Python changes; restart `celery` and `celery-beat` after changing task code. Rebuild the application services after dependency or image changes.
 
----
-
-## Running Compose in the Background
+### Running Compose in the Background
 
 To run the stack detached:
 
@@ -251,9 +253,7 @@ docker compose \
   ps
 ```
 
----
-
-## 5. Apply Database Migrations
+### 5. Apply Database Migrations
 
 After the database is available, apply the current migrations:
 
@@ -271,9 +271,7 @@ Do not create or rewrite migrations merely to make local state convenient.
 
 Schema changes should reflect intentional model changes and must be reviewed together with existing migration history and data constraints.
 
----
-
-## 6. Create a Local Administrator
+### 6. Create a Local Administrator
 
 When Django Admin access is needed:
 
@@ -285,13 +283,28 @@ docker compose \
   exec web python manage.py createsuperuser
 ```
 
+#### Host commands versus container commands
+
+The `exec web` commands above run Python **inside** the running Django container.
+Docker's internal DNS resolves `db` and `redis` there. A host virtual environment
+runs outside that network: activating it does not join Docker's DNS or network.
+Inside a container, `localhost` means that container itself.
+
+If you run `python manage.py createsuperuser` on the host with `DB_HOST=db`,
+PostgreSQL may report `failed to resolve host 'db'`. Use the Compose
+`exec web python manage.py createsuperuser` command above for this stack.
+The same rule applies to migrations, shells, and other database-backed commands.
+
+Changing only `DB_HOST` to `localhost` does not expose the private PostgreSQL
+container. Neither PostgreSQL nor Redis publishes a host port in this development
+stack. Direct-host Django requires independently reachable services and matching
+host/port/credential settings; see [Optional Direct-Host Backend Execution](#optional-direct-host-backend-execution).
+
 Use development-only credentials.
 
 Do not reuse production passwords or customer identities locally.
 
----
-
-## Useful Backend Commands
+### Useful Backend Commands
 
 Open a Django shell:
 
@@ -335,9 +348,7 @@ docker compose \
 
 Review generated migrations before applying or committing them.
 
----
-
-# Logs
+## Logs
 
 When the stack is running in detached mode, inspect all service logs with:
 
@@ -373,9 +384,7 @@ Application logging must not expose credentials, passwords, OTP values, JWTs, re
 
 See [Security](security.md) for the logging and sensitive-data model.
 
----
-
-# Stopping the Development Stack
+## Stopping the Development Stack
 
 Stop and remove the running containers:
 
@@ -389,9 +398,7 @@ docker compose \
 
 This does not remove the PostgreSQL or Redis named volumes.
 
----
-
-## Resetting Local Docker Data
+### Resetting Local Docker Data
 
 PostgreSQL and Redis use persistent named Docker volumes.
 
@@ -413,9 +420,7 @@ Use this only when the local data is intentionally disposable.
 
 Never apply destructive reset commands to production infrastructure.
 
----
-
-## Changing Development Database Credentials
+### Changing Development Database Credentials
 
 PostgreSQL initializes its configured database credentials when its data directory is first created.
 
@@ -433,9 +438,7 @@ If credentials are changed, either migrate the existing local database intention
 
 Do not assume editing `.env` alone modifies an existing database cluster.
 
----
-
-# Redis Responsibilities
+## Redis Responsibilities
 
 Development uses one Redis service with separate logical databases:
 
@@ -456,9 +459,7 @@ Do not merge these URLs casually or treat Redis as the durable source of applica
 
 PostgreSQL remains authoritative for persistent application state.
 
----
-
-# Celery Development
+## Celery Development
 
 The Compose stack starts both:
 
@@ -485,9 +486,7 @@ Background tasks must not be treated as the authoritative state store.
 
 Durable state and lifecycle invariants remain in PostgreSQL.
 
----
-
-# Payments and SMS in Development
+## Payments and SMS in Development
 
 The tracked development environment intentionally contains:
 
@@ -504,9 +503,7 @@ A real provider integration requires its own implementation, configuration, secu
 
 Provider secrets must never be committed.
 
----
-
-# Frontend Development
+## Frontend Development
 
 The React storefront lives in:
 
@@ -518,9 +515,7 @@ It is a separate Vite application and does not run as a Django app or as a devel
 
 Keep the Django backend running while developing the storefront.
 
----
-
-## 1. Select the Supported Node Version
+### 1. Select the Supported Node Version
 
 Enter the frontend directory:
 
@@ -545,9 +540,7 @@ node --version
 
 Do not fall back to an older workstation Node version when it does not satisfy the frontend engine requirement.
 
----
-
-## 2. Install Frontend Dependencies
+### 2. Install Frontend Dependencies
 
 Use the committed lockfile:
 
@@ -559,19 +552,13 @@ Prefer `npm ci` over `npm install` for reproducible installation from `package-l
 
 Do not regenerate the lockfile unless dependency changes are intentional.
 
----
-
-## 3. Start Vite
+### 3. Start Vite
 
 ```bash
 npm run dev
 ```
 
-The storefront is available at:
-
-```text
-http://localhost:5173
-```
+Vite binds to `127.0.0.1` and requests port 5173. Open the URL printed by Vite (normally `http://127.0.0.1:5173`); it may choose another port if 5173 is occupied.
 
 During local development, Vite proxies relative:
 
@@ -586,11 +573,11 @@ requests to Django at:
 http://localhost:8000
 ```
 
-Backend origins therefore do not need to be duplicated throughout React components.
+Backend origins therefore do not need to be duplicated throughout React components. The proxy target is fixed in `frontend/vite.config.js`; changing `DJANGO_HOST_PORT` also requires aligning that target. If Vite chooses another port, align the backend origin allowlists before using cookie-backed authentication.
 
----
+See the [frontend guide](../frontend/README.md) for routes, password management, browser session state, checks, and production build configuration.
 
-## Django Origins for Local Vite
+### Django Origins for Local Vite
 
 The development `.env` should permit both supported local Vite host spellings:
 
@@ -602,9 +589,7 @@ CSRF_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
 These values already exist in the tracked development template.
 
----
-
-## Frontend Environment Variables
+### Frontend Environment Variables
 
 Frontend environment values prefixed with:
 
@@ -631,9 +616,7 @@ infrastructure secrets
 
 Anything embedded into a frontend build must be considered public.
 
----
-
-# Optional Direct-Host Backend Execution
+## Optional Direct-Host Backend Execution
 
 Docker Compose is the recommended development environment.
 
@@ -653,12 +636,19 @@ python -m pip install --upgrade pip
 python -m pip install --requirement requirements/requirements.txt
 ```
 
-PostgreSQL and Redis must already be running locally.
+PostgreSQL and Redis must already be independently reachable from the host
+(for example, host-installed PostgreSQL 16 and Redis 7). The Compose services
+above are private and cannot be reached through host loopback ports. Install
+the PostgreSQL client library (`libpq`; for example, `libpq5` on Debian/Ubuntu),
+and build dependencies if required by psycopg or Pillow on your platform.
+Use database credentials for those separate services, not assumed credentials
+from the Compose volume.
 
 Because the normal development `.env` targets Docker service names, override the container-specific addresses in the current shell:
 
 ```bash
 export DB_HOST=localhost
+export DB_PORT=5432
 
 export CACHE_REDIS_URL=redis://localhost:6379/0
 export SECURITY_REDIS_URL=redis://localhost:6379/1
@@ -666,7 +656,7 @@ export CELERY_BROKER_URL=redis://localhost:6379/2
 export CELERY_RESULT_BACKEND=redis://localhost:6379/3
 ```
 
-Adjust ports when the local PostgreSQL or Redis services use non-default values.
+Set `DB_NAME`, `DB_USER`, and `DB_PASSWORD` to match the reachable database. Adjust `DB_HOST`, `DB_PORT`, and every Redis URL to the actual services; `localhost` is only an example.
 
 Apply migrations:
 
@@ -686,23 +676,36 @@ Run a Celery worker in another terminal:
 celery -A config worker --loglevel=INFO
 ```
 
-Run Celery Beat separately when scheduled tasks are required:
+Repeat the environment overrides in each worker/scheduler terminal; shell exports are not shared between terminals. Run Celery Beat separately when scheduled tasks are required:
 
 ```bash
 celery -A config beat --loglevel=INFO
 ```
 
-The root `.env` is still loaded by Django. The exported shell variables above only override the container-specific hostnames for the current shell.
+The root `.env` is still loaded by Django. Exported shell variables take precedence over that file for the current shell. Activate the virtual environment and supply the same overrides in each terminal used for Django or Celery.
 
----
+## Health Checks
 
-# Health Checks
+The backend exposes three GET endpoints (without trailing slashes):
 
-The backend exposes a readiness endpoint used by the container health check:
+| Endpoint | Checks |
+| --- | --- |
+| `/health/live` | Django can handle an HTTP request |
+| `/health/startup` | Django application registry is initialized |
+| `/health/ready` | Database query and security-cache write succeed; returns 503 if either fails |
 
-```text
-/health/ready
+Readiness does not prove migrations are applied, workers are consuming jobs,
+or a provider is operational. From the host, with the default Django port:
+
+```bash
+curl --fail http://127.0.0.1:8000/health/ready
 ```
+
+The shared Compose web health check currently sends `Host: shop.exonplus.ir`,
+which the development template's `ALLOWED_HOSTS` does not allow. Consequently,
+`web` may be marked unhealthy even when the loopback readiness request succeeds.
+Inspect the HTTP result and logs before interpreting that status as a dependency
+failure; this guide does not change the Compose health-check configuration.
 
 The Compose stack also defines native health checks for PostgreSQL and Redis.
 
@@ -718,9 +721,7 @@ docker compose \
 
 Then inspect the relevant service logs.
 
----
-
-# Development Safety Rules
+## Development Safety Rules
 
 Keep development behavior aligned with the production architecture even when working locally.
 
@@ -740,9 +741,7 @@ In particular:
 
 See [Architecture](architecture.md), [Authentication](authentication.md), and [Security](security.md) before changing these areas.
 
----
-
-# Where to Go Next
+## Where to Go Next
 
 Use the documentation according to the task:
 
@@ -756,8 +755,6 @@ Use the documentation according to the task:
 | Deploy production                        | [Deployment](deployment.md)           |
 | Resolve recurring setup/runtime problems | [Troubleshooting](troubleshooting.md) |
 | Contribute a repository change           | [CONTRIBUTING.md](../CONTRIBUTING.md) |
-
----
 
 ## Documentation Maintenance
 
