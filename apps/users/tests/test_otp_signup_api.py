@@ -8,7 +8,7 @@ from apps.users.tests.factories import UserFactory
 from apps.users.jwt import REFRESH_TOKEN_COOKIE_NAME
 
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("operational_sms")]
 
 
 class TestSignupOTPAPI:

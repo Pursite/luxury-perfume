@@ -15,7 +15,7 @@ from apps.users.selectors import UserSelector
 from apps.users.tests.factories import UserFactory
 
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("operational_sms")]
 
 
 class TestAuthenticationAPI:
@@ -148,7 +148,7 @@ class TestAuthenticationAPI:
         assert delivery.call_args_list == [mocker.call(existing_phone, "123456")]
         assert caches["security"].get(
             LoginOtpService._guard(existing_phone).code_key
-        ) == "123456"
+        )["code"] == "123456"
         assert (
             caches["security"].get(LoginOtpService._guard(unknown_phone).code_key)
             is None

@@ -16,19 +16,19 @@ def _parse_ip(value):
         return None
 
 
-def get_trusted_client_ip(request):
+def get_trusted_client_ip(request, *, policy="PAYMENT"):
     """Return the first untrusted hop without accepting client-spoofed headers."""
     peer = _parse_ip(request.META.get("REMOTE_ADDR"))
     if peer is None:
         return None
     peer_text = str(peer)
-    if not getattr(settings, "PAYMENT_TRUST_PROXY_HEADERS", False):
+    if not getattr(settings, f"{policy}_TRUST_PROXY_HEADERS", False):
         return peer_text
 
     try:
         trusted_networks = tuple(
             ip_network(cidr, strict=False)
-            for cidr in getattr(settings, "PAYMENT_TRUSTED_PROXY_CIDRS", ())
+            for cidr in getattr(settings, f"{policy}_TRUSTED_PROXY_CIDRS", ())
         )
     except ValueError:
         return peer_text
@@ -51,3 +51,7 @@ def get_trusted_client_ip(request):
             break
         candidate = hop
     return str(candidate)
+
+
+def get_auth_client_ip(request):
+    return get_trusted_client_ip(request, policy="AUTH") or "unknown"

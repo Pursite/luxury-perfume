@@ -1,6 +1,7 @@
 from django.core.cache import caches
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 
+from apps.lib.client_ip import get_auth_client_ip
 from apps.lib.security_cache import SecurityCacheUnavailable
 from apps.users.models import CustomUser
 
@@ -11,6 +12,9 @@ class SecurityCacheRateThrottle(SimpleRateThrottle):
     def __init__(self):
         super().__init__()
         self.cache = caches["security"]
+
+    def get_ident(self, request):
+        return get_auth_client_ip(request)
 
     def allow_request(self, request, view):
         try:
@@ -93,3 +97,14 @@ class SignupRateThrottle(SecurityCacheRateThrottle):
             "scope": self.scope,
             "ident": self.get_ident(request),
         }
+
+
+class PasswordSetupRateThrottle(SecurityCacheRateThrottle):
+    scope = "otp"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": f"password-set:{request.user.pk}"}
+
+
+class PasswordSetupVerificationRateThrottle(PasswordSetupRateThrottle):
+    scope = "otp_verify"

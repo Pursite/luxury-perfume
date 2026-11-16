@@ -249,14 +249,14 @@ test("serializes saves from independent forms so older responses cannot replace 
   await waitFor(() => expect(fullAddress).toHaveValue("88 Cedar Avenue"));
 });
 
-test("keeps phone and password actions genuinely unavailable without making requests", async () => {
+test("keeps phone and initial password setup unavailable without SMS", async () => {
   fetch.mockResolvedValue(jsonResponse({ data: profileResponse }));
   const user = userEvent.setup();
 
   renderAccount();
   const addPhone = await screen.findByRole("button", { name: "Add phone number" });
   const phoneWrapper = screen.getByRole("group", { name: "Add phone number, unavailable" });
-  const resetPassword = screen.getByRole("button", { name: "Reset Password" });
+  const resetPassword = screen.getByRole("button", { name: "Set Password" });
   expect(addPhone).toBeDisabled();
   expect(resetPassword).toBeDisabled();
 

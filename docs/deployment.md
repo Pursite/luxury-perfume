@@ -366,7 +366,8 @@ collide. This is an immediate URL cutover: clients must construct product
 detail, mutation, and image-upload URLs from the response `slug`; UUID product
 URLs return 404 after deployment.
 
-Users, Products, Cart, and Orders currently have `0001_initial`; Payments also
+Users, Products, Cart, and Orders have `0001_initial`; Users additionally has
+`0002_otpchallenge` for durable OTP scope/redemption state. Payments also
 has `0002_manual_review_stops_automatic_reconciliation`; Notifications also
 has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
 This runbook describes the current new-deployment migration inventory. Production
@@ -378,6 +379,14 @@ image defaults to Gunicorn on container port `8000`, while Compose overrides
 the command only for development Django and the Celery worker. Production
 publishes Gunicorn only as `127.0.0.1:8000` for the host proxy. PostgreSQL and
 Redis have no host port mappings in the production merge.
+
+Before enabling the new OTP format, drain old web/worker processes, apply
+`users.0002_otpchallenge`, and deploy matching backend/frontend versions.
+Outstanding legacy OTPs require reissuance. Reverting code to a version without
+durable redemption needs drained traffic and invalidated outstanding OTPs;
+do not drop redemption state while current-format challenges remain active.
+`python manage.py cleanup_otp_challenges` removes expired scope records without
+reading code values. Run it through existing operational maintenance as needed.
 
 ## Production logs
 
@@ -393,7 +402,7 @@ omit query strings, client IPs, referrers, and user agents.
 `RequestIDMiddleware` creates the opaque `X-Request-ID` server-side for every
 HTTP request. It is also the request's application-log correlation ID. Tasks
 using the shared correlated-task base use their Celery task ID as the worker
-correlation ID; OTP enqueue records also contain that safe `task_id`. Do not
+correlation ID. Do not
 send secrets, tokens, passwords, OTP values, phone numbers, email addresses,
 request bodies, cache keys, provider session/transaction/message identifiers,
 or sensitive exception text to any logger. Allowlisted financial events may
@@ -562,7 +571,7 @@ server {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_redirect off;
     }
@@ -570,10 +579,13 @@ server {
 ```
 
 The production settings trust `X-Forwarded-Proto` when
-`SECURE_PROXY_SSL_HEADER_ENABLED=True` and one forwarding proxy for DRF client
-IP throttling through `DRF_NUM_PROXIES=1`. Only the local, host-managed Nginx
-should be able to reach the Gunicorn listener; otherwise a client could forge
-the forwarded address used by OTP limits. Restrict media further in Nginx if
+`SECURE_PROXY_SSL_HEADER_ENABLED=True`. Authentication trusts forwarded client
+IP addresses only when `AUTH_TRUST_PROXY_HEADERS=True` and
+`AUTH_TRUSTED_PROXY_CIDRS` lists the reviewed addresses of connecting proxies.
+For host Nginx reaching a Docker-published port, verify the peer address seen
+inside the container; do not assume it is loopback or trust an entire Docker
+network. Keep Gunicorn inaccessible to untrusted peers. The single-proxy Nginx
+example overwrites client-supplied forwarding headers. Restrict media further in Nginx if
 uploaded product images must not be public.
 
 After installing the site, validate and reload the host service using the
@@ -607,7 +619,7 @@ container health and restart or replace unhealthy containers operationally.
 
 Before deploying a release with migrations, confirm the production `.env` has a
 dedicated JWT signing key with at least 32 random bytes,
-`DRF_NUM_PROXIES=1` for the documented Nginx topology, and explicit phone/IP
+explicit authentication proxy trust matching the Nginx topology, and phone/IP
 OTP throttle rates. CD runs `python manage.py check --deploy` before it
 replaces web or Celery, but application readiness does not establish a data
 recovery strategy.

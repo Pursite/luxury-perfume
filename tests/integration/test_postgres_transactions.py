@@ -46,7 +46,6 @@ from apps.products.tests.factories import (
 )
 from apps.users.models import CustomUser
 from apps.users.services.signup_service import SignupIdentityConflict, create_user_service
-from apps.users.services.user_auth_service import UserAuthService
 from apps.users.tests.factories import AddressFactory, UserFactory
 
 
@@ -822,9 +821,12 @@ def test_postgresql_password_change_blacklists_existing_refresh_tokens():
     )
     refresh = RefreshToken.for_user(user)
 
-    UserAuthService.update_user_profile(
+    from apps.users.services.password_service import change_password
+
+    change_password(
         user=user,
-        validated_data={"password": "ReplacementPassword123!"},
+        current_password="OriginalPassword123!",
+        password="ReplacementPassword123!",
     )
 
     assert BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()

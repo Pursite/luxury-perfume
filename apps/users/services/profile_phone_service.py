@@ -8,6 +8,8 @@ from apps.lib.security_cache import OTPVerificationGuard
 from apps.users.models import CustomUser
 from apps.users.tasks import send_otp_sms_task
 
+from .sms_availability import ensure_sms_available
+
 
 class ProfilePhoneVerificationService:
     """Attach a phone to an authenticated account only after OTP verification."""
@@ -45,6 +47,7 @@ class ProfilePhoneVerificationService:
         user: CustomUser,
         phone_number: str,
     ) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
         if user.phone_number:
             return cls._request_response()
@@ -55,14 +58,13 @@ class ProfilePhoneVerificationService:
             return cls._request_response()
 
         otp_code = cls._generate_otp_code()
-        cls._guard(user, phone_number).store_code(otp_code)
-        task = send_otp_sms_task.delay(phone_number, otp_code)
+        otp_code = cls._guard(user, phone_number).store_code(otp_code)
+        transaction.on_commit(lambda: send_otp_sms_task.delay(phone_number, otp_code))
 
         AppLogger.log_activity(
             msg="profile_phone_verification.queued",
             user=user,
             status="INFO",
-            task_id=task.id,
         )
         return cls._request_response()
 
@@ -73,28 +75,25 @@ class ProfilePhoneVerificationService:
         phone_number: str,
         submitted_otp: str,
     ) -> CustomUser:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
         if user.phone_number:
             raise ValidationError(cls.generic_otp_error)
-        cls._guard(user, phone_number).verify(submitted_otp)
 
-        try:
-            with transaction.atomic():
-                locked_user = CustomUser.objects.select_for_update().get(pk=user.pk)
-                phone_is_owned = CustomUser.objects.filter(
-                    phone_number=phone_number,
-                ).exclude(pk=locked_user.pk).exists()
-                if (
-                    not locked_user.is_active
-                    or locked_user.phone_number
-                    or phone_is_owned
-                ):
-                    raise ValidationError(cls.generic_otp_error)
+        def attach_verified_phone():
+            try:
+                with transaction.atomic():
+                    locked_user = CustomUser.objects.select_for_update().get(pk=user.pk)
+                    phone_is_owned = CustomUser.objects.filter(phone_number=phone_number).exclude(pk=user.pk).exists()
+                    if not locked_user.is_active or locked_user.phone_number or phone_is_owned:
+                        raise ValidationError(cls.generic_otp_error)
+                    locked_user.phone_number = phone_number
+                    locked_user.save(update_fields=["phone_number"])
+                    return locked_user
+            except (CustomUser.DoesNotExist, IntegrityError) as exc:
+                raise ValidationError(cls.generic_otp_error) from exc
 
-                locked_user.phone_number = phone_number
-                locked_user.save(update_fields=["phone_number"])
-        except (CustomUser.DoesNotExist, IntegrityError) as exc:
-            raise ValidationError(cls.generic_otp_error) from exc
+        locked_user = cls._guard(user, phone_number).verify(submitted_otp, on_success=attach_verified_phone)
 
         AppLogger.log_activity(
             msg="profile_phone_verification.completed",

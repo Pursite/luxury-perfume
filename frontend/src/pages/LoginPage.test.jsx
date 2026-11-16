@@ -162,5 +162,19 @@ test("keeps SMS sign-in disabled with pointer and keyboard-accessible explanatio
   expect(screen.getByRole("tooltip")).toHaveTextContent("This feature will be available later.");
   await user.click(smsButton);
 
-  expect(fetch.mock.calls.some(([url]) => url !== "/api/v1/users/token/refresh/")).toBe(false);
+  expect(fetch.mock.calls.some(([url]) => !["/api/v1/users/token/refresh/", "/api/v1/users/auth-capabilities/"].includes(url))).toBe(false);
+});
+
+test("shows recovery only when backend SMS capability is operational", async () => {
+  fetch.mockImplementation((url) => Promise.resolve(url === "/api/v1/users/auth-capabilities/"
+    ? jsonResponse({ sms_available: true })
+    : jsonResponse({ detail: "missing" }, 401)));
+  renderLogin();
+  expect(await screen.findByRole("link", { name: "Forgot password?" })).toHaveAttribute("href", "/forgot-password");
+});
+
+test("unavailable SMS capability keeps recovery hidden", async () => {
+  renderLogin();
+  await screen.findByLabelText("Username");
+  expect(screen.queryByRole("link", { name: "Forgot password?" })).not.toBeInTheDocument();
 });

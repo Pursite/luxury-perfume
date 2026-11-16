@@ -28,12 +28,12 @@ Phone input is trimmed and must be exactly `09[0-9]{9}`: eleven ASCII digits
 beginning with `09`, for example `09123456789`. Unicode digits, international
 forms, and alternate formatting are rejected rather than translated.
 
-Every password entry point—direct signup, profile update, and password reset—
+Every password entry point—direct signup, authenticated change/setup, and password reset—
 uses the same configured Django policy: a 12-character
 minimum plus similarity, common-password, and numeric-password validation.
 The API also has a 128-character request-size cap for password fields.
 Passwords are never logged. OTP-created accounts have an unusable password
-until the user sets one through profile update; superusers require a password.
+until fresh OTP verification authorizes the dedicated initial setup; superusers require a password.
 
 ## JWT lifecycle, refresh, and logout
 
@@ -49,11 +49,11 @@ fail-closed security-cache throttle (`TOKEN_REFRESH_THROTTLE_RATE`, default
 marked `Cache-Control: no-store` (and compatible no-cache headers).
 
 Tokens carry Simple JWT's password-hash revocation claim. A password change
-(profile update or OTP reset) locks the user record, blacklists all
+(authenticated change/setup or OTP reset) locks the user record, blacklists all
 unexpired outstanding refresh tokens, and invalidates access tokens minted from
 the old password. The refresh endpoint validates that claim while holding the
 same user-row lock, so it cannot race a password change into a usable session.
-After an authenticated profile password update, sign in again to receive new
+After an authenticated password change or setup, sign in again to receive new
 tokens; password reset already returns newly minted tokens. This intentionally
 invalidates JWTs issued before this hardening deployment because they lack the
 revocation claim.
@@ -92,16 +92,22 @@ disabled and make no OTP request while the external SMS service is unavailable.
 Its protected `/account` route keeps profile data and drafts only in React
 memory. It reads the authenticated user from `GET profile/`, saves supported
 personal and address changes through `PATCH profile/update/`, and replaces its
-displayed state from the returned `data`. It does not expose password changes
-or call phone-verification, OTP, or password-reset endpoints.
+displayed state from the returned `data`. Backend `has_usable_password` and
+`sms_available` fields control separate Change Password and Set Password forms.
+Recovery uses `/forgot-password` only when SMS is available. Phone verification
+remains unavailable in the storefront.
 
 ## Phone/OTP flows
 
-Each OTP flow requires canonical `phone_number`; verification also requires an
-exactly six-character ASCII-digit `otp`.
+Phone-based OTP flows require canonical `phone_number`; verification requires
+an exactly six-character ASCII-digit `otp`. Authenticated initial setup derives
+the phone from the account. All SMS-dependent services return generic 503 when
+SMS is disabled, unregistered, or misconfigured; password authentication and
+authenticated password changes remain available.
 
 ```text
-Request OTP -> security cache -> Users-owned Celery task -> verify -> consume
+Request OTP -> locked PostgreSQL challenge + Redis code -> post-commit SMS task
+Verify -> locked challenge -> account mutation + redemption commit -> cache cleanup
 ```
 
 When `SMS_ENABLED=True`, the task renders the fixed Persian Users OTP message and uses
@@ -120,32 +126,50 @@ failure/ambiguity is safely logged and the cache expiry still bounds the code.
   already verified, but the remaining customer profile may be completed later.
 - `POST login/send-otp/` and `POST login/verify-otp/` issue tokens for an
   active matching user. Unknown-phone request responses remain generic.
-- `POST password-reset/send-otp/` always returns the same request response.
+- `POST password-reset/send-otp/` returns the same response for eligible, unknown,
+  inactive, and OTP-only accounts when SMS is operational. Only active accounts
+  with usable passwords receive a recovery code.
   `POST password-reset/verify-and-reset/` applies account-independent password
   checks before OTP verification. After a matching OTP is proven, it applies
   the full user-aware password policy before consuming the OTP, revokes prior
   sessions, and returns a new access token plus refresh cookie.
 
-Each request and verification endpoint applies two independent limits from the
-fail-closed `security` cache: one keyed by normalized phone and one by client
-IP. `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE` retain the
+Request and verification endpoints apply two independent limits from the
+fail-closed `security` cache: one keyed by normalized phone (authenticated
+account for initial setup) and one by client IP. `OTP_REQUEST_THROTTLE_RATE` and `OTP_VERIFY_THROTTLE_RATE` retain the
 phone-limit settings; `OTP_REQUEST_IP_THROTTLE_RATE` and
 `OTP_VERIFY_IP_THROTTLE_RATE` configure IP limits. The shipped request defaults
 allow one request per phone per minute and ten requests per IP per minute, so
 the phone limit remains strict without unnecessarily blocking users behind a
 shared NAT. A cache outage returns 503, not an unthrottled request. Production
-trusts one host-managed proxy via `DRF_NUM_PROXIES=1`; do not expose Gunicorn
-directly or increase this value without matching trusted proxy topology.
+uses `AUTH_TRUST_PROXY_HEADERS` and explicit `AUTH_TRUSTED_PROXY_CIDRS` for all
+authentication controls. Trust is disabled by default; proxy counts alone do
+not establish trust. Keep Gunicorn inaccessible to untrusted peers.
 
 OTP state is separated by `signup`, `login`, `password-reset`, and the
 authenticated-user-bound profile-phone purpose.
 `OTP_EXPIRY_SECONDS`, `OTP_VERIFICATION_MAX_ATTEMPTS`, and
 `OTP_VERIFICATION_LOCK_SECONDS` govern expiry and the additional per-phone
-verification lock. Verification uses a short security-cache lease and
-constant-time comparison; Redis provides atomic lease acquisition, but the
-multi-key verification sequence is not a Redis transaction. A new OTP replaces
-the code only; it never clears failed-attempt state or an active lock. A
-successful verification consumes the code, making it single-use.
+verification lock. A token-owned Redis lease limits overlapping requests; its
+release uses atomic ownership comparison. The PostgreSQL challenge row locks
+issuance, resend, and verification for the same scope. Every resend rotates the
+generation and code while preserving failed attempts and lockouts. Account
+changes, token records, and redemption commit together. Rollback permits retry
+until expiry; committed redemption prevents replay even if Redis cleanup fails.
+Cleanup cannot delete a newer generation. Redis loss or generation mismatch
+fails closed and requires reissuance; there is no distributed transaction.
+
+`POST password/change/` requires `current_password` and `password`, verifies the
+current password under a user-row lock, and rejects OTP-only accounts.
+`POST password/set/send-otp/` and `POST password/set/verify/` provide authenticated
+initial setup using a fresh user-bound OTP and the verified account phone.
+Both setup endpoints require an existing non-blank username. The
+verification body is `otp` and `password`; an existing usable password prevents
+setup. Both operations invalidate prior access and refresh tokens and expire
+the refresh cookie. The storefront asks phone-only users to save a username
+before setting a password so password sign-in is usable. Profile writes reject
+password fields.
+
 
 ## Profile behavior
 
@@ -166,15 +190,15 @@ refuses a number owned by another user without revealing that ownership.
 
 `GET profile/` returns only the authenticated user's serialized profile and
 ordered addresses. It accepts no user ID, requires authentication, and exposes
-no password, token, staff, group, or permission fields.
+no password hashes, tokens, staff, group, or permission fields.
 
 `POST profile/complete/` is one-time onboarding: it requires the verified
 phone, sets username/email/name, and creates the first address. It neither
 changes a password nor changes account activation. `PATCH profile/update/` is
-repeatable and can update username, email, names, password, and address data.
+repeatable and can update username, email, names, and address data.
 To edit an existing address it requires that owned address's explicit `id` and
 accepts only the address fields being changed, so it never creates duplicates
-on repeat edits. Password updates retain the
+on repeat edits. Dedicated password operations retain the
 session-revocation behavior described above; ordinary profile edits do not
 revoke access or refresh tokens. Responses keep the existing `data` user
 representation.

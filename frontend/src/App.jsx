@@ -8,6 +8,7 @@ import ProductDetailPage from "./pages/ProductDetailPage";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import RecoveryPage from "./pages/RecoveryPage";
 import AccountPage from "./pages/AccountPage";
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
         <Route index element={<CataloguePage />} />
         <Route path="products/:slug" element={<ProductDetailPage />} />
         <Route path="login" element={<LoginPage />} />
+        <Route path="forgot-password" element={<RecoveryPage />} />
         <Route path="signup" element={<SignupPage />} />
         <Route path="cart" element={<ProtectedRoute><CartPage /></ProtectedRoute>} />
         <Route path="account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />

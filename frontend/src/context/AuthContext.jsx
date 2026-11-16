@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { loginWithPassword, logoutSession, signupWithPassword } from "../api/auth";
+import { loginWithPassword, logoutSession, signupWithPassword, resetPassword } from "../api/auth";
 import { refreshSession } from "../api/client";
 import {
   clearTokens,
@@ -78,6 +78,8 @@ export function AuthProvider({ children }) {
     return establishSession(await signupWithPassword(credentials));
   }, [establishSession]);
 
+  const recover = useCallback(async (payload) => establishSession(await resetPassword(payload)), [establishSession]);
+
   const logout = useCallback(async () => {
     try {
       await logoutSession();
@@ -96,9 +98,10 @@ export function AuthProvider({ children }) {
     sessionError,
     login,
     signup,
+    recover,
     logout,
     retrySession: restoreSession,
-  }), [login, logout, restoreSession, sessionError, signup, status]);
+  }), [login, logout, recover, restoreSession, sessionError, signup, status]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

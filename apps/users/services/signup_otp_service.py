@@ -11,6 +11,8 @@ from apps.users.selectors import UserSelector
 from apps.users.tasks import send_otp_sms_task
 from apps.users.jwt import issue_tokens_for_user
 
+from .sms_availability import ensure_sms_available
+
 
 class SendOTPService:
     purpose = "signup"
@@ -30,20 +32,20 @@ class SendOTPService:
 
     @classmethod
     def send_signup_otp(cls, phone_number: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
 
         user_exists = UserSelector.check_user_exists_by_phone(phone_number)
         if user_exists:
             return cls._request_response()
         otp_code = cls._generate_otp_code()
-        cls._guard(phone_number).store_code(otp_code)
+        otp_code = cls._guard(phone_number).store_code(otp_code)
 
-        task = send_otp_sms_task.delay(phone_number, otp_code)
+        transaction.on_commit(lambda: send_otp_sms_task.delay(phone_number, otp_code))
 
         AppLogger.log_activity(
             msg="OTP token generated and queued via Celery for signup",
             status="INFO",
-            task_id=task.id,
         )
 
         return cls._request_response()
@@ -59,18 +61,20 @@ class SendOTPService:
 
     @classmethod
     def verify_signup_otp(cls, phone_number: str, submitted_otp: str) -> dict:
+        ensure_sms_available()
         phone_number = CustomUser.normalize_phone_number(phone_number)
-        cls._guard(phone_number).verify(submitted_otp)
 
-        try:
-            with transaction.atomic():
-                if UserSelector.check_user_exists_by_phone(phone_number):
-                    raise ValidationError(cls.generic_otp_error)
-                user = CustomUser.objects.create_user(phone_number=phone_number)
-        except (DjangoValidationError, IntegrityError) as exc:
-            raise ValidationError(cls.generic_otp_error) from exc
+        def create_verified_user():
+            try:
+                with transaction.atomic():
+                    if UserSelector.check_user_exists_by_phone(phone_number):
+                        raise ValidationError(cls.generic_otp_error)
+                    user = CustomUser.objects.create_user(phone_number=phone_number)
+                    return user, issue_tokens_for_user(user)
+            except (DjangoValidationError, IntegrityError) as exc:
+                raise ValidationError(cls.generic_otp_error) from exc
 
-        tokens = issue_tokens_for_user(user)
+        user, tokens = cls._guard(phone_number).verify(submitted_otp, on_success=create_verified_user)
 
         AppLogger.log_activity(msg="User registered successfully via OTP", user=user, status="INFO")
 

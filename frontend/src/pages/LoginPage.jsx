@@ -5,6 +5,7 @@ import DisabledSmsOption from "../components/DisabledSmsOption";
 import AuthLayout from "../components/AuthLayout";
 import ErrorState from "../components/ErrorState";
 import PasswordField from "../components/PasswordField";
+import useSmsAvailability from "../hooks/useSmsAvailability";
 import useAuth from "../hooks/useAuth";
 import useDocumentTitle from "../hooks/useDocumentTitle";
 import { safeInternalPath } from "../utils/navigation";
@@ -12,6 +13,7 @@ import { safeInternalPath } from "../utils/navigation";
 export default function LoginPage() {
   useDocumentTitle("Sign in");
   const auth = useAuth();
+  const smsAvailable = useSmsAvailability();
   const location = useLocation();
   const navigate = useNavigate();
   const usernameRef = useRef(null);
@@ -70,6 +72,8 @@ export default function LoginPage() {
       description="Sign in to keep your selected fragrances together."
     >
       <form className="login-form" noValidate onSubmit={handleSubmit}>
+          {location.state?.message ? <p role="status">{location.state.message}</p> : null}
+          {smsAvailable ? <Link to="/forgot-password">Forgot password?</Link> : null}
           {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
           <label htmlFor="username">Username</label>
           <input

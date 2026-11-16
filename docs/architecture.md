@@ -71,8 +71,9 @@ prefetches ordered addresses for the safe output serializer.
 readiness property. The opt-in `IsProfileComplete` permission protects Payment
 initialization but does not restrict ordinary authenticated use.
 Profile-phone OTP state is bound to both the account and the candidate phone;
-address edits lock and require an explicitly owned address ID. It queues the
-Celery OTP task.
+address edits lock and require an explicitly owned address ID. Durable
+`OTPChallenge` scope rows serialize issuance/resend and commit redemption with
+account changes; codes remain in Redis. SMS tasks are queued after commit.
 
 ### `apps.products`
 
@@ -178,7 +179,7 @@ disabled by default and this repository registers no real provider adapter.
 
 Celery is configured in `config/celery.py` and discovers application tasks.
 
-- User OTP requests store the code in the security cache and queue `send_otp_sms_task`. The Users-owned task uses the shared provider-neutral transport when SMS is enabled; it does not create Notification rows or persist OTP messages.
+- User OTP requests store generation-bound codes in the security cache with durable challenge state and queue `send_otp_sms_task`. The Users-owned task uses the shared provider-neutral transport when SMS is enabled; it does not create Notification rows or persist OTP messages.
 - Notifications queues delivery by integer outbox ID and periodically sweeps due delivery and retention-scrub work. `SENT` means provider-accepted, not handset-delivered.
 - Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and validation of any referenced thumbnail make Celery redelivery idempotent.
 - Payments queues idempotent Refund execution after commit and uses periodic
@@ -285,9 +286,8 @@ the activity logger. Operational filtering does not depend on a filename.
 
 `RequestIDMiddleware` generates an opaque ID for every HTTP request, returns
 it as `X-Request-ID`, and scopes it to structured application logs as both
-`request_id` and `correlation_id`. OTP enqueue events also record the Celery
-`task_id`; while executing that task, the worker uses the task ID as its
-correlation ID. Records contain only an allowlisted set of fields: timestamp,
+`request_id` and `correlation_id`. While executing an OTP task, the worker
+uses the task ID as its correlation ID. Records contain only an allowlisted set of fields: timestamp,
 level, logger/category, event, IDs, authenticated user ID, a safe route path,
 and exception type. Financial/notification events may additionally contain
 public domain UUIDs, the configured provider label, event type, attempt, and a
@@ -428,8 +428,9 @@ does not recreate authoritative catalogue filtering or price calculations.
 The Account page reads the current user through the profile selector endpoint
 and uses the existing profile-update service contract for mutations. Server
 responses remain authoritative for fields and `is_profile_complete`. Phone
-verification, password reset, Orders, and Tickets are visibly disabled and do
-not have frontend routes or request handlers.
+verification, Orders, and Tickets remain unavailable. Password change and
+initial setup use distinct services and forms; recovery has a capability-gated
+`/forgot-password` route.
 
 In development, Vite runs directly on the host at `127.0.0.1:5173` and proxies
 relative `/api/` and `/media/` requests to Docker-published Django at

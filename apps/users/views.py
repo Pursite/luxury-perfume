@@ -1,12 +1,13 @@
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.throttling import BaseThrottle
+from apps.lib.client_ip import get_auth_client_ip
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import PhoneInputSerializer, VerifyOTPInputSerializer, UserPassLoginInputSerializer, \
     UserOutputSerializer, CompleteProfileInputSerializer, UserProfileUpdateInputSerializer, \
-    PasswordResetVerifyInputSerializer, UserSignupInputSerializer, UserSignupOutputSerializer
+    PasswordResetVerifyInputSerializer, UserSignupInputSerializer, UserSignupOutputSerializer, \
+    PasswordChangeInputSerializer, PasswordSetInputSerializer
 from .services.signup_otp_service import SendOTPService
 from .services.pass_reset_service import PasswordResetService
 from .services.login_otp_service import LoginOtpService
@@ -16,6 +17,8 @@ from .permissions import CookieAuthOriginPermission
 from .selectors import UserSelector
 from .services.signup_service import SignupIdentityConflict, create_user_service
 from .services.user_auth_service import UserAuthService
+from .services.password_service import change_password, send_setup_otp, set_initial_password
+from .services.sms_availability import sms_available
 from ..lib.loggers import AppLogger
 from ..lib.throttle import (
     OTPPhoneNumberRateThrottle,
@@ -24,6 +27,8 @@ from ..lib.throttle import (
     OTPVerificationIPRateThrottle,
     PasswordLoginRateThrottle,
     SignupRateThrottle,
+    PasswordSetupRateThrottle,
+    PasswordSetupVerificationRateThrottle,
 )
 
 
@@ -58,7 +63,7 @@ class UserSignupAPIView(SensitiveAuthResponseMixin, APIView):
         )
 
 
-class SendOTPCodeAPIView(APIView):
+class SendOTPCodeAPIView(SensitiveAuthResponseMixin, APIView):
     permission_classes = (AllowAny,)
     throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
 
@@ -113,7 +118,7 @@ class LoginWithUserPassAPIView(SensitiveAuthResponseMixin, APIView):
         result = LoginOtpService.login_with_username_password(
             username=username,
             password=password,
-            client_ip=BaseThrottle().get_ident(request),
+            client_ip=get_auth_client_ip(request),
         )
 
         return token_response(
@@ -123,7 +128,7 @@ class LoginWithUserPassAPIView(SensitiveAuthResponseMixin, APIView):
         )
 
 
-class SendOtpLoginAPIView(APIView):
+class SendOtpLoginAPIView(SensitiveAuthResponseMixin, APIView):
     throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
     permission_classes = (AllowAny,)
 
@@ -163,7 +168,7 @@ class LoginWithOTPCodeAPIView(SensitiveAuthResponseMixin, APIView):
         )
 
 
-class SendProfilePhoneOTPAPIView(APIView):
+class SendProfilePhoneOTPAPIView(SensitiveAuthResponseMixin, APIView):
     permission_classes = (IsAuthenticated,)
     throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
 
@@ -178,7 +183,7 @@ class SendProfilePhoneOTPAPIView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class VerifyProfilePhoneOTPAPIView(APIView):
+class VerifyProfilePhoneOTPAPIView(SensitiveAuthResponseMixin, APIView):
     permission_classes = (IsAuthenticated,)
     throttle_classes = (OTPVerificationRateThrottle, OTPVerificationIPRateThrottle)
 
@@ -270,7 +275,7 @@ class LogoutAPIView(SensitiveAuthResponseMixin, APIView):
         return delete_refresh_cookie(response)
 
 
-class SendPasswordResetOtpAPIView(APIView):
+class SendPasswordResetOtpAPIView(SensitiveAuthResponseMixin, APIView):
     throttle_classes = (OTPPhoneNumberRateThrottle, OTPIPRateThrottle)
     permission_classes = (AllowAny,)
 
@@ -306,3 +311,41 @@ class VerifyAndResetPasswordAPIView(SensitiveAuthResponseMixin, APIView):
             tokens=result["tokens"],
             status_code=status.HTTP_200_OK,
         )
+
+
+class AuthCapabilitiesAPIView(SensitiveAuthResponseMixin, APIView):
+    authentication_classes = ()
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        return Response({"sms_available": bool(sms_available())})
+
+
+class PasswordChangeAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (PasswordLoginRateThrottle,)
+
+    def post(self, request):
+        serializer = PasswordChangeInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        change_password(user=request.user, **serializer.validated_data)
+        return delete_refresh_cookie(Response({"message": "Password changed. Sign in again."}))
+
+
+class PasswordSetSendAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (PasswordSetupRateThrottle, OTPIPRateThrottle)
+
+    def post(self, request):
+        return Response(send_setup_otp(user=request.user))
+
+
+class PasswordSetVerifyAPIView(SensitiveAuthResponseMixin, APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (PasswordSetupVerificationRateThrottle, OTPVerificationIPRateThrottle)
+
+    def post(self, request):
+        serializer = PasswordSetInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        set_initial_password(user=request.user, **serializer.validated_data)
+        return delete_refresh_cookie(Response({"message": "Password set. Sign in again."}))

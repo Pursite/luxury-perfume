@@ -5,7 +5,7 @@ import AccountDetailsForm from "../components/AccountDetailsForm";
 import AddressEditor from "../components/AddressEditor";
 import ErrorState from "../components/ErrorState";
 import { AccountSkeleton } from "../components/LoadingSkeletons";
-import UnavailableControl from "../components/UnavailableControl";
+import PasswordManagement from "../components/PasswordManagement";
 import useDocumentTitle from "../hooks/useDocumentTitle";
 
 function missingDetails(profile) {
@@ -119,10 +119,7 @@ export default function AccountPage() {
           <p className="eyebrow">Credentials</p>
           <h2 id="security-heading">Security</h2>
         </div>
-        <div>
-          <p>Password reset requires SMS verification, which is not available yet.</p>
-          <UnavailableControl label="Reset Password" />
-        </div>
+        <PasswordManagement profile={profile} />
       </section>
     </section>
   );
