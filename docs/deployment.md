@@ -1,142 +1,146 @@
-# Docker Compose deployment
+# Production deployment and operations
 
-This deployment model is intended for one VPS. Docker Compose runs Django,
-Celery, Celery Beat, PostgreSQL, and Redis. Nginx is installed and managed directly on the
-host; it terminates TLS, serves the React build plus Django static/media files,
-and proxies Django only through `127.0.0.1:8000`.
+## Scope and production topology
 
-No Nginx, certificate, or Certbot container is used or required.
+This runbook defines one VPS at `/srv/luxury-perfume`; it is not evidence that a
+particular host, DNS record, certificate, or deployment is configured or reachable.
+Commands below are operator guidance, not actions performed by reading this guide.
+[CI/CD](ci-cd.md) owns verification, image publication, workflow secrets, and the
+exact delivery orchestration. This guide owns host preparation, runtime checks,
+data safety, and recovery.
 
-## Compose files
-
-- `docker/docker-compose.yml` is the shared runtime service definition. It has
-  no source-code mounts, application build configuration, or published service
-  ports. Its fixed project name is `luxury-perfume`, so production resources
-  use one consistent operational identity.
-- `docker/docker-compose.dev.yml` owns the local application build
-  configuration, source mounts, the `luxury-perfume` development project name,
-  and the loopback Django port for development.
-- `docker/docker-compose.prod.yml` requires `APP_IMAGE` for Django, Celery,
-  and Celery Beat, binds Django to `127.0.0.1:8000`, and mounts host asset directories.
-  PostgreSQL and Redis remain internal to Docker with their existing named
-  volumes. It also configures Docker's `local` log driver for all five services
-  with a 10 MiB maximum file size and three files per service.
-
-Always pass the base file first, followed by the intended override.
-
-## Development
-
-Create a local environment file from the tracked example. It contains only
-development credentials and Docker service hostnames.
-
-```bash
-cd /path/to/luxury-perfume
-cp docker/env/.env.development.example .env
-
-docker compose \
-  --env-file .env \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.dev.yml \
-  config -q
-
-docker compose \
-  --env-file .env \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.dev.yml \
-  up --build
+```text
+Browser → host Nginx / TLS
+           ├─ www.exonplus.ir → frontend-current → static React release
+           └─ shop.exonplus.ir
+                ├─ /static/ and /media/ → persistent host asset directories
+                └─ Django → 127.0.0.1:8000 → Compose web (Gunicorn)
+                                                    ├─ db (PostgreSQL)
+                                                    └─ redis
+                    Compose celery worker ← broker ← one celery-beat scheduler
 ```
 
-Django is available at `http://localhost:8000`; PostgreSQL and Redis remain
-internal during development and have no host-port mappings. The Django port is
-configurable with `DJANGO_HOST_PORT` and fixed to `127.0.0.1`, so it is not
-reachable directly from the LAN. Source bind mounts exist only in this
-development override.
+| Service/component | Production role |
+| --- | --- |
+| `web` | Published Python application image; Gunicorn `gthread`, one worker/two threads in the production override |
+| `celery` | Same image, separate worker with concurrency 1; media mount for thumbnail work |
+| `celery-beat` | Same image, exactly one scheduler; no embedded worker `-B` |
+| `db` | PostgreSQL 16, private Docker network, named `postgres_data` volume |
+| `redis` | Redis 7, private Docker network, named `redis_data` volume |
+| Host Nginx/TLS | External to Compose; serves static assets and proxies Django |
+| Frontend | Static release extracted from a scratch carrier; no running Vite, Node, or frontend container |
 
-Run the React storefront directly on the host with Node 24 LTS; it is not a
-Compose service:
+The project name is `luxury-perfume`; physical volume names normally become
+`luxury-perfume_postgres_data` and `luxury-perfume_redis_data`. Web alone publishes
+`127.0.0.1:8000:8000`. This is not a multi-host/high-availability design; no managed
+database, object store, load balancer, or Kubernetes layer is defined here.
+Services outside this repository are outside this deployment's scope.
 
-```bash
-cd frontend
-nvm install 24
-nvm use
-npm ci
-npm run dev
-```
+### Compose selection
 
-Vite serves `http://localhost:5173` and proxies relative `/api/` and `/media/`
-requests to Django at `http://localhost:8000`. The development environment
-template allows the `localhost:5173` and `127.0.0.1:5173` browser origins. Keep
-a correct private root `.env` intact rather than overwriting its unrelated
-values; never commit it.
+Always use the shared file first and the environment override second:
 
-The development project uses named volumes. Docker does not rename or migrate
-volumes from a differently named Compose project. Recreate local volumes only
-when their data is known to be disposable; move valuable data with a separately
-reviewed database procedure.
+- [`docker/docker-compose.yml`](../docker/docker-compose.yml): service names,
+  private dependencies, named volumes, restart policies, and healthchecks.
+- [`docker/docker-compose.prod.yml`](../docker/docker-compose.prod.yml): required
+  published `APP_IMAGE`, production process sizing, loopback port, asset bind
+  mounts, and Docker log rotation. It has no application build configuration.
+- [`docker/docker-compose.dev.yml`](../docker/docker-compose.dev.yml): local
+  builds, source mounts, runserver, and configurable loopback development port.
 
-Docker containers resolve PostgreSQL as `db` and Redis as `redis`; `localhost`
-inside a container refers to that same container. Optional direct-host Django
-or Celery processes therefore need temporary shell overrides for `DB_HOST` and
-the four Redis URLs, as shown in the README, instead of another tracked env
-inventory.
+PostgreSQL and Redis remain
+internal during development as well as production. The separate integration
+Compose stack is disposable test infrastructure, not a production override.
+Follow [Development](development.md) for local onboarding; do not combine the
+production and development overrides or share their data volumes on one host.
 
-## Production preparation
+## First-deployment prerequisites
 
-The production checkout is `/srv/luxury-perfume`, the Compose project is
-`luxury-perfume`, its physical volumes are normally
-`luxury-perfume_postgres_data` and `luxury-perfume_redis_data`, and static/media
-paths live below that checkout. This contract assumes a new deployment with no
-pre-rename production data. Docker does not move a differently named checkout,
-bind mount, or volume automatically. If such an installation exists, stop and
-design a reviewed downtime migration before using this workflow; never attach
-old and new PostgreSQL containers to one physical volume concurrently.
+Use a dedicated deployment account that owns the checkout and can run this
+Docker/Compose stack. General Docker access grants powerful host capabilities;
+the workflow does not create a sandbox or configure account restrictions.
+The account must have read access to the repository's `origin` (for example,
+a read-only deploy key); Actions-to-VPS authentication is a separate credential.
 
-Prepare the production checkout and persistent host paths as follows:
+Prepare the host through its operating-system administration process:
+
+- Docker Engine and the `docker compose` plugin, supporting the commands used
+  in the workflow. Install/update these outside the application deployment.
+- Git, Bash, curl, CA certificates, OpenSSH, `flock` (commonly `util-linux`),
+  and GNU coreutils/find/grep used by the release script.
+- Host-managed Nginx and valid certificates for both application hosts, with
+  an independently maintained certificate renewal process.
+- POSIX ACL tools (`acl` on Debian/Ubuntu), sufficient disk/memory for images,
+  extracted frontend releases, PostgreSQL, Redis/AOF rewrites, and persistent assets.
+- Access to **both** GHCR packages and a reviewed source revision published by
+  the qualifying `main` pipeline. Node/npm and a host Python environment are
+  not required for normal production delivery.
+- Separately designed/protected backups and restore procedures before valuable
+  data is accepted or migrations are applied. These are intentionally not implemented
+  by this repository.
+
+A differently named existing installation is not automatically migrated by
+changing paths/project names. Inventory its database, volumes, mounts, and data
+before preparing this layout. Never attach two PostgreSQL containers to the
+same physical data volume. This is a compatibility warning, not an outstanding
+repository-rename task: the repository already is `Pursite/luxury-perfume`.
+
+### Prepare a fresh checkout and private environment
+
+Run as the intended deployment account, using sudo only for host preparation.
+These commands assume the target is a fresh, empty directory. For an existing
+checkout, inspect it and preserve its `.env` and data instead of repeating clone
+or replacing configuration.
 
 ```bash
 sudo mkdir -p /srv/luxury-perfume
-sudo chown "$USER":"$USER" /srv/luxury-perfume
-git clone <repository-url> /srv/luxury-perfume
+sudo chown "$USER":"$(id -gn)" /srv/luxury-perfume
+git clone git@github.com:Pursite/luxury-perfume.git /srv/luxury-perfume
 cd /srv/luxury-perfume
 
-cp docker/env/.env.production.example .env
+# Refuse to overwrite an existing .env; keep newly created content private.
+(umask 077; set -o noclobber; cat docker/env/.env.production.example > .env)
 chmod 600 .env
 ```
 
-Edit `.env` and replace every `replace-with-*` value. Its tracked host/origin
-policy already assigns `shop.exonplus.ir` to Django and
-`https://www.exonplus.ir` to the storefront. Keep `DB_HOST=db`
-and the Redis service hostnames unchanged for this Compose layout. Then validate
-the selected production configuration with a non-secret image reference. The
-deployment workflow supplies the actual digest-pinned `APP_IMAGE`; do not add
-it to `.env`.
+Edit private configuration with the account's normal secure editor. Never print
+or paste the complete environment or rendered Compose configuration into tickets,
+CI logs, or chat. CD requires `.env` to exist; it neither uploads nor rewrites it.
 
-Keep `ORDER_SHIPPING_FLAT_RATE_IRT=350000.00` unless a reviewed product-policy
-change explicitly changes the server-owned flat-rate snapshot. The application
-image includes the committed `locale/fa/LC_MESSAGES/django.mo` catalogue.
-Catalogues are maintained with GNU gettext/Django `makemessages` and
-`compilemessages`, then committed as both `.po` and `.mo`; gettext is not a
-runtime-image dependency. Django negotiates human messages at runtime while
-machine API values remain unchanged.
+### Environment responsibilities
 
-From a maintenance environment with GNU gettext installed, regenerate only the
-backend catalogue and then review Persian text before compiling it:
+Use [`docker/env/.env.production.example`](../docker/env/.env.production.example)
+as the inventory, not a ready-to-deploy secret file. Set required placeholders
+for enabled functionality; keep disabled-provider placeholders inactive until a
+separately reviewed integration exists.
 
-```bash
-python manage.py makemessages -l fa --ignore 'venv/*' --ignore '.venv/*' \
-  --ignore 'frontend/node_modules/*' --ignore 'frontend/dist/*' \
-  --ignore 'docs/superpowers/*'
-python manage.py compilemessages -l fa
-```
+| Area | Required policy for this layout |
+| --- | --- |
+| Django | `DJANGO_SETTINGS_MODULE=config.settings.production`, private random `SECRET_KEY`, `ALLOWED_HOSTS=shop.exonplus.ir` |
+| JWT | Distinct cryptographically random `JWT_SIGNING_KEY`, at least 32 random bytes; never reuse development examples |
+| Database | Private credentials; `DB_HOST=db`, `DB_PORT=5432`; host/container `localhost` is not the private database |
+| Redis | Internal `redis:6379` URLs; separate ordinary/security/broker/result databases as below |
+| HTTPS/cookies | Forwarded HTTPS scheme, redirect/HSTS, secure session/CSRF cookies; production refresh cookie is host-only Secure/HttpOnly/SameSite Lax |
+| Origins | `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` include `https://www.exonplus.ir`; cookie-auth Origin permission uses the API origin/CORS allowlist |
+| AUTH proxy trust | Defaults to disabled, even in the production template; enable only with actual reviewed connecting-proxy CIDRs |
+| Payment/SMS | `PAYMENTS_ENABLED=False`, `SMS_ENABLED=False` until real reviewed adapters/configuration exist |
+| Shipping | `ORDER_SHIPPING_FLAT_RATE_IRT=350000.00` tracked default; new Orders snapshot the exact non-negative two-decimal IRT value |
 
-Commit both `locale/fa/LC_MESSAGES/django.po` and `django.mo`. No gettext
-package is needed at runtime because Django reads the committed binary catalog.
+Choose HSTS duration/include-subdomains/preload policy deliberately for the real
+host estate; the template sets these but does not provision HTTPS everywhere or
+register a preload entry. Keep CORS/CSRF allowlists explicit and aligned with the
+actual storefront. They do not replace backend authorization or the cookie-auth
+Origin check. See [Authentication](authentication.md) and [Security](security.md).
 
-Production authentication uses a host-only, Secure, HttpOnly refresh cookie on
-`shop.exonplus.ir`; no refresh token is placed in frontend storage. Keep the
-explicit storefront CORS and CSRF origin values unchanged, because credentialed
-refresh/logout requests require that allowlist. The unrelated
-`api.exonplus.ir` host must not be added to it.
+Do not put `APP_IMAGE`, GHCR tokens, SSH credentials, or frontend secrets in
+application `.env`. CD supplies digest-pinned `APP_IMAGE` to its own process;
+`VITE_*` variables are public build configuration. Database initialization
+credentials apply when the PostgreSQL volume is first initialized: editing
+`.env` later does not change an existing database role/password. Coordinate any
+credential change as a separate backed-up database operation; do not delete the
+volume. See [Troubleshooting](troubleshooting.md).
+
+Validate configuration without starting services or printing expanded values:
 
 ```bash
 APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose \
@@ -145,6 +149,18 @@ APP_IMAGE=ghcr.io/pursite/luxury-perfume:compose-validation docker compose \
   -f docker/docker-compose.prod.yml \
   config -q
 ```
+
+That reference only satisfies interpolation; validation does not pull an image,
+verify credentials, or establish a working database/provider.
+
+## Persistent assets and host permissions
+
+Web mounts `/srv/luxury-perfume/staticfiles` at `/app/staticfiles` and
+`/srv/luxury-perfume/media` at `/app/media`. Celery mounts media for thumbnail
+work; Beat has neither mount. The final application runs as UID/GID `10001`.
+Django `collectstatic` writes static files and uploads/thumbnail tasks write
+media. These are persistent runtime paths, not image content to replace on each
+release. Host Nginx needs read/traverse access, never application-data write access.
 
 On Debian or Ubuntu, install POSIX ACL support and prepare the asset paths as
 follows. The application and Celery worker run as UID/GID `10001`; `www-data`
@@ -191,330 +207,41 @@ sudo -u www-data test -r /srv/luxury-perfume/staticfiles/admin/css/base.css
 sudo -u www-data test ! -w /srv/luxury-perfume/media
 ```
 
-Keep `.env` private and out of source control. The production sample sets
-`DB_HOST=db` and Redis URLs to the internal `redis` service; do not replace
-those with publicly reachable database or cache endpoints for this layout.
+### Frontend release paths
 
-## SMS notifications
-
-Order SMS is disabled by default (`SMS_ENABLED=False`) and this release does
-not contain a real provider adapter or provider credentials. Keep it disabled
-until a separately reviewed adapter proves HTTPS-only transport, fixed
-timeouts, safe response validation, and idempotent client-reference behavior.
-When SMS is enabled, `manage.py check --deploy` requires a registered provider,
-and positive retry/timeout settings. Owner recipients are active superusers
-with valid canonical `09XXXXXXXXX` phone numbers stored on their accounts;
-there is no owner/business phone environment variable. Superusers without a
-valid phone are skipped and ordinary staff are not notified. Order SMS text is
-server-controlled source text today; provider-approved templates or patterns
-will be reviewed only when a real provider is selected. The existing worker and
-single Beat service process durable outbox rows; turning SMS off pauses new
-sends and sweeps without deleting unresolved rows.
-
-## Repository and package identity
-
-The intended GitHub repository is `Pursite/luxury-perfume`. Repository renaming
-requires GitHub administrator access and is not performed by the application
-or deployment workflow. If the GitHub-side rename has not been completed, an
-administrator must do it and then update development and VPS checkout remotes:
+Prepare the release parent as the deployment account. Its directory must be
+writable by that account and traversable by Nginx; adjust `www-data` if the host
+uses another Nginx user.
 
 ```bash
-git remote set-url origin git@github.com:Pursite/luxury-perfume.git
+sudo install -d -o "$USER" -g "$(id -gn)" -m 0750 \
+  /srv/luxury-perfume/frontend-releases
+sudo setfacl -m u:www-data:rx /srv/luxury-perfume/frontend-releases
 ```
 
-The GHCR packages are `ghcr.io/pursite/luxury-perfume` (Django/Celery) and
-`ghcr.io/pursite/luxury-perfume-frontend` (the static React carrier image).
-Before the first deployment, publish the selected commit and verify that the
-protected `GHCR_READ_TOKEN` account can read both packages. The repository does
-not migrate images, VPS paths, or Docker volumes from a differently named
-installation.
+The release script creates `frontend-releases/<commit-sha>/` from a validated
+staging directory, then sets directories to 0555 and files to 0444. This is a
+read-only serving convention, not protection against a privileged host operator.
+Nginx's root is `/srv/luxury-perfume/frontend-current`, a relative symlink to one
+release. Both project-parent traversal and release-parent permissions matter.
+Do not replace that symlink with a real directory or copy partial bundles over
+its target. `.release-manifest.json` binds SHA/API origin and
+`.frontend-image-digest` binds the extracted carrier digest. Reuse requires both
+to match. Old frontend releases are retained; CD implements no automatic pruning.
 
-## Manual GitHub Actions deployment
+## Host Nginx and TLS
 
-`.github/workflows/cd.yml` is deliberately manual-only. The complete release
-gate requires the frontend install/lint/tests/build, the backend unit and
-integration checks, production Compose validation, and both read-only image
-builds. The backend jobs are named `Application image` and `Publish application image`; the frontend publication job is `Publish frontend image`. For a push to
-`main`, the backend and frontend publication jobs both depend on that gate,
-reject an existing SHA tag, and promote the archived artifacts without
-rebuilding them to their matching GHCR packages. The
-frontend image is a `FROM scratch` carrier containing only the stamped static
-release; it is never run as a service. Run **Deploy production** from that
-reviewed `main` commit for a normal release. Its empty **Commit SHA** input
-defaults to that workflow run's `github.sha`.
+Configure DNS/certificates and the host reverse proxy outside Docker. The
+storefront host is `www.exonplus.ir`; the API/Admin/health/static/media host is
+`shop.exonplus.ir`. Gunicorn's upstream remains `http://127.0.0.1:8000` and must
+not be published on a public interface. The scratch frontend image is a file
+carrier, not an upstream server.
 
-To deploy or roll back application code to an earlier published release, enter
-its full, lowercase 40-character commit SHA. The workflow rejects all other
-values and fails safely if the corresponding GHCR image was never published.
-It checks out that exact source revision on the VPS and deploys the matching
-image by its resolved content digest, not by the mutable tag alone.
-
-The job uses GitHub's `production` environment and serializes deployments, so
-configure that environment with required reviewers and branch restrictions
-before its first use. Add these environment secrets to `production`; do not
-add them as repository secrets:
-
-- `VPS_HOST`: the VPS hostname or address.
-- `VPS_PORT`: the SSH port; leave it unset to use `22`.
-- `VPS_USER`: the restricted VPS account that owns `/srv/luxury-perfume` and is
-  allowed to use Docker Compose for this project.
-- `VPS_SSH_PRIVATE_KEY`: the Actions-to-VPS private key. It needs only the
-  restricted account's SSH access.
-- `VPS_KNOWN_HOSTS`: the exact, pre-verified SSH host-key entry for the VPS.
-  Obtain and verify the server fingerprint through a trusted channel before
-  saving it; the workflow never uses `ssh-keyscan` or disables host checking.
-- `GHCR_READ_TOKEN`: a classic GitHub personal access token with only
-  `read:packages`, owned by an account that can read
-  `ghcr.io/pursite/luxury-perfume`. This is not an application setting and must not
-  be written to the VPS `.env`.
-
-The existing VPS checkout's `origin` must already be readable by `VPS_USER`,
-for example with a read-only deploy key stored on the VPS. The workflow does
-not copy source, write `.env`, or install host software. It refuses to run if
-the checkout has tracked or untracked source changes; ignored state such as
-the private `.env`, static files, media, and Compose volumes is left
-untouched.
-
-For every deployment, the GitHub runner sends that token only through the SSH
-standard-input stream. The VPS creates a temporary `DOCKER_CONFIG`, authenticates
-with `docker login --password-stdin`, pulls the SHA-tagged image, resolves its
-digest, then removes the temporary credentials with a trap before Compose is
-called. Do not run `docker login` manually or persist GHCR credentials on the
-VPS.
-
-For the first deployment, complete the production preparation, create the
-protected `GHCR_READ_TOKEN`, push the reviewed release to `main`, wait for the
-complete release gate and both image publication jobs, then dispatch **Deploy
-production** from that commit. Normal deployments follow the same process; no
-application or frontend image is built on the VPS and Node/npm is not required
-there.
-
-Within `/srv/luxury-perfume`, the workflow acquires the non-blocking
-`/srv/luxury-perfume/.git/deploy.lock` for the entire operation, rejects a dirty
-checkout, fetches sufficient history for `origin/main` and the selected SHA,
-and verifies that the SHA is an ancestor of `origin/main`. It pulls both
-matching images, resolves and validates their immutable digests and OCI
-revision labels, checks out the exact source commit, and prepares the frontend
-release in `frontend-releases/<commit-sha>/` through a stopped scratch carrier
-container. The artifact is structurally and origin validated before activation.
-The existing `db` and `redis` services are started without recreating them;
-after they are healthy, `check --deploy`, forward migrations, and `collectstatic`
-run. Only then is `web` recreated and its readiness endpoint checked. Celery
-and the single Beat process are recreated separately; both containers must
-remain running, without a restart, for five samples over eight seconds.
-Finally `frontend-current` is switched with one atomic
-symlink rename. It never runs `docker compose down`, removes volumes, prunes
-Docker resources, uses `git clean`, or modifies Nginx, VPN services, database
-data, media, static files, or the server's `.env`. A failure before the symlink
-switch leaves the previous frontend release active; a backend failure leaves
-the previous containers and frontend symlink active unless migrations or a
-container recreation had already changed runtime state, which is why rollback
-is an explicit deployment of a compatible prior SHA.
-
-## Published images, migrations, static files, and startup
-
-Production never builds application images with Compose. CD exports a
-digest-pinned `APP_IMAGE` only for its deployment process, then uses
-`--no-build` for every Compose `up`. Neither migrations nor static collection
-runs automatically when a web container starts.
-
-For an emergency, operator-reviewed manual operation, use an image digest from
-an already published release and keep it out of `.env`:
-
-```bash
-cd /srv/luxury-perfume
-export APP_IMAGE=ghcr.io/pursite/luxury-perfume@sha256:<published-image-digest>
-export FRONTEND_IMAGE=ghcr.io/pursite/luxury-perfume-frontend@sha256:<matching-frontend-digest>
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml config -q
-./scripts/frontend-release.sh prepare /srv/luxury-perfume <matching-commit-sha> "$FRONTEND_IMAGE"
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build db redis
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py migrate --noinput
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml run --rm --no-deps web python manage.py collectstatic --noinput
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --no-build --no-deps --force-recreate web celery celery-beat
-./scripts/frontend-release.sh activate /srv/luxury-perfume <matching-commit-sha> "$FRONTEND_IMAGE"
-```
-
-Obtain both images using the same ephemeral-token procedure as CD. Do not
-configure a persistent `docker login` on the VPS, and do not place either
-digest or token in `.env`. The emergency sequence is operator-controlled and
-must preserve the same frontend readiness and Celery stability checks as the
-normal workflow before switching `frontend-current`.
-
-Before deploying the product slug URL cutover, audit the target database with
-these read-only queries:
-
-```sql
-SELECT id, slug
-FROM products_product
-WHERE slug <> lower(slug);
-
-SELECT lower(slug) AS canonical_slug, array_agg(slug ORDER BY slug) AS variants
-FROM products_product
-GROUP BY lower(slug)
-HAVING count(*) > 1;
-
-SELECT id, slug
-FROM products_product
-WHERE slug ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
-```
-
-All three result sets must be empty. If any query returns rows, stop the
-release and assign reviewed lowercase, non-UUID-shaped unique slugs before
-retrying. Do not automatically lowercase data because case-only variants can
-collide. This is an immediate URL cutover: clients must construct product
-detail, mutation, and image-upload URLs from the response `slug`; UUID product
-URLs return 404 after deployment.
-
-Users, Products, Cart, and Orders have `0001_initial`; Users additionally has
-`0002_otpchallenge` for durable OTP scope/redemption state. Payments also
-has `0002_manual_review_stops_automatic_reconciliation`; Notifications also
-has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
-This runbook describes the current new-deployment migration inventory. Production
-migration-history/schema reconciliation and compatibility verification for an
-older installation are deferred and require a separately reviewed plan.
-
-The same image runs Django and Celery as UID/GID `10001`, not root. The web
-image defaults to Gunicorn on container port `8000`, while Compose overrides
-the command only for development Django and the Celery worker. Production
-publishes Gunicorn only as `127.0.0.1:8000` for the host proxy. PostgreSQL and
-Redis have no host port mappings in the production merge.
-
-Before enabling the new OTP format, drain old web/worker processes, apply
-`users.0002_otpchallenge`, and deploy matching backend/frontend versions.
-Outstanding legacy OTPs require reissuance. Reverting code to a version without
-durable redemption needs drained traffic and invalidated outstanding OTPs;
-do not drop redemption state while current-format challenges remain active.
-`python manage.py cleanup_otp_challenges` removes expired scope records without
-reading code values. Run it through existing operational maintenance as needed.
-
-## Production logs
-
-Application processes do not create log files in the image or persistent
-mounts. The Django `activity` logger writes JSON to stdout; the `security`,
-`system`, and Django error loggers write JSON to stderr. Financial lifecycle
-records use the activity logger with an allowlisted `financial` category.
-Gunicorn writes access logs to stdout and error logs to stderr. Its access
-records contain the response `X-Request-ID`, method, path without a query
-string, status, duration, response size, and process ID; they intentionally
-omit query strings, client IPs, referrers, and user agents.
-
-`RequestIDMiddleware` creates the opaque `X-Request-ID` server-side for every
-HTTP request. It is also the request's application-log correlation ID. Tasks
-using the shared correlated-task base use their Celery task ID as the worker
-correlation ID. Do not
-send secrets, tokens, passwords, OTP values, phone numbers, email addresses,
-request bodies, cache keys, provider session/transaction/message identifiers,
-or sensitive exception text to any logger. Allowlisted financial events may
-contain public Payment/Order/Refund UUIDs, the configured provider label, and
-a bounded outcome, but never provider payloads or transport evidence.
-
-The production Compose override applies Docker's `local` logging driver with
-`max-size=10m` and `max-file=3` to PostgreSQL, Redis, web, Celery, and Celery
-Beat. Docker
-rotates and compresses these internal files; use Compose instead of reading
-the Docker data directory directly:
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
-  logs --tail=100 web celery celery-beat
-docker inspect -f '{{.HostConfig.LogConfig.Type}}' luxury-perfume-web-1
-```
-
-The rotation cap bounds local retention, so it is not an audit archive. This
-single-VPS deployment intentionally has no external log aggregation; collect
-or retain logs through a separately reviewed host process if operational or
-compliance requirements need longer retention.
-
-Static assets are written to `/srv/luxury-perfume/staticfiles` by `collectstatic`.
-Uploaded media is stored at `/srv/luxury-perfume/media`. Both directories are bind
-mounted into the application; Nginx reads them directly, so do not delete or
-replace them during routine deployments.
-
-## Production storefront artifact
-
-Production serves a static React build; it never runs Vite, npm, or a permanent
-Node process. The release gate runs Node 24 LTS, `npm ci`, lint, tests, and
-`VITE_API_BASE_URL=https://shop.exonplus.ir npm run build` from the reviewed
-commit. CI stamps the output with the commit SHA and public API origin,
-validates that it contains only the expected build files, and packages it in a
-`FROM scratch` OCI carrier labeled with that same SHA. CD pulls the exact
-frontend SHA tag, resolves its digest, extracts it with `docker create` and
-`docker cp` without starting the container, and validates it again before
-placing it in the immutable `frontend-releases/<commit-sha>/` directory.
-
-The active release is `/srv/luxury-perfume/frontend-current`, an atomic symlink
-to one immutable release directory. The deployment never copies partial files
-over the live build. `VITE_API_BASE_URL` is public build configuration, not a
-secret; never place Django, JWT, database, Redis, future payment, or VPN
-credentials in a `VITE_*` variable. `frontend/dist/` is reproducible CI output
-and is not committed. Releases are retained for rollback according to the
-operator's disk policy; CD does not automatically delete old releases.
-
-## Redis durability and capacity
-
-One Redis instance currently provides four logical databases: ordinary cache,
-fail-closed authentication security state, Celery broker data, and Celery
-results. Compose enables AOF and explicitly uses `appendfsync everysec` so a
-normal process or container restart can recover persisted state. On abrupt
-host or power failure this policy typically limits lost acknowledged writes to
-about one second, but it is not a durability guarantee and does not protect
-against storage loss.
-
-AOF persistence writes every Redis value to the `redis_data` named volume,
-including temporary OTP values, cache entries, and Celery payloads. Deleted or
-expired values can remain in historical AOF commands until a rewrite, so treat
-the volume and any copy of it as sensitive data. Restrict host access, do not
-publish Redis, and do not include the volume in broadly accessible backups.
-Monitor free space and AOF size: cache churn and Celery traffic can grow the
-file until Redis rewrites it, and a rewrite needs additional disk and memory
-headroom. AOF improves restart recovery but is not a backup.
-
-Compose explicitly sets `maxmemory-policy noeviction` because all logical
-databases share one instance-wide policy; an evicting policy could silently
-discard fail-closed OTP, lockout, or verification state. Compose does not set a
-host-independent `maxmemory` value or a container memory limit. Do not assume
-that this leaves Redis safely bounded: choose a ceiling only from measured
-peak usage and the VPS memory budget, leaving headroom for Redis overhead, AOF
-rewrites, PostgreSQL, Django, and Celery. With a positive `maxmemory`,
-`noeviction` rejects writes at the limit rather than discarding security state,
-so alert on memory usage and rejected writes. Workloads that require cache
-eviction independently of security and queue data need separate Redis
-instances, which are outside this single-VPS layout.
-
-Confirm the effective production policy after startup rather than relying on
-image defaults:
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
-  exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
-```
-
-Celery results expire after `CELERY_RESULT_EXPIRES_SECONDS` (86400 seconds by
-default). Ordinary cache entries default to ten minutes; product-list and
-product-detail responses use one- and five-minute TTLs, and the catalogue cache
-version uses seven days. These expirations bound normal cache/result retention,
-but capacity and disk monitoring are still required.
-
-## Host Nginx
-
-Install and operate Nginx and TLS certificates on the host according to the
-host operating system's security update process. The upstream is always
-`http://127.0.0.1:8000`; do not expose Docker's Gunicorn port on a public host
-interface.
-
-The public responsibilities are intentionally separate:
-
-- `www.exonplus.ir` serves only the React storefront and uses `index.html` as
-  the fallback for client routes such as `/products/<slug>` and `/cart`.
-- `shop.exonplus.ir` serves the Django API, health endpoints, Admin, static
-  assets, and uploaded Product media through the existing loopback Gunicorn
-  topology.
-- `api.exonplus.ir` remains the existing VPN/3x-ui service. Do not add it to
-  Django, proxy it to Gunicorn, or change its configuration for this project.
-
-Minimal example configuration (adjust certificate paths and the active
-frontend release path to match the host):
+The following example preserves SPA fallback, immutable hashed-asset caching,
+Django static/media aliases, and forwarded scheme/client-IP behavior. Certificate
+paths are examples: use paths matching the actual certificate installation,
+renewal process, and host Nginx version. Install it through normal host change
+review; it is not applied by CD.
 
 ```nginx
 server {
@@ -578,19 +305,165 @@ server {
 }
 ```
 
-The production settings trust `X-Forwarded-Proto` when
-`SECURE_PROXY_SSL_HEADER_ENABLED=True`. Authentication trusts forwarded client
-IP addresses only when `AUTH_TRUST_PROXY_HEADERS=True` and
-`AUTH_TRUSTED_PROXY_CIDRS` lists the reviewed addresses of connecting proxies.
-For host Nginx reaching a Docker-published port, verify the peer address seen
-inside the container; do not assume it is loopback or trust an entire Docker
-network. Keep Gunicorn inaccessible to untrusted peers. The single-proxy Nginx
-example overwrites client-supplied forwarding headers. Restrict media further in Nginx if
-uploaded product images must not be public.
+The example serves uploaded Product media publicly and directly; Django object
+permissions are not evaluated for `/media/`. Do not use this alias for private
+uploads without a separately reviewed access design. Nginx has read-only ACLs;
+application upload validation does not make arbitrary media private.
 
-After installing the site, validate and reload the host service using the
-operating system's Nginx commands, then verify the storefront SPA fallback and
-backend paths:
+`SECURE_PROXY_SSL_HEADER_ENABLED=True` makes Django trust the configured
+forwarded-scheme header; the example overwrites incoming forwarding headers.
+For project AUTH IP extraction, `AUTH_TRUST_PROXY_HEADERS=True` additionally
+requires valid `AUTH_TRUSTED_PROXY_CIDRS`. Verify the connecting peer address as
+seen **inside** the container; Docker port forwarding may make it differ from
+the host's loopback address. Do not guess a gateway address or trust broad
+private networks. With AUTH trust disabled, auth controls use the peer/proxy IP.
+Ordinary DRF throttles use separate `DRF_NUM_PROXIES` logic (template: 1), not
+this CIDR policy. Payment has separate `PAYMENT_TRUST_PROXY_HEADERS` and
+`PAYMENT_TRUSTED_PROXY_CIDRS`, required when that subsystem is enabled.
+
+Validate the host configuration before reloading, after certificates/site files
+are in place. The reload changes host state and requires operator approval:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+On a fresh host the frontend pointer/backend may not exist until the first CD
+run succeeds; a configured TLS listener alone is not application readiness.
+
+## First release and normal execution
+
+Complete these prerequisites before dispatching production delivery:
+
+1. Prepare the host, checkout access, private `.env`, persistent paths/ACLs,
+   Nginx/TLS, and separately verified data recovery arrangements.
+2. Configure the `production` GitHub environment, reviewed branch restrictions/
+   reviewers, and the six workflow secrets listed in [CI/CD](ci-cd.md#secrets-and-trust-boundaries).
+   YAML cannot prove account-level protection rules are configured.
+3. Ensure the `GHCR_READ_TOKEN` account can read **both**
+   `ghcr.io/pursite/luxury-perfume` and
+   `ghcr.io/pursite/luxury-perfume-frontend`, under the registry username used by
+   CD. Keep registry authentication ephemeral as the workflow does; do not run
+   a persistent default `docker login` on the VPS or put that token in `.env`.
+4. Publish the reviewed release through a qualifying push to `main`. Verify the
+   complete Release gate and both `Publish application image` and
+   `Publish frontend image` jobs succeeded for the intended SHA. Passing CI on
+   a documentation branch does not publish these images.
+5. Manually dispatch **Deploy production** with the full lowercase 40-character
+   published commit SHA. Empty input instead selects that workflow run's
+   `github.sha`; use an explicit SHA when selecting an older release.
+6. Inspect the workflow result and perform the runtime/frontend checks below.
+   Do not assume success from image publication or a reachable TLS endpoint.
+
+CD does not independently query CI conclusions for the selected commit. It
+requires source ancestry under `origin/main`, both published tags, matching
+OCI revisions/digests, and deployment conditions. Operators still verify review
+and CI/publication results. The host checkout must have no tracked/untracked
+source edits; `.env`, assets, and frontend release state are ignored by Git.
+Do not erase local changes to make the deployment pass.
+
+### Deployment order and mutation boundary
+
+The implementation in [cd.yml](../.github/workflows/cd.yml) serializes the job
+and takes a nonblocking `.git/deploy.lock`. It validates source ancestry/cleanliness,
+pulls both SHA-tagged images with temporary credentials, resolves and validates
+their package digests/revision labels, then removes registry auth. It detaches
+source at the selected revision and **prepares** the frontend from its stopped
+carrier before touching runtime services.
+
+Next it validates shared + production Compose, starts existing `db`/`redis`
+without recreation, and checks PostgreSQL/Redis readiness. One-off application
+containers run deployment checks, forward migrations, and static collection in
+that order. Web is recreated first and must pass readiness; worker and Beat are
+then recreated and sampled for stable running state. Only after those checks
+is `frontend-current` **activated** with an atomic symlink rename.
+
+No application/frontend build runs on the VPS; Compose `up` uses `--no-build`.
+Neither migrations nor static collection is an automatic web-startup action.
+No `down`, volume deletion, resource pruning, Nginx modification, or `.env`
+rewrite occurs in CD. Migrations can change database schema/data, collectstatic
+changes the shared static directory, and recreation changes runtime containers.
+A failure before frontend activation preserves the old pointer, **not** a promise
+that the backend/database/static files remain unchanged. There is no automatic
+cross-component rollback. Exact retries/sample timing are in [CI/CD](ci-cd.md#ordered-deployment-stages).
+
+## Runtime inspection and verification
+
+### Select the active backend image for operational commands
+
+CD exports `APP_IMAGE` only in its remote shell; a later host shell must select
+it again. On an already-running deployment, inspect the container's configured
+digest before issuing Compose commands. From `/srv/luxury-perfume`, in Bash:
+
+```bash
+cd /srv/luxury-perfume
+web_container_id=$(docker ps -q \
+  --filter label=com.docker.compose.project=luxury-perfume \
+  --filter label=com.docker.compose.service=web)
+[[ "$web_container_id" =~ ^[0-9a-f]+$ ]]
+APP_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$web_container_id")
+[[ "$APP_IMAGE" =~ ^ghcr\.io/pursite/luxury-perfume@sha256:[0-9a-f]{64}$ ]]
+export APP_IMAGE
+
+dc() {
+  docker compose --env-file .env \
+    -f docker/docker-compose.yml -f docker/docker-compose.prod.yml "$@"
+}
+```
+
+Proceed only if all checks succeed and exactly one web container was selected;
+this is for inspecting the running release, not choosing a new deployment.
+If web is absent or a partial deployment mixed versions, determine the intended
+validated release from deployment records first. Do not use a placeholder/latest
+image for recovery. `APP_IMAGE` in this shell does not prove worker/Beat use it;
+inspect those containers when diagnosing a partial release.
+
+### Non-destructive runtime diagnostics
+
+```bash
+dc ps -a
+dc logs --tail=100 web celery celery-beat
+dc exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+dc exec -T redis redis-cli ping
+dc exec -T web python manage.py showmigrations
+
+docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' \
+  "$web_container_id"
+docker inspect --format '{{.HostConfig.LogConfig.Type}}' "$web_container_id"
+curl --fail --silent --show-error --max-time 5 \
+  -H 'Host: shop.exonplus.ir' -H 'X-Forwarded-Proto: https' \
+  http://127.0.0.1:8000/health/ready
+```
+
+Review logs privately; do not publish secret-filled settings, task arguments,
+provider payloads, or complete environment values. `pg_isready`/PING do not prove
+application migrations, correct credentials for every caller, or worker behavior.
+Health/readiness probes are bounded diagnostics; readiness writes a short-lived
+security-cache key as part of its check.
+
+### Health endpoint meanings
+
+All three paths are GET-only plain Django views, outside DRF authentication and
+throttling. Host/TLS validation still applies. They have **no trailing slash**.
+
+| Path | Check | Does not establish |
+| --- | --- | --- |
+| `/health/live` | Django can respond to an HTTP request | Database/cache/task readiness |
+| `/health/startup` | Django app registry is initialized | Dependency readiness or completion of migrations |
+| `/health/ready` | PostgreSQL `SELECT 1` and a security-cache write; 200 if both succeed, otherwise bounded 503 fields | Schema compatibility, ordinary cache, broker, worker/Beat, filesystem capacity, external providers |
+
+The ordinary cache is intentionally omitted: catalogue caching can fail open.
+The web Docker probe uses loopback readiness with `Host: shop.exonplus.ir` and
+`X-Forwarded-Proto: https`; this matches production's tracked host policy. It has
+a 20-second start period, 30-second interval, five-second timeout, and three
+retries. Running and healthy are different states; `restart: unless-stopped`
+does not restart a still-running process merely because it becomes unhealthy.
+Worker and Beat have no Docker healthchecks; CD samples process stability,
+which is not proof that tasks execute. The development template has a separate
+Host/probe mismatch described in [Troubleshooting](troubleshooting.md).
+
+After CD and host setup, verify externally as an operator:
 
 ```bash
 curl --fail -I https://www.exonplus.ir/
@@ -601,92 +474,238 @@ curl --fail https://shop.exonplus.ir/health/startup
 curl --fail -I https://shop.exonplus.ir/static/admin/css/base.css
 ```
 
-Health endpoints are plain Django views, so DRF authentication and throttling
-do not apply. `/health/live` confirms only that the Django process handles an
-HTTP request. `/health/ready` verifies PostgreSQL and the fail-closed security
-Redis cache; the ordinary cache is intentionally omitted because it falls back
-to PostgreSQL. `/health/startup` confirms only that Django's app registry is
-initialized: this project has no long-running application startup phase.
+The product-shaped frontend URL checks SPA fallback, not that a Product exists.
+Also inspect the browser for asset loading, API requests, and allowed-Origin
+cookie-backed login/refresh; a status-only curl check does not establish those.
+Verify Nginx read/no-write checks from the asset section after static collection.
 
-The web container healthcheck calls `/health/ready` with the Python standard
-library. Its 20-second `start_period`, 30-second interval, 5-second timeout,
-and three retries allow Django to initialize without making startup duplicate
-readiness. Docker Compose records an unhealthy result but does not
-automatically restart a container that remains running and unhealthy; monitor
-container health and restart or replace unhealthy containers operationally.
+## Logs and retention
 
-## Release and rollback limits
+Django's configured `activity` logger emits JSON to stdout; `system`, `security`,
+and Django errors go to stderr. Financial and Notification audit helpers use
+bounded event fields rather than provider payloads. `RequestIDMiddleware`
+generates a new opaque `X-Request-ID` and request correlation context; shared
+correlated tasks use their Celery task ID. Gunicorn access/error logs use
+stdout/stderr; its access format includes response request ID, method, path
+without query, status, duration, byte count, and process ID, omitting IP, referrer,
+and user agent.
 
-Before deploying a release with migrations, confirm the production `.env` has a
-dedicated JWT signing key with at least 32 random bytes,
-explicit authentication proxy trust matching the Nginx topology, and phone/IP
-OTP throttle rates. CD runs `python manage.py check --deploy` before it
-replaces web or Celery, but application readiness does not establish a data
-recovery strategy.
+These controls minimize data; they are not a guarantee that every logger safely
+formats every value. The existing UUID `user_id` encoding limitation is documented
+in [Security](security.md#logging-secrets-and-transport). Never deliberately
+log credentials, JWTs, OTPs, phone/email values, request bodies, cache keys,
+provider evidence, or sensitive exception text. Keep diagnostic exports private.
 
-Database/media backup and restore automation is intentionally not implemented
-in this repository yet. Design, operate, protect, and regularly test those
-procedures separately before relying on production migrations. Docker volumes
-and files on the same VPS are not a backup; never run `docker compose down -v`
-on production because it removes PostgreSQL and Redis volumes.
+All five services use Docker's `local` log driver with `max-size=10m` and
+`max-file=3`. Use `dc logs`, not direct reads under Docker's data directory.
+Rotation bounds local retention; it is not an audit archive, external collection,
+or an alert. External log aggregation and host monitoring/alerting are
+intentionally not implemented in this repository.
 
-Host monitoring/alerting is likewise external to this repository. The health
-endpoints, Docker health state, bounded local logs, and commands below provide
-signals for an operator or external monitor, but no repository-managed host
-monitoring agent, alert route, backup scheduler, or remote backup target exists.
+## Redis durability and capacity
 
-For a code-only rollback, dispatch **Deploy production** with an already
-published, previously tested full commit SHA. The workflow checks out that
-revision, pulls both matching backend and frontend images, extracts or reuses
-the SHA-addressed frontend release, runs `collectstatic`, recreates the
-application containers without rebuilding, and atomically switches the
-frontend symlink. It never automatically reverses database migrations. A
-rollback is therefore safe only when the older code is compatible with the
-current database schema and data. Assess reversibility, data loss, and
-operational recovery manually; reverse migrations and restore logic are
-intentionally not implemented by this workflow. GHCR Actions artifacts are
-short-lived build intermediates; the immutable SHA image tags are the rollback
-retention boundary, so do not delete a release image that may be needed for
-rollback.
+One Redis instance currently provides four logical databases: ordinary cache,
+fail-closed authentication security state, Celery broker data, and Celery
+results. The tracked URL mapping is:
 
-Roll back only to a published `luxury-perfume` image whose code is compatible
-with the applied schema; any older recovery requires a separately designed
-database restore or schema procedure. Database/media backup and restore
-automation remains intentionally unimplemented.
+| Setting | Redis URL / role |
+| --- | --- |
+| `CACHE_REDIS_URL` | `redis://redis:6379/0` — ordinary cache/default throttles |
+| `SECURITY_REDIS_URL` | `redis://redis:6379/1` — fail-closed authentication state |
+| `CELERY_BROKER_URL` | `redis://redis:6379/2` — task transport, including actual phone/OTP payloads |
+| `CELERY_RESULT_BACKEND` | `redis://redis:6379/3` — expiring task results |
 
-Useful operational checks:
+These logical databases separate keys, not availability, capacity, or access
+control. Compose enables AOF and explicitly uses `appendfsync everysec` so a
+normal process or container restart can recover persisted state. On abrupt
+host or power failure this policy typically limits lost acknowledged writes to
+about one second, but it is not a durability guarantee and does not protect
+against storage loss.
+
+AOF persistence writes every Redis value to the `redis_data` named volume,
+including temporary OTP values, cache entries, and Celery payloads. Deleted or
+expired values can remain in historical AOF commands until a rewrite, so treat
+the volume and any copy of it as sensitive data. Restrict host access, do not
+publish Redis, and do not include the volume in broadly accessible backups.
+Monitor free space and AOF size: cache churn and Celery traffic can grow the
+file until Redis rewrites it, and a rewrite needs additional disk and memory
+headroom. AOF improves restart recovery but is not a backup.
+
+Compose explicitly sets `maxmemory-policy noeviction` because all logical
+databases share one instance-wide policy; an evicting policy could silently
+discard fail-closed OTP, lockout, or verification state. Compose does not set a
+host-independent `maxmemory` value or a container memory limit. Do not assume
+that this leaves Redis safely bounded: choose a ceiling only from measured
+peak usage and the VPS memory budget, leaving headroom for Redis overhead, AOF
+rewrites, PostgreSQL, Django, and Celery. With a positive `maxmemory`,
+`noeviction` rejects writes at the limit rather than discarding security state,
+so alert on memory usage and rejected writes. Workloads that require cache
+eviction independently of security and queue data need separate Redis
+instances, which are outside this single-VPS layout.
+
+Confirm the effective production policy after startup rather than relying on
+image defaults:
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=100 web celery celery-beat
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml exec web python manage.py check --deploy
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
+  exec redis redis-cli CONFIG GET appendonly appendfsync maxmemory maxmemory-policy
 ```
 
-The production topology includes a separate `celery-beat` service. Run exactly
-one Beat process; it schedules the Orders expiry sweep every 60 seconds and
-must not be replaced by `worker -B`. The database `reservation_expires_at`
-deadline remains authoritative if Beat, workers, or the broker are delayed.
+Celery results expire after `CELERY_RESULT_EXPIRES_SECONDS` (86400 seconds by
+default). Ordinary cache entries default to ten minutes; product-list and
+product-detail responses use one- and five-minute TTLs, and the catalogue cache
+version uses seven days. These expirations bound normal cache/result retention,
+but capacity and disk monitoring are still required.
 
-That same single Beat process schedules Payment reconciliation and pending
-Refund sweeps every 60 seconds plus Payment audit-metadata scrubbing daily.
-It also schedules due Notification delivery every 60 seconds and terminal SMS
-recipient scrubbing daily. No additional service is required. Keep
-`PAYMENTS_ENABLED=False` until a reviewed
-real provider adapter exists, and apply the additive `payments.0001_initial`
-and `payments.0002_manual_review_stops_automatic_reconciliation` migrations
-before any later enablement. Manual-review Payments intentionally have no
-automatic reconciliation due time; rearm them only through the audited
-superuser recovery action.
+## Scheduled work and disabled providers
 
-Provider enablement is a separate reviewed operation: configure the registered
-provider and provider-specific secrets, HTTPS public/result URLs, exact
-redirect hosts, and real Docker/Nginx trusted proxy CIDRs; run Django deployment
-checks; verify create/lookup/verification/full-refund idempotency in the
-provider sandbox; then recreate web, Celery, and the single Beat service.
-Disabling Payments stops new HTTP operations but does not erase unresolved
-Payment or Refund obligations; those require reconciliation or manual review.
+Run exactly one `celery-beat`, separate from the worker. It schedules Order
+reservation expiry, Payment reconciliation, pending Refund execution, and due
+Notification delivery every 60 seconds; Payment audit-metadata and terminal SMS
+recipient scrubbing run daily. [Architecture](architecture.md#asynchronous-processing)
+owns the schedule/transaction details. Database deadlines and durable state
+remain authoritative if the scheduler or worker is delayed.
 
-The operational checks in this document are runbook guidance, not an
-implemented monitoring or alerting system. Monitoring/alerting, real Payment
-and SMS providers, backups/restores, and production migration-history/schema
-compatibility verification remain deferred.
+Keep Payment and SMS disabled by default: neither has a real registered adapter.
+Enabling them is a separate implementation/configuration review, not a production
+readiness shortcut. Deployment system checks validate registered methods, HTTPS
+URLs/redirect policy and Payment proxy trust, and SMS timeout/retry/configuration
+budgets where enabled. Sandbox verification and operational monitoring remain
+necessary; test doubles are not live integrations. Before provider enablement,
+review private credential configuration, fixed network timeouts, response
+validation, HTTPS/redirect rules, idempotent client references, and Payment
+create/lookup/verify/full-refund behavior in the provider sandbox. Coordinate
+matching web/worker/Beat recreation; changing a flag does not supply an adapter
+or implement the currently absent frontend checkout/payment-result UI.
+
+With SMS enabled, processing creates customer and eligible active-superuser
+obligations; only valid canonical account phones qualify, not ordinary staff or
+a business-phone env value. Shipping creates a customer obligation. Disabled SMS
+creates no new transition outbox rows and pauses sends/sweeps without deleting
+unresolved obligations. Payments disablement stops HTTP handlers, not financial
+history or existing Payment/Refund obligations. Manual-review Payments require
+explicit audited recovery rather than automatic reconciliation.
+
+## Rollback and recovery
+
+### Diagnose before changing state
+
+Inspect the failed workflow stage, selected SHA/digests, running container images,
+health/logs, migration state, and active frontend link/manifest. Use the bounded
+checks above and [Troubleshooting](troubleshooting.md). Do not hide a failure by
+editing the manifest, bypassing readiness, broadening trust, or deleting state.
+
+For the frontend alone, these inspect/validate existing files and do not activate
+another release. Set `RELEASE_SHA` and `FRONTEND_IMAGE` from reviewed release
+records; the latter must be the matching package `@sha256:` digest:
+
+```bash
+cd /srv/luxury-perfume
+readlink frontend-current
+: "${RELEASE_SHA:?Set the reviewed full commit SHA}"
+: "${FRONTEND_IMAGE:?Set the matching published frontend digest}"
+./scripts/frontend-release.sh validate \
+  "/srv/luxury-perfume/frontend-releases/$RELEASE_SHA" \
+  "$RELEASE_SHA" "$FRONTEND_IMAGE"
+```
+
+### Operator-approved recovery
+
+Prefer dispatching CD with a previously published, reviewed, full commit SHA
+with both images still available. It reuses the same ancestry, digest,
+revision, preparation, migration/static, readiness, and stability checks. Do not
+substitute a shorter manual sequence that activates frontend before verifying
+web/worker/Beat or ignores the clean-source/deployment lock boundary.
+
+An older application must work with the **current** schema and data. Automated
+migrations are forward-only in the delivery sequence; no automatic database
+rollback, reverse migrations, or restore is implemented. Code rollback does not
+undo earlier migrations, shared static collection, user uploads, captures,
+Refund obligations, or SMS delivery state. Keep operational compatibility and
+unresolved external obligations under review. Atomic frontend switching is not
+an atomic database/container rollback.
+
+For a separately authorized maintenance operation, after backups/compatibility
+review and selection of the correct image/source, these are the same one-off
+mutations used by CD (the `dc` function above must be configured appropriately):
+
+```bash
+dc run --rm --no-deps web python manage.py check --deploy --settings=config.settings.production
+dc run --rm --no-deps web python manage.py migrate --noinput
+dc run --rm --no-deps web python manage.py collectstatic --noinput
+```
+
+`check --deploy` is validation; migrations and collection change persisted state.
+These commands are not a complete emergency deployment: preserve the workflow's
+lock, image/revision validation, dependency readiness, process checks, and final
+frontend activation ordering. Never use a mismatched source/image pair.
+
+Back up PostgreSQL and persistent media with a reviewed consistent procedure,
+protect Redis/AOF copies as sensitive, and verify restoration separately.
+Database/media backup and restore automation is intentionally not implemented.
+Docker volumes and files on the same VPS do not replace backups. Never delete
+live volumes or run `docker compose down -v` on production. Retain both GHCR
+release images and extracted frontend files needed for recovery; Actions image
+archives expire after one day. SHA tags are workflow-protected references,
+not cryptographically immutable content; record their resolved digests too.
+
+## Migration inventory and one-time compatibility work
+
+Current Users migrations are `0001_initial` and `0002_otpchallenge`. Products,
+Cart, and Orders each have `0001_initial`. Payments additionally has
+`0002_manual_review_stops_automatic_reconciliation`; Notifications additionally
+has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
+See [Architecture](architecture.md#migration-state) for the model/history boundary.
+A fresh database applies the current inventory through normal `migrate`.
+This is not an automatic reconciliation strategy for a pre-existing older schema
+or migration history; that requires its own reviewed plan and backup.
+
+The following are **historical cutover precautions**, not steps to repeat on
+every current-format release:
+
+- For a pre-slug-URL installation, audit Product slugs before its first URL
+  cutover. The read-only PostgreSQL queries below must return no rows. Resolve
+  collisions/invalid values through a reviewed data plan, never blind lowercasing.
+  Current clients use response slugs; UUID Product URLs have no compatibility alias.
+- For a pre-durable-OTP installation, drain old web/workers, apply
+  `users.0002_otpchallenge`, and use matching code. Legacy codes need reissuance.
+  Reverting to code without durable redemption requires drained traffic and
+  invalidated outstanding challenges; do not drop active redemption state.
+
+```sql
+SELECT id, slug
+FROM products_product
+WHERE slug <> lower(slug);
+
+SELECT lower(slug) AS canonical_slug, array_agg(slug ORDER BY slug) AS variants
+FROM products_product
+GROUP BY lower(slug)
+HAVING count(*) > 1;
+
+SELECT id, slug
+FROM products_product
+WHERE slug ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+```
+
+Ongoing optional maintenance `python manage.py cleanup_otp_challenges` deletes
+expired challenge records without reading codes. Run only through reviewed
+maintenance using the correct application container; it is not an automatic CD
+step or a way to bypass a valid OTP.
+
+### Translation catalogue maintenance boundary
+
+The image consumes committed `locale/fa/LC_MESSAGES/django.po` and `django.mo`;
+it does not install runtime gettext or compile catalogues on startup. For source
+maintenance in a suitable developer environment with GNU gettext, exclude docs
+(including current decisions/archive paths), dependencies, and frontend output:
+
+```bash
+python manage.py makemessages -l fa --ignore 'venv/*' --ignore '.venv/*' \
+  --ignore 'frontend/node_modules/*' --ignore 'frontend/dist/*' --ignore 'docs/*'
+python manage.py compilemessages -l fa
+```
+
+Review translations and commit both catalogue files through the normal source
+workflow. This is not a command to run against the production checkout during CD.
+CI's final-image translation smoke check verifies that a known committed Persian
+message is present. Pipeline ownership and failure stages are in [CI/CD](ci-cd.md).
