@@ -1,7 +1,7 @@
 # GHCR Application Image Delivery Design
 
 > Historical design record. This dated document is not an operations runbook.
-> See the current [deployment guide](../../deployment.md) for the workflow and
+> See the current [deployment guide](../deployment.md) for the workflow and
 > Compose behavior implemented on this branch.
 
 ## Goal

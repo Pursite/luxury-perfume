@@ -1,8 +1,8 @@
 # Test Suite Improvement Design
 
 > Historical design record. This dated document is not a current project
-> reference. See [Testing](../../../README.md#testing) and the current
-> [architecture](../../architecture.md) for the implemented repository state.
+> reference. See [Testing](../../README.md#testing-and-release-boundaries) and the current
+> [architecture](../architecture.md) for the implemented repository state.
 
 ## Objective
 

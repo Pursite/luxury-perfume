@@ -404,7 +404,7 @@ filesystem carrier, never a running Node service. Manual CD resolves image
 digests, runs checks/migrations/static collection, checks web readiness and
 worker/Beat stability, then activates the validated frontend symlink. It is not
 a fully atomic cross-service/database deployment and does not reverse migrations
-on rollback. See [Deployment](deployment.md); [CI/CD](ci-cd.md) remains a placeholder.
+on rollback. See [Deployment](deployment.md) for runtime operations and [CI/CD](ci-cd.md) for pipeline and release orchestration.
 
 The public health endpoints distinguish process responsiveness, app-registry
 startup, and database/security-cache readiness. They do not establish complete
