@@ -1,105 +1,93 @@
-# Luxury Perfume Documentation
+# Documentation hub
 
-This directory contains the technical documentation for **Luxury Perfume**, a production-oriented e-commerce application built with Django REST Framework and an independent React storefront.
+The [project README](../README.md) introduces Luxury Perfume, feature readiness,
+and a quick start. The guides below own current technical contracts and
+workflows. The independent React/Vite storefront keeps its client/design guidance
+in `frontend/`; contribution resources live at the repository root and in `.github/`.
+Historical decisions and plans provide context, not current operational authority.
+Implementation and tests ultimately resolve disagreements with documentation.
 
-The documentation is organized by responsibility so that architecture, API contracts, security behavior, development workflows, testing, and deployment guidance can evolve independently without turning the root project README into a large technical manual.
+## Starting points
 
-## Start Here
+| Reader | Suggested path |
+| --- | --- |
+| New contributor | [Contributing](../CONTRIBUTING.md) → [Development](development.md) → [Testing](testing.md) |
+| Backend/API developer | [Architecture](architecture.md) → [API](api.md) → [Authentication](authentication.md) |
+| Frontend developer | [Frontend README](../frontend/README.md) → [Design](../frontend/DESIGN.md) → [API](api.md) |
+| Security reviewer | [Security](security.md) → [Authentication](authentication.md) → [Architecture](architecture.md) |
+| Release/operations reviewer | [CI/CD](ci-cd.md) → [Deployment](deployment.md) → [Troubleshooting](troubleshooting.md) |
+| Recruiter/portfolio reviewer | [Project overview](../README.md) → [Architecture](architecture.md) → [Testing](testing.md) → [CI/CD](ci-cd.md) |
 
-If you are new to the project, read the documentation in roughly this order:
+## Canonical technical guides and ownership
 
-1. [Project README](../README.md) — project overview, major features, technology stack, and quick start.
-2. [Architecture](architecture.md) — system structure, application boundaries, data flow, infrastructure, and background processing.
-3. [Development](development.md) — local environment setup and day-to-day development workflow.
-4. [Authentication](authentication.md) — identity, OTP, JWT, profile, session, and authentication behavior.
-5. [API Reference](api.md) — HTTP endpoints and API contracts.
-6. [Testing](testing.md) — backend, integration, frontend, linting, security, and validation checks.
-7. [Security](security.md) — implemented security controls, trust boundaries, and known limitations.
-8. [Deployment](deployment.md) — production deployment architecture and operational procedures.
+Use this table both to find information and to choose which document to update
+when behavior changes. Keep implementation-backed explanations with their owner
+and cross-link instead of duplicating full instructions.
 
-## Documentation Index
+| Guide | Owns / update when |
+| --- | --- |
+| [Architecture](architecture.md) | Request layers, domain boundaries, persistence/integrity, concurrency, asynchronous recovery, and runtime design change |
+| [Development](development.md) | Local Docker/host setup, environment requirements, management commands, and daily workflow change |
+| [API Reference](api.md) | HTTP paths/methods, permissions, request/response contracts, filtering, pagination, or error behavior change |
+| [Authentication](authentication.md) | Identity, profile, password, OTP, refresh-cookie/JWT lifecycle, or session workflows change |
+| [Security](security.md) | Controls, trust boundaries, proxy/cache/throttle policies, logging protections, or known limitations change |
+| [Testing](testing.md) | Verification commands, fixtures/isolation, PostgreSQL/Redis integration, frontend checks, or coverage semantics change |
+| [Troubleshooting](troubleshooting.md) | Reproducible failure diagnostics and supported corrective actions change |
+| [CI/CD](ci-cd.md) | CI jobs/gates, build artifacts, GHCR publication, workflow permissions/secrets, or manual CD orchestration change |
+| [Deployment](deployment.md) | VPS preparation, production environment, Nginx/TLS, assets/persistence, health/logs, or recovery operations change |
 
-| Document                              | Purpose                                                                                                                                                                                 |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Architecture](architecture.md)       | Describes the system architecture, Django application boundaries, request layers, persistence, Redis usage, Celery tasks, concurrency model, and frontend separation.                   |
-| [API Reference](api.md)               | Documents the public and authenticated HTTP API, request/response contracts, permissions, filtering, pagination, and endpoint behavior.                                                 |
-| [Authentication](authentication.md)   | Covers username/password and phone/OTP authentication, JWT lifecycle, refresh-token handling, logout, password reset, profile verification, and account identity rules.                 |
-| [Development](development.md)         | Explains local development with Docker Compose or direct-host execution, environment configuration, backend startup, and frontend startup.                                              |
-| [Testing](testing.md)                 | Documents unit tests, PostgreSQL/Redis integration tests, frontend tests, coverage, Ruff, Bandit, Django checks, and migration verification.                                            |
-| [Security](security.md)               | Describes authentication and authorization controls, validation, throttling, logging protections, cache isolation, uploads, cookies, concurrency protections, and security limitations. |
-| [Deployment](deployment.md)           | Covers production configuration, container images, GitHub Actions release flow, VPS deployment, environment handling, static/media assets, and operational constraints.                 |
-| [Troubleshooting](troubleshooting.md) | Provides solutions for common development, Docker, database, Redis, Celery, frontend, test, and deployment problems.                                                                    |
+CI verification, image publication, and production deployment are distinct stages.
+The pipeline guide explains how revisions/artifacts move between them; deployment
+explains host preparation and operation. Neither establishes that a live host or
+external provider is operational.
 
-## Frontend Documentation
+## Frontend documentation
 
-The customer storefront is an independent React/Vite application located in [`frontend/`](../frontend/).
+- [Frontend README](../frontend/README.md): independent React/Vite setup, routes,
+  API client, session/Cart ownership, feature availability, accessibility, and checks.
+- [Design specification](../frontend/DESIGN.md): visual intent and its runtime CSS
+  mapping. Update this for design decisions, while the frontend README owns behavior.
 
-Frontend-specific documentation lives with the frontend source:
+Shared HTTP/authentication contracts belong in API and Authentication; system
+trust boundaries belong in Security. Backend functionality may exist without a
+completed customer UI or operational provider integration.
 
-* [Frontend README](../frontend/README.md) — development workflow, source structure, browser/API integration, scripts, and runtime behavior.
-* [Frontend Design](../frontend/DESIGN.md) — visual language, UI conventions, and design-system guidance.
+## Contribution and GitHub resources
 
-Backend and frontend documentation should remain separated where their concerns differ. Cross-system behavior should be documented in the most appropriate shared document, usually the architecture, API, security, or deployment documentation.
+- [CONTRIBUTING.md](../CONTRIBUTING.md): human contribution workflow, expected
+  engineering discipline, verification, documentation, and PR preparation.
+- [AGENTS.md](../AGENTS.md): detailed instructions for coding agents; it does not
+  replace human contribution guidance.
+- [Pull Request template](../.github/PULL_REQUEST_TEMPLATE.md): information needed
+  to review a specific change, checks, compatibility, risks, and evidence.
+- [Bug report template](../.github/ISSUE_TEMPLATE/bug_report.md): observed defects,
+  reproduction/intermittency, environment, and sanitized diagnostic evidence.
+- [Feature request template](../.github/ISSUE_TEMPLATE/feature_request.md): user
+  problems, proposed outcomes, acceptance criteria, alternatives, and constraints.
 
-## Contribution and Repository Guidance
+Update contributor workflow in CONTRIBUTING; keep review/reporting prompts in
+their templates. GitHub's chooser uses issue templates from default branch
+`main`; templates on this documentation branch are not automatically active there.
+Follow contributor/security guidance for suspected vulnerabilities; do not disclose
+exploit details or sensitive evidence in public reports.
 
-Repository-wide contribution guidance is documented in:
+## Historical decisions and archived plans
 
-* [CONTRIBUTING.md](../CONTRIBUTING.md) — contributor workflow, development expectations, testing requirements, and pull-request guidance.
-* [AGENTS.md](../AGENTS.md) — repository rules and engineering constraints for automated coding agents and repository-assisted development.
-
-`AGENTS.md` is not a replacement for contributor documentation. It defines implementation discipline and repository-specific engineering rules for automated tooling.
-
-## Internal Plans and Specifications
-
-The [`superpowers/`](superpowers/) directory contains implementation planning and specification material used during development.
+The current historical directories contain:
 
 ```text
-superpowers/
-├── plans/
-└── specs/
+docs/
+├── decisions/
+│   ├── 2026-08-03-test-suite-improvement-design.md
+│   └── 2026-08-06-ghcr-image-deployment-design.md
+└── archive/plans/
+    ├── 2026-08-03-test-suite-improvement.md
+    └── 2026-08-06-ghcr-image-delivery.md
 ```
 
-These documents may describe individual changes, implementation plans, or design decisions and should not be treated as the canonical description of current system behavior.
-
-The canonical documentation for the current application remains the documents listed in the main documentation index above.
-
-## Documentation Principles
-
-Documentation in this repository should describe **implemented behavior**, not assumptions, abandoned designs, or intended future behavior presented as current functionality.
-
-When implementation changes, update the relevant documentation in the same change whenever practical.
-
-In particular:
-
-* API changes should be reflected in `api.md`.
-* Authentication or identity changes should be reflected in `authentication.md`.
-* Application boundaries or infrastructure changes should be reflected in `architecture.md`.
-* Security-sensitive changes should be reflected in `security.md`.
-* Environment or developer-workflow changes should be reflected in `development.md`.
-* Test infrastructure or verification changes should be reflected in `testing.md`.
-* Production or release changes should be reflected in `deployment.md`.
-* Common recurring operational failures and their verified solutions may be added to `troubleshooting.md`.
-
-Avoid duplicating large sections across multiple documents. Prefer linking to the authoritative document.
-
-## Keeping Documentation Accurate
-
-Before documenting technical behavior, verify it against the current implementation, tests, configuration, database constraints, and API routes.
-
-The source code remains the ultimate authority when documentation and implementation disagree.
-
-Documentation should be updated when changes affect:
-
-* public API contracts;
-* authentication or authorization;
-* database invariants;
-* application ownership or architecture;
-* asynchronous tasks or scheduled jobs;
-* Redis/cache behavior;
-* environment variables;
-* testing requirements;
-* security guarantees;
-* deployment or release procedures.
-
-Historical or proposed behavior should be clearly identified as such rather than being mixed with documentation of the current system.
+[Decisions](decisions/) holds dated design records for test-suite improvements
+and GHCR delivery. [Archived plans](archive/plans/) holds the corresponding
+implementation plans. They can explain earlier intent and trade-offs, including
+superseded paths or assumptions; use canonical guides and current code/tests for
+present behavior. They are not deployment runbooks or instructions to repeat
+historical changes. Preserve this distinction when adding or updating references.

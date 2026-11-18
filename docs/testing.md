@@ -1,219 +1,135 @@
 # Testing and Verification
 
-Luxury Perfume uses multiple layers of automated verification.
+This guide owns automated verification commands and their limits. Run backend
+commands from the repository root with the intended Python environment active.
+For environment setup, see [Development](development.md); for failure diagnosis,
+see [Troubleshooting](troubleshooting.md).
 
-The goal of the test strategy is not only to confirm expected API behavior, but also to protect:
+## Verification layers
 
-* domain invariants;
-* authentication and authorization boundaries;
-* database consistency;
-* concurrency-sensitive workflows;
-* cache behavior;
-* asynchronous task behavior;
-* frontend behavior;
-* security-sensitive code;
-* migration consistency;
-* production build integrity.
+| Layer | What it verifies | Important boundary |
+| --- | --- | --- |
+| Default backend suite | Models, serializers, services, API contracts, tasks, cache behavior, and project configuration | SQLite and LocMem do not establish PostgreSQL locking or Redis atomicity |
+| PostgreSQL/Redis integration suite | Real constraints, transaction races, row locks, OTP consumption, and security-cache behavior | Requires dedicated disposable services; does not exercise a real external provider |
+| Static and Django checks | Lint rules, common security patterns, system configuration, and missing migrations | Passing checks does not prove the absence of vulnerabilities or safe production migrations |
+| Frontend checks | React behavior in jsdom, ESLint rules, and production compilation | Mocked API responses and jsdom do not establish real-browser or live-provider behavior |
+| Release checks | Production Compose structure, application image, translation smoke check, and validated frontend artifact | A buildable artifact is not proof of production readiness or data recovery |
 
-The repository separates fast, isolated tests from tests that specifically require PostgreSQL or Redis behavior.
+Tests complement architectural, authorization, concurrency, and API review.
+Coverage is a guardrail, not a substitute for behavioral assertions.
 
----
+## Prerequisites
 
-## Test Strategy
-
-The main verification layers are:
-
-```text
-Frontend
-├── ESLint
-├── Vitest
-└── Production Vite build
-
-Backend
-├── SQLite / LocMem test suite
-│   ├── pytest
-│   ├── branch coverage
-│   └── warnings-as-errors
-│
-├── PostgreSQL / Redis integration suite
-│   ├── database constraints
-│   ├── transaction behavior
-│   ├── concurrency
-│   └── Redis atomicity / security state
-│
-├── Static verification
-│   ├── Ruff
-│   ├── Bandit
-│   ├── Django system checks
-│   └── migration drift checks
-│
-└── Release verification
-    ├── production Compose validation
-    ├── backend image build
-    ├── frontend production build
-    └── image smoke checks
-```
-
-Each layer has a different responsibility.
-
-A passing unit suite does not replace PostgreSQL/Redis integration coverage, and a green test suite does not replace architecture, security, concurrency, or API-contract review.
-
----
-
-# Backend Test Environment
-
-Install the test dependency set:
+Use Python 3.12 to match CI and the application Dockerfile. In your active
+virtual environment, install the pinned test dependency set:
 
 ```bash
 python -m pip install --requirement requirements/requirements-test.txt
 ```
 
-This includes the production backend dependencies plus testing and verification tools such as:
+That file includes [runtime requirements](../requirements/requirements.txt)
+and adds pytest, pytest-django, pytest-cov, coverage, factory_boy, Faker,
+pytest-mock, Ruff, and Bandit. The normal application image installs only the
+runtime set; do not assume it includes test tools.
 
-* pytest;
-* pytest-django;
-* pytest-cov;
-* coverage;
-* factory_boy;
-* Faker;
-* pytest-mock;
-* Ruff;
-* Bandit.
+Default backend tests need no PostgreSQL, Redis, worker, or SMS/payment service.
+The default suite also contains an optional Docker scratch-carrier test in
+`config/tests/test_frontend_release.py`; it skips when Docker or its daemon is
+unavailable. Review skips rather than assuming every check executed.
 
-Use Python 3.12 to match the supported backend and CI environment.
+Integration tests additionally require PostgreSQL 16 and Redis 7; Docker Engine
+or Docker Desktop with Compose v2 can provide them. Host Python's psycopg also
+requires the PostgreSQL client library (`libpq`). Frontend checks require the
+Node version in [`frontend/.nvmrc`](../frontend/.nvmrc) and npm.
 
----
-
-# Default Backend Test Suite
-
-Run the default suite from the repository root:
+## Default backend suite
 
 ```bash
 python -m pytest
 ```
 
-For CI-equivalent warning handling:
+[`pytest.ini`](../pytest.ini) discovers `tests.py`, `test_*.py`, and `*_tests.py`
+under `apps`, `config`, and `tests`. Its default settings module is
+`config.settings.test`. Default `addopts`:
+
+- show extra test outcomes with `-ra`;
+- enforce `--strict-config` and `--strict-markers`;
+- select `-m "not integration"`;
+- measure branch coverage for `apps` and `config` using `.coveragerc`;
+- show missing lines and require at least 85% coverage.
+
+The repository registers the `integration` marker; pytest-django supplies
+markers such as `django_db`. Unknown markers/configuration should be corrected,
+not silently accepted.
+
+For the full default run with CI warning handling:
 
 ```bash
 python -W error -m pytest
 ```
 
-The second command is preferred before submitting significant changes because CI treats Python warnings as errors.
+This retains all configured pytest options and additionally turns Python
+warnings into errors. Plain `python -m pytest` does not request that warning
+policy. Investigate deprecations, isolation failures, and dependency warnings
+at their source rather than broadly suppressing them.
 
----
+### Test settings and isolation
 
-## Default Test Settings
+[`config/settings/test.py`](../config/settings/test.py) substitutes:
 
-The standard test suite uses:
+| Dependency | Test configuration |
+| --- | --- |
+| Database | SQLite `:memory:` |
+| Ordinary/security caches | Separate LocMem cache locations |
+| Password hashing | MD5 test hasher for speed; not the deployment password hasher |
+| Celery broker/results | `memory://` / `cache+memory://` |
+| Celery execution | Eager, with task exceptions propagated |
+| Email | In-memory backend |
 
-```text
-Django settings     config.settings.test
-Database            SQLite :memory:
-Application cache   LocMem
-Security cache      LocMem
-Celery broker       in-memory
-Celery results      in-memory
-Celery execution    eager
-Email backend       LocMem
-```
+Test-only signing defaults make the suite self-contained. Shared settings still
+read the root `.env`, and existing environment variables can affect settings not
+explicitly overridden. Check the selected settings when results differ between
+machines; never run tests with production settings or credentials.
 
-This environment is intentionally self-contained and fast.
+The root [`conftest.py`](../conftest.py) supplies a DRF API client with a test
+Origin and clears **every configured cache alias before and after each test**.
+Product tests and integration tests redirect media to temporary paths through
+their scoped fixtures. Use the relevant fixtures for uploads and generated files
+rather than writing into a developer's media directory. Factory modules supply
+explicit users, products, carts, and other domain records.
 
-It does not require local PostgreSQL, Redis, Celery workers, or external infrastructure.
+Use `django_db` for ordinary database tests; tests requiring actual commits and
+transaction boundaries use `django_db(transaction=True)`. Neither marker makes
+SQLite behave like PostgreSQL.
 
----
+## PostgreSQL and Redis integration suite
 
-## Pytest Discovery
+### Start isolated services
 
-Pytest searches:
-
-```text
-apps/
-config/
-tests/
-```
-
-and recognizes:
-
-```text
-tests.py
-test_*.py
-*_tests.py
-```
-
-The repository uses strict configuration and strict marker validation.
-
-Unknown markers or invalid pytest configuration should fail rather than being silently ignored.
-
----
-
-# Integration Tests
-
-Tests marked:
-
-```python
-@pytest.mark.integration
-```
-
-are excluded from the normal test run.
-
-These tests require real PostgreSQL and/or Redis behavior that SQLite or LocMem cannot model accurately.
-
-Examples include behavior involving:
-
-* database row locking;
-* concurrent writes;
-* uniqueness under contention;
-* transaction isolation;
-* PostgreSQL constraints;
-* Redis atomic operations;
-* security-cache races;
-* order reservation concurrency;
-* payment/reconciliation races;
-* notification-delivery concurrency.
-
-Do not move these tests into the ordinary suite merely to simplify local execution.
-
----
-
-# Running Integration Services Locally
-
-The repository provides a dedicated integration Compose environment:
+Run from the repository root:
 
 ```bash
-docker compose \
-  -f docker/docker-compose.integration.yml \
-  up -d --wait
+docker compose -f docker/docker-compose.integration.yml up -d --wait
 ```
 
-It starts disposable:
+[`docker/docker-compose.integration.yml`](../docker/docker-compose.integration.yml)
+uses project `luxury-perfume-integration`, services `integration-db` and
+`integration-redis`, loopback-only ports, and tmpfs storage. It is separate from
+the normal development stack and needs no root development `.env` for Compose.
 
-```text
-PostgreSQL 16
-Redis 7
-```
+| Setting | Local default |
+| --- | --- |
+| PostgreSQL | `127.0.0.1:55432`, PostgreSQL 16 |
+| Database/user | `luxury_perfume_test` / `luxury_perfume_test` |
+| Database authentication | Disposable Compose database uses `trust`; integration password default is empty |
+| Ordinary Redis cache | `redis://127.0.0.1:56379/14` |
+| Security Redis cache | `redis://127.0.0.1:56379/15` |
 
-on loopback-only host ports.
+Trust authentication is for this isolated test service, not a deployment recipe.
+The database user must be able to create Django's test database. Tmpfs data is
+ephemeral and can be lost when containers stop or are removed.
 
-The default local integration configuration uses:
-
-```text
-PostgreSQL
-127.0.0.1:55432
-
-Redis
-127.0.0.1:56379
-```
-
-PostgreSQL and Redis storage use temporary filesystems in this environment.
-
-The integration stack is test infrastructure, not a development database.
-
----
-
-## Run the Integration Suite
-
-With the integration services healthy:
+### Run the marked suite
 
 ```bash
 python -m pytest \
@@ -223,29 +139,46 @@ python -m pytest \
   -q
 ```
 
-The explicit `addopts` replacement is intentional.
+This command runs Host Python against the published integration ports.
+[`config/settings/integration.py`](../config/settings/integration.py) inherits
+test settings but replaces SQLite and LocMem with PostgreSQL and Redis.
+Celery remains eager; no worker or Beat is started by this integration stack.
 
-The repository's normal pytest configuration excludes integration tests and enables the default coverage configuration. The command above replaces those default options so only explicitly marked integration tests run against the integration settings.
+The `-o addopts=...` replacement removes the normal `not integration` selector
+and all coverage options, retaining strict configuration and marker validation.
+`-m integration` then selects the marked tests and `--ds` explicitly chooses the
+integration settings. Merely changing settings does not select integration tests.
+The explicit integration command neither enforces the default 85% coverage gate
+nor enables `-W error`; CI uses the same separation. Integration results must
+not be described as a full default-suite or coverage run.
 
----
+### Why real services matter
 
-## Stop Integration Services
+Existing modules under [`tests/integration/`](../tests/integration/) cover:
 
-After the integration suite finishes:
+| Module | Examples of implemented checks |
+| --- | --- |
+| `test_postgres_transactions.py` | Named constraints, rollback/on-commit behavior, product-image row locking, identity uniqueness, concurrent signup |
+| `test_cart_transactions.py` | First-cart creation races, same-item increments, constraints, and unrelated-owner lock isolation |
+| `test_order_transactions.py` | Last-item checkout races, duplicate checkout keys, expiry/payment ordering, and stock updates |
+| `test_payment_transactions.py` | Initialization, verification/refund claims, callback/reconciliation races, and transaction identity conflicts |
+| `test_notification_transactions.py` | Concurrent delivery claims and notification transaction behavior |
+| `test_redis_security_cache.py` | Cache-alias isolation, throttle keys, OTP lockouts, leases, and concurrent consumption |
 
-```bash
-docker compose \
-  -f docker/docker-compose.integration.yml \
-  down
-```
+These tests use real transaction boundaries and, where needed, separate thread
+connections and synchronization. SQLite cannot validate PostgreSQL row-lock
+ordering or contention. LocMem cannot validate Redis server-side atomic
+operations, lease ownership, or cross-connection state. OTP tests exercise both
+Redis admission state and durable database redemption; Redis alone is not the
+source of replay protection.
 
-The integration environment should remain isolated from development and production resources.
+Run integration checks for changes involving identity constraints, signup races,
+Cart mutations, stock/reservations, Payment/Refund transitions, Notification
+claims, OTP/security-cache behavior, or transaction/lock ordering.
 
----
+### Overrides and teardown
 
-# Integration Environment Overrides
-
-The integration settings support these environment variables:
+The integration settings accept:
 
 ```text
 INTEGRATION_DB_NAME
@@ -253,747 +186,204 @@ INTEGRATION_DB_USER
 INTEGRATION_DB_PASSWORD
 INTEGRATION_DB_HOST
 INTEGRATION_DB_PORT
-
 INTEGRATION_CACHE_REDIS_URL
 INTEGRATION_SECURITY_REDIS_URL
 ```
 
-The repository defaults match `docker/docker-compose.integration.yml`.
+Defaults match the local integration Compose file. If its ports conflict, use
+independently managed, dedicated test services and set the matching variables;
+changing an environment variable does not change the Compose port mapping.
+CI instead supplies service ports `5432` and `6379` through these overrides.
 
-Override them only when intentionally running against dedicated test services.
+**Never target production, shared development data, or valuable Redis databases.**
+Django creates a test database; transaction tests mutate/flush data, and the root
+fixture clears the configured Redis databases around each test. Redis databases
+14/15 are numbers, not an access-control boundary. Do not run competing suites
+against the same services.
 
-Never point integration tests at:
-
-* a production PostgreSQL database;
-* a shared production Redis instance;
-* customer data;
-* persistent infrastructure that cannot safely be modified or flushed.
-
-Integration tests may intentionally create, update, lock, or delete data.
-
----
-
-# Coverage
-
-The default pytest suite measures branch coverage for:
-
-```text
-apps/
-config/
-```
-
-The minimum accepted coverage is:
-
-```text
-85%
-```
-
-The test run fails when coverage drops below that threshold.
-
-Run:
+When finished:
 
 ```bash
-python -m pytest
+docker compose -f docker/docker-compose.integration.yml down
 ```
 
-to get the configured terminal coverage report, including missing lines.
+This removes the disposable integration containers. It is not a command for the
+persistent development stack.
 
----
+## Coverage
 
-## Coverage Scope
+Both [`pytest.ini`](../pytest.ini) and [`.coveragerc`](../.coveragerc) specify
+85%; pytest also explicitly enables branch coverage. The terminal report shows
+missing lines and skips fully covered files. The measured production sources
+are `apps` and `config`.
 
-Coverage intentionally excludes infrastructure or generated areas that do not represent ordinary application logic, including:
+The configured omit patterns exclude test directories, migrations, bytecode,
+`config/asgi.py`, `config/wsgi.py`, and `config/settings/*`. Report exclusions
+also cover `if TYPE_CHECKING:` and `if __name__ == "__main__":` branches.
+These are intentional measurement boundaries, not evidence that those areas
+need no review. Migration drift and image checks verify different concerns.
 
-```text
-tests
-migrations
-__pycache__
-config/asgi.py
-config/wsgi.py
-config/settings/*
-```
+Do not lower the threshold or exclude changed business logic to pass a build.
+Use missing lines/branches to find untested behavior, then add assertions for
+meaningful outcomes, including rejection and rollback paths.
 
-Branch coverage is enabled.
+## Focused tests and regression design
 
-Coverage percentage is a quality guard, not the definition of adequate testing.
-
-A change can maintain 85% coverage while still missing:
-
-* authorization failures;
-* concurrent requests;
-* rollback behavior;
-* race conditions;
-* invalid state transitions;
-* boundary values;
-* idempotency;
-* retry behavior;
-* database constraint violations.
-
-Tests should target meaningful behavior rather than lines solely to increase the percentage.
-
----
-
-# Focused Backend Tests
-
-During development, prefer running the smallest relevant test scope first.
-
-For example:
+Start with an actual module or node ID:
 
 ```bash
-python -m pytest apps/users/tests/
+python -m pytest apps/users/tests/test_password_management.py -q
+python -m pytest apps/cart/tests/test_api.py::test_get_empty_cart_does_not_create_cart -q
 ```
 
-or:
+Focused runs retain the full coverage gate and may fail it despite passing
+assertions. For a diagnostic iteration only, disable coverage collection:
 
 ```bash
-python -m pytest apps/products/tests/
+python -m pytest apps/users/tests/test_password_management.py --no-cov -q
 ```
 
-or an individual test module:
+Then return to the full default suite. For a focused integration run, retain
+all options from the integration command and append the specific module/node ID.
 
-```bash
-python -m pytest path/to/test_file.py
-```
+Bug fixes require regression tests for the verified failure. Review the affected
+contract: URL/method, authentication, permissions, ownership, input/output
+schemas, status/error semantics, visibility, pagination/filtering, and localized
+human messages. Include rejected requests and another owner's records.
 
-or a specific test:
+Authentication tests include username/password signup/login, OTP flows, refresh
+rotation/blacklisting, logout, password change/setup/reset, phone verification,
+throttling, and rollback/retry of OTP-authorized writes. Domain suites cover
+Cart ownership, Order snapshots/reservations, Payment/Refund state, image
+lifecycle, and Notification retry/manual-review outcomes. Inspect the relevant
+tests before extending a claim of coverage.
 
-```bash
-python -m pytest path/to/test_file.py::TestClass::test_name
-```
+For contended writes, assert durable outcomes under concurrency: no lost updates,
+duplicate success, partial rollback, or invalid transition. Test idempotency,
+retry/redelivery, and commit ordering where applicable. Passing sequential tests
+or mocking a lock call is insufficient evidence of real lock safety.
 
-After focused tests pass, run the broader applicable verification before completion.
+### Celery and provider boundaries
 
-Bug fixes should include regression coverage demonstrating the previously incorrect behavior.
+Eager execution uses `CELERY_TASK_ALWAYS_EAGER=True` and
+`CELERY_TASK_EAGER_PROPAGATES=True`, including in integration settings. Tests
+exercise task functions and enqueue behavior without proving broker delivery,
+worker isolation, or Beat scheduling in a running cluster.
 
----
+Tests such as the product-thumbnail suite explicitly execute captured
+`transaction.on_commit()` callbacks where needed. Ordinary test transaction
+rollback does not execute those callbacks automatically. Distinguish domain
+logic, enqueueing after commit, task execution, and retry safety. Tasks should
+receive simple identifiers rather than ORM instances.
 
-# Warnings as Errors
+The Users `operational_sms` fixture registers a controlled test adapter; Payment
+and Notification tests also use doubles. Success in those tests is not evidence
+of live SMS delivery or a real payment gateway. Avoid external providers,
+network dependencies, developer data, and uncontrolled clock assumptions in
+regression tests. See [Authentication](authentication.md), [API](api.md), and
+[Security](security.md) for the contracts under test.
 
-CI runs the default backend suite using:
+## Static checks and migrations
 
-```bash
-python -W error -m pytest
-```
-
-Warnings therefore fail CI.
-
-Do not suppress a warning without understanding its cause.
-
-Warnings can indicate:
-
-* deprecated framework behavior;
-* unsafe assumptions;
-* test isolation problems;
-* configuration mistakes;
-* dependency incompatibilities.
-
-Fix the underlying problem where practical.
-
----
-
-# Python Linting
-
-Run Ruff from the repository root:
+After focused testing, this block completes the default backend verification
+sequence; pair it with the warnings-as-errors full suite above:
 
 ```bash
 python -m ruff check apps config tests
+python -m bandit -q -r apps config -x 'apps/**/tests/**,config/tests/**'
+python manage.py check --settings=config.settings.test
+python manage.py makemigrations --check --dry-run --settings=config.settings.test
 ```
 
-Ruff failures should be fixed rather than bypassed.
+Ruff checks configured lint rules; Bandit identifies common static security
+patterns in production Python. Neither proves vulnerability freedom. Review
+authentication, authorization, secrets, uploads, cache isolation, concurrency,
+and API compatibility separately. Never weaken production protections to make
+a test or static check pass.
 
-Avoid unrelated formatting or refactoring while addressing lint failures unless the change genuinely requires it.
-
----
-
-# Static Security Analysis
-
-Run Bandit against production Python source:
+With integration services running, also use:
 
 ```bash
-python -m bandit \
-  -q \
-  -r apps config \
-  -x 'apps/**/tests/**,config/tests/**'
+python manage.py check --settings=config.settings.integration
+python manage.py makemigrations --check --dry-run --settings=config.settings.integration
 ```
 
-Bandit is a static-analysis signal, not a complete security review.
+Drift checks do not write migrations. They detect model changes lacking matching
+migration state, not compatibility with every existing production database.
+For schema changes, inspect history, existing data, constraints, indexes,
+locking, and rollback implications; generate only the required migration and
+test its behavior. See [Deployment](deployment.md) for operational procedures.
 
-A clean Bandit run does not prove that:
+## Frontend verification
 
-* authorization is correct;
-* object ownership is enforced;
-* race conditions are safe;
-* secrets cannot leak;
-* OTP/JWT flows are secure;
-* payment logic is correct;
-* cache isolation is correct.
-
-Security-sensitive changes still require explicit review.
-
-See [Security](security.md).
-
----
-
-# Django System Checks
-
-Run Django's built-in system checks against the standard test configuration:
-
-```bash
-python manage.py check \
-  --settings=config.settings.test
-```
-
-For changes involving PostgreSQL-specific behavior, also run the integration-environment check while its services are available:
-
-```bash
-python manage.py check \
-  --settings=config.settings.integration
-```
-
----
-
-# Migration Drift
-
-Every model change should be checked for missing migrations.
-
-Run:
-
-```bash
-python manage.py makemigrations \
-  --check \
-  --dry-run \
-  --settings=config.settings.test
-```
-
-The command should succeed without generating new migrations when the repository is synchronized.
-
-For PostgreSQL-sensitive work, CI performs the equivalent verification using:
-
-```text
-config.settings.integration
-```
-
-as well.
-
----
-
-## Migration Testing Rules
-
-Treat migrations as production operations.
-
-When changing persistent models:
-
-1. inspect the existing migration history;
-2. generate only migrations required by the schema change;
-3. review generated operations;
-4. consider existing production data;
-5. consider indexes and constraints;
-6. consider lock duration and deployment impact;
-7. verify migration drift;
-8. test behavior that depends on the new constraint or schema.
-
-Do not create empty or unrelated migrations simply to make a check pass.
-
----
-
-# Frontend Verification
-
-Frontend verification runs from:
+From the repository root:
 
 ```bash
 cd frontend
-```
-
-Use the Node version declared by `.nvmrc`:
-
-```bash
 nvm install
 nvm use
-```
-
-Install dependencies from the committed lockfile:
-
-```bash
-npm ci
-```
-
----
-
-## Frontend Linting
-
-Run:
-
-```bash
-npm run lint
-```
-
-The lint script allows no warnings.
-
----
-
-## Frontend Tests
-
-Run:
-
-```bash
-npm test
-```
-
-The storefront uses Vitest together with Testing Library.
-
-Tests should verify user-visible behavior and application contracts rather than internal implementation details where possible.
-
-Particular attention should be given to:
-
-* authentication state;
-* protected routes;
-* Cart synchronization;
-* API error handling;
-* loading and retry states;
-* safe navigation;
-* forms;
-* inaccessible or disabled future features;
-* backend-shaped fixtures.
-
----
-
-# Frontend Production Build
-
-A production build requires an explicit HTTPS API origin.
-
-Run:
-
-```bash
-VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
-```
-
-The build output is written to:
-
-```text
-frontend/dist/
-```
-
-Do not commit generated `dist/` output.
-
-The production API URL is deliberately supplied at build time rather than used as an implicit runtime fallback.
-
-Remember that every `VITE_*` value becomes browser-visible configuration and must never contain secrets.
-
----
-
-# Recommended Frontend Check Sequence
-
-Before completing frontend work:
-
-```bash
-cd frontend
-
 npm ci
 npm run lint
 npm test
 VITE_API_BASE_URL=https://shop.exonplus.ir npm run build
 ```
 
-For dependency-neutral source changes, reinstalling with `npm ci` on every small local iteration is unnecessary, but a clean lockfile-based install is what CI verifies.
-
----
-
-# Backend Verification Sequence
-
-For meaningful backend changes, a strong local verification sequence is:
-
-```bash
-python -W error -m pytest
-
-python -m ruff check apps config tests
-
-python -m bandit \
-  -q \
-  -r apps config \
-  -x 'apps/**/tests/**,config/tests/**'
-
-python manage.py check \
-  --settings=config.settings.test
-
-python manage.py makemigrations \
-  --check \
-  --dry-run \
-  --settings=config.settings.test
-```
-
-Run PostgreSQL/Redis integration tests when the changed behavior depends on real database or Redis semantics.
-
----
-
-# When Integration Tests Are Required
-
-Integration coverage should be strongly considered when modifying:
-
-```text
-authentication identity constraints
-signup races
-security-cache behavior
-OTP consumption
-Cart concurrency
-stock mutation
-Order reservations
-Payment state transitions
-Refund processing
-Notification delivery claims
-database uniqueness
-select_for_update() workflows
-Redis atomicity
-transaction boundaries
-```
-
-SQLite or LocMem should not be used as evidence for behavior they cannot accurately model.
-
----
-
-# Concurrency-Sensitive Testing
-
-For state-changing workflows, test more than the successful sequential path.
-
-Where relevant, verify:
-
-* simultaneous requests;
-* duplicate requests;
-* stale state;
-* lost-update prevention;
-* database locking;
-* unique constraint races;
-* idempotent retries;
-* worker redelivery;
-* transaction rollback;
-* failure after an external operation;
-* failure before commit.
-
-The database and durable application state must remain correct even when requests or tasks overlap.
-
----
-
-# Celery Testing
-
-The standard test configuration runs Celery tasks eagerly:
-
-```text
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_TASK_EAGER_PROPAGATES = True
-```
-
-This keeps the default test suite self-contained.
-
-When testing asynchronous workflows, distinguish between:
-
-1. domain logic;
-2. task enqueue behavior;
-3. task execution behavior;
-4. retry/redelivery safety;
-5. transaction commit ordering.
-
-A task that depends on newly committed database state should normally be scheduled through `transaction.on_commit()`.
-
-Tests should not rely on sending ORM instances through Celery; durable identifiers should be passed instead.
-
----
-
-# API Regression Tests
-
-When changing an endpoint, verify affected contracts such as:
-
-```text
-URL
-HTTP method
-authentication
-permissions
-ownership
-input schema
-response schema
-status code
-pagination
-filters
-ordering
-visibility
-error semantics
-localization behavior
-```
-
-Do not silently modify an existing API contract as a side effect of refactoring.
-
-See [API Reference](api.md).
-
----
-
-# Authentication and Security Tests
-
-Changes involving authentication should test both successful and rejected behavior.
-
-Relevant areas include:
-
-* username/password login;
-* phone/OTP flows;
-* JWT issuance;
-* refresh rotation;
-* refresh blacklisting;
-* logout;
-* password reset;
-* password-change session invalidation;
-* throttling;
-* profile-phone verification;
-* ownership;
-* replay behavior;
-* OTP expiry and attempts.
-
-Security tests should prove that unauthorized actions remain impossible, not only that valid requests succeed.
-
-See [Authentication](authentication.md) and [Security](security.md).
-
----
-
-# Test Data
-
-Prefer factories and explicit fixtures over hidden dependency on existing local data.
-
-Tests should be:
-
-* deterministic;
-* isolated;
-* independently runnable;
-* order-independent;
-* safe to retry;
-* clear about important state.
-
-Avoid tests that depend on:
-
-* production data;
-* developer-specific database contents;
-* execution order;
-* wall-clock timing without controlled boundaries;
-* external providers;
-* internet access.
-
-Provider integrations should be tested through controlled adapters, mocks, or purpose-built test doubles unless a dedicated integration environment explicitly exists.
-
----
-
-# Continuous Integration
-
-GitHub Actions runs the test suite for:
-
-```text
-push
-pull_request
-```
-
-The primary CI workflow contains these major jobs:
-
-```text
-React storefront
-SQLite and LocMem
-PostgreSQL and Redis
-Application image
-Release gate
-```
-
-The release gate succeeds only after the required frontend, backend, integration, and application-image checks pass.
-
----
-
-## CI Backend Checks
-
-The default backend CI job performs:
-
-```text
-pytest with warnings as errors
-branch coverage
-Ruff
-Bandit
-Django system checks
-migration drift checks
-```
-
-The integration job separately performs:
-
-```text
-PostgreSQL/Redis integration tests
-Django checks against PostgreSQL
-migration drift checks against PostgreSQL
-```
-
-This separation is intentional.
-
----
-
-## CI Frontend Checks
-
-The frontend CI job performs:
-
-```text
-npm ci
-npm run lint
-npm test
-production build
-release stamping / validation
-frontend image export
-```
-
-CI uses the repository's declared Node version.
-
----
-
-# Release Verification
-
-After application tests pass, CI also validates release artifacts.
-
-Backend release verification includes:
-
-* validating the production Compose configuration;
-* building the final application image;
-* attaching source/revision metadata;
-* smoke-testing required runtime content from the built image.
-
-Frontend verification includes:
-
-* creating the production Vite build;
-* validating/stamping the release;
-* building the immutable frontend carrier artifact.
-
-These checks protect the release path itself.
-
-Passing local pytest alone does not prove that the production artifact can be built successfully.
-
----
-
-# Pre-Pull-Request Checklist
-
-For a backend-focused change, verify the applicable subset of:
-
-```text
-[ ] Focused regression tests pass
-[ ] Full default pytest suite passes
-[ ] Warnings-as-errors suite passes
-[ ] Required integration tests pass
-[ ] Ruff passes
-[ ] Bandit passes
-[ ] Django system checks pass
-[ ] Migration drift check passes
-[ ] Relevant documentation is updated
-```
-
-For a frontend-focused change:
-
-```text
-[ ] Frontend lint passes
-[ ] Frontend tests pass
-[ ] Production frontend build succeeds
-[ ] Relevant backend contracts remain compatible
-[ ] Relevant documentation is updated
-```
-
-For cross-stack changes, run both applicable sets.
-
----
-
-# Test Quality Principles
-
-Good tests should answer a behavioral question.
-
-Prefer tests such as:
-
-```text
-an unauthenticated user cannot access an owner-only resource
-```
-
-over tests that merely mirror implementation details.
-
-Prefer:
-
-```text
-two concurrent cart increments preserve both updates
-```
-
-over tests that only check which internal function was called.
-
-Tests should give confidence that observable behavior and durable state remain correct after refactoring.
-
----
-
-## Do Not Weaken Production Behavior for Tests
-
-Never weaken:
-
-* authentication;
-* authorization;
-* validation;
-* throttling;
-* database constraints;
-* transaction handling;
-* secure cookie behavior;
-* concurrency protection;
-* cache isolation;
-
-solely to make a test easier to write or pass.
-
-Instead, configure the test environment appropriately or improve the test design.
-
----
-
-# Debugging Test Failures
-
-When a test fails:
-
-1. reproduce the smallest failing test;
-2. determine whether the failure is deterministic;
-3. inspect the real implementation and contract;
-4. identify the root cause;
-5. distinguish an implementation defect from a stale test;
-6. fix the correct layer;
-7. run the focused regression test;
-8. run broader affected verification.
-
-Do not immediately update an assertion simply because production code changed.
-
-The existing test may be protecting an intentional contract.
-
-For common environment and runtime problems, see [Troubleshooting](troubleshooting.md).
-
----
-
-# Documentation Expectations
-
-Tests and documentation should describe the same implemented system.
-
-When behavior changes, update the appropriate canonical document:
-
-| Change                      | Documentation                       |
-| --------------------------- | ----------------------------------- |
-| API behavior                | [API Reference](api.md)             |
-| Authentication              | [Authentication](authentication.md) |
-| Architecture                | [Architecture](architecture.md)     |
-| Development workflow        | [Development](development.md)       |
-| Test infrastructure         | `testing.md`                        |
-| Security behavior           | [Security](security.md)             |
-| Deployment/release behavior | [Deployment](deployment.md)         |
-
-Do not document tests that do not exist as though they are already enforced.
-
-Do not claim a check passed unless it was actually executed successfully.
-
----
-
-## Source of Truth
-
-The authoritative testing configuration is distributed across:
-
-```text
-pytest.ini
-.coveragerc
-requirements/requirements-test.txt
-config/settings/test.py
-config/settings/integration.py
-docker/docker-compose.integration.yml
-frontend/package.json
-.github/workflows/ci.yml
-```
-
-When this document and those files disagree, verify the current implementation and update the documentation accordingly.
+[`.nvmrc`](../frontend/.nvmrc) selects Node 24.19.0;
+[`package.json`](../frontend/package.json) requires `>=24.15.0 <25`.
+`npm ci` uses the committed lockfile. It is what CI verifies; reinstalling after
+every dependency-neutral edit is unnecessary.
+
+ESLint allows zero warnings. `npm test` runs Vitest once in jsdom with Testing
+Library; tests live alongside source. Shared setup installs DOM matchers,
+cleans rendered components, and clears session storage. API-shaped fixtures and
+mocked fetch responses support tests for authentication/restoration, password
+management and SMS gating, protected routes, catalogue/product rendering,
+Account forms, Cart synchronization, loading/error states, and safe navigation.
+This is not a browser end-to-end suite against a live backend.
+
+Vite requires a build-time HTTPS `VITE_API_BASE_URL` with a root pathname.
+Use an origin without an API path; CI uses the public origin above. Output goes
+to ignored `frontend/dist/`. `VITE_*` values are public browser configuration
+and must contain no secrets. Release validation additionally expects the
+repository's production origin; an arbitrary valid HTTPS origin can compile
+but fail the release check. See the [frontend guide](../frontend/README.md)
+for client behavior and design ownership.
+
+## CI verification boundaries
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes and
+pull requests:
+
+| Job | Enforced checks |
+| --- | --- |
+| React storefront | Clean npm install, ESLint, Vitest, production build, release stamp/validation, frontend carrier image build/export |
+| SQLite and LocMem | Python 3.12, test dependencies, full pytest with `-W error` and branch coverage, Ruff, Bandit, Django checks, migration drift |
+| PostgreSQL and Redis | Real PostgreSQL 16/Redis 7 services, explicit integration pytest command, integration Django checks and migration drift |
+| Application image | After backend jobs: production Compose validation, final Docker image build/export, Persian translation catalogue smoke check |
+| Release gate | Requires all four jobs above |
+
+The image smoke check verifies a committed translation in the final image; it
+is not a complete application startup test. A successful local pytest run does
+not establish that the production image or frontend release can be built.
+
+On pushes to `main`, separate publication jobs promote archived images after
+the gate. Production deployment is a separate manual workflow, not part of a
+pull-request test run. Keep pipeline details in [CI/CD](ci-cd.md) (currently a
+placeholder for the next documentation phase) and operational details in
+[Deployment](deployment.md).
+
+## Before a pull request
+
+1. Run focused regressions and inspect the affected implementation/API contract.
+2. Run the full default backend suite with warnings as errors for backend changes.
+3. Run the real-service integration suite when database/Redis semantics matter.
+4. Run the applicable static, system, and migration checks above.
+5. Run frontend lint, tests, and the production build for frontend changes.
+6. Review security, ownership, transactions, queries, and compatibility beyond
+   the automated results; update the owning documentation.
+7. Run `git diff --check` and inspect the intended diff for unrelated files or secrets.
+8. Report exactly which checks ran and their results; distinguish skipped checks
+   and environment failures from passing assertions.
+
+For failures, isolate the smallest reproducible test before changing code or
+assertions. [Troubleshooting](troubleshooting.md) provides environment diagnostics.

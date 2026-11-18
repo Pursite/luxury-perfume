@@ -1,447 +1,441 @@
 # Architecture
 
-## Overview
+## System overview
 
-Luxury Perfume is a Django 6 and Django REST Framework application. Its current
-Django applications are `apps.users`, `apps.products`, `apps.cart`,
-`apps.orders`, `apps.payments`, `apps.notifications`, and `apps.lib`. The repository also contains an
-independent React customer storefront under `frontend/`.
+Luxury Perfume has a Django REST Framework backend and an independent
+React/Vite customer storefront. The backend owns identity, catalogue data,
+Cart state, checkout snapshots, stock reservations, and financial/delivery
+workflows. PostgreSQL is the durable source of truth. Redis supplies caches,
+temporary authentication protection, and Celery transport/results.
 
-```text
-luxury-perfume/
-├── apps/
-│   ├── lib/          # shared infrastructure
-│   ├── cart/         # authenticated purchase-intent carts
-│   ├── orders/       # checkout snapshots, reservations, and fulfillment state
-│   ├── payments/     # financial attempts, verification, and refunds
-│   ├── notifications/ # durable Order SMS outbox and delivery state
-│   ├── products/     # catalogue domain
-│   └── users/        # identity and profile domain
-├── config/           # Django, URL, WSGI, ASGI, and Celery configuration
-├── docker/
-│   ├── env/           # tracked environment templates
-│   ├── Dockerfile
-│   └── docker-compose*.yml
-├── docs/
-├── frontend/        # React/Vite Luxury Perfume customer storefront
-├── manage.py
-└── requirements/
-    ├── requirements.txt
-    └── requirements-test.txt
-```
-
-## Request layers
+The repository defines a development Compose stack and a single-VPS production
+layout. It does not establish that a particular host is deployed or operational.
+Provider-independent Payment/Refund and SMS logic exists, but no real Payment
+or SMS adapter is registered; those subsystems are disabled by default.
 
 ```text
-HTTP request
-    ↓
-APIView
-    ↓
-Input serializer
-    ↓
-Service (mutation) or selector (read)
-    ↓
-Model / PostgreSQL
-    ↓
-Output serializer and HTTP response
+Browser → React route → domain API client → Django view
+                                              ↓
+                                      serializer validation
+                                              ↓
+                                  service (write) / selector (read)
+                                              ↓
+                                          PostgreSQL
+
+Committed workflows → Celery broker → worker → database/storage/provider work
+Celery Beat → periodic recovery tasks → database-authoritative due records
 ```
 
-- **Views** orchestrate HTTP: select permissions and throttles, validate serializers, call the domain layer, and return responses.
-- **Serializers** validate and normalize request data and define output representations. Product upload serializers also validate image content.
-- **Services** implement state-changing workflows such as signup, OTP handling, password reset, logout, product writes, image writes, and post-commit cleanup/queueing.
-- **Selectors** contain reusable read queries, including case-insensitive username lookups and filtered product queries.
-- **Models** define durable state and model-level invariants. PostgreSQL
-  constraints add final protection for active-user identities,
-  case-insensitive username/email uniqueness, product discount prices,
-  positive fragrance volume, introduction-year bounds, unique barcodes, and
-  primary product images, one Cart per user, one CartItem per Cart/Product,
-  positive CartItem quantities, Order/reservation lifecycle consistency, and
-  Payment/Refund/SMS-outbox identities and state transitions.
+The asynchronous path is used where implemented; Cart writes stay synchronous.
+A provider call is not part of a PostgreSQL transaction or a delivery guarantee.
 
-## Applications
+## Request layers and application boundaries
 
-### `apps.users`
+| Layer | Responsibility |
+| --- | --- |
+| Views | HTTP methods, authentication/permissions/throttles, serializer invocation, response/status mapping |
+| Serializers | Input shape, normalization and validation; explicit output representations |
+| Services | Meaningful mutations, transaction and lock boundaries, lifecycle transitions, post-commit work |
+| Selectors | Reusable, owner/visibility-scoped reads and deliberate related-object loading |
+| Models and constraints | Persisted structure, model validation, database uniqueness/check/relationship protection |
 
-Owns the custom user and address models, user serializers and views, selectors,
-and services for username/password and phone/OTP authentication, password
-reset, profile-phone verification, profile onboarding/update, and logout. Its
-current-profile selector scopes the read to the authenticated user and
-prefetches ordered addresses for the safe output serializer.
-`is_active` is account state, while `is_profile_complete` is a derived customer
-readiness property. The opt-in `IsProfileComplete` permission protects Payment
-initialization but does not restrict ordinary authenticated use.
-Profile-phone OTP state is bound to both the account and the candidate phone;
-address edits lock and require an explicitly owned address ID. Durable
-`OTPChallenge` scope rows serialize issuance/resend and commit redemption with
-account changes; codes remain in Redis. SMS tasks are queued after commit.
+This is a repository convention, not a requirement to wrap every simple query
+in another abstraction. Views coordinate domain work rather than owning it.
+Database constraints complement validation because serializer checks alone
+cannot protect concurrent writes or direct ORM callers.
 
-### `apps.products`
+### Domain ownership
 
-Owns fragrance products, categories, brands, reusable fragrance notes, and
-product images. A product stores bounded concentration, target audience,
-fragrance family, season, and usage-time values. Product types such as perfume
-and Body Splash use the existing category hierarchy. One explicit
-`ProductFragranceNote` through model reuses normalized notes for top,
-middle/heart, and base layers while persisting a 1-based position.
-Public catalogue reads are filtered through selectors and can be cached. The
-same versioned response cache serves anonymous and authenticated non-staff
-requests because their representations are identical; staff requests bypass it
-because they may retrieve inactive product details. Product visibility uses
-`Product.is_active`, independently of account-state `User.is_active`.
-The list selector joins Category/Brand and prefetches only the ranked primary
-image needed by each row; the detail selector joins Category/Brand and
-prefetches images plus ordered note links and their FragranceNotes. These query
-shapes keep serializer output N+1-safe without loading the full detail graph for
-every catalogue row.
-Products use immutable lowercase slugs as their public URL identifiers;
-canonical UUID-shaped slugs are rejected so legacy UUID text cannot be
-ambiguous with a slug. The stable product UUID remains in API representations
-but is not used for product-addressed routes.
-Product and image writes are staff-only at the API boundary. Product services
-lock concurrent product updates and replace submitted note layers in one
-transaction. Database uniqueness constraints prevent a duplicate note or
-duplicate position within a product layer, while check constraints enforce
-valid layers and positive positions. Category hierarchy validation prevents
-cycles; image services schedule thumbnail generation after commit.
-Product-image creation assigns a collision-resistant object key. API creation
-owns an outermost database transaction; the admin inline reuses the same
-lifecycle inside Django Admin's transaction and compensates stored originals
-if that outer transaction rolls back.
-Image deletion locks and reloads its rows before collecting file names, keeping
-storage cleanup consistent with concurrent thumbnail work.
-
-### `apps.cart`
-
-Owns authenticated purchase-intent carts and CartItems. Views never accept a
-user identifier: every read and mutation is scoped to `request.user`, and
-incomplete profiles may use the Cart. Input serializers validate request
-shape, services own synchronous mutations, and the selector returns current
-Product and image data without per-item queries.
-
-Cart stores only its owner and each Product/quantity pair. Product
-`final_price`, stock, activity, and images are read live, so price changes are
-visible on the next response and unavailable items remain in the Cart.
-Mutations lock the user row, then Cart, then CartItem, serializing only one
-user's Cart. This prevents duplicate first carts and lost increments without
-locking Product rows. Clearing retains the empty Cart container; GET never
-creates one. Cart has no Redis cache, Celery tasks, async paths, stock/price
-reservation, checkout, Order, payment, or notification responsibility.
-
-### `apps.lib`
-
-Contains shared base models, cache helpers, the security-cache guards, logging helpers, pagination, permissions, throttles, reusable catalogue-image validation, and the provider-neutral SMS transport contract. It is for cross-application or project-wide infrastructure, not domain-specific business logic.
-
-### `apps.notifications`
-
-Owns durable SMS delivery obligations for canonical Order transitions only. The
-Orders transition service inserts outbox records in its current transaction and
-uses `transaction.on_commit()` to queue a Celery delivery ID. Provider calls
-occur only in the worker after its short delivery-row claim transaction has
-committed. Notifications never changes Order, Payment, Refund, stock, or
-reservation state. SMS remains disabled by default and no production adapter is
-registered in this repository. A successful `PROCESSING` transition creates a
-customer confirmation plus one owner obligation for each active superuser with
-a valid account phone; missing or invalid superuser phones and ordinary staff
-are intentionally skipped. The owner phone is snapshotted on the durable row.
-Order text is fixed server-controlled source text; provider-approved templates
-or patterns are deferred until a real provider is selected.
-
-Delivery rows move through `PENDING`, `SENDING`, `SENT`, `FAILED`, or
-`MANUAL_REVIEW`. A short operation token/lease claims a send before provider
-I/O. Known pre-acceptance transport failures and ambiguous outcomes from an
-idempotent provider are retried with bounded exponential backoff and jitter.
-Provider rejection is terminal `FAILED`; protocol/configuration failures,
-non-idempotent ambiguity, stale non-idempotent leases, exhausted attempts, and
-provider-message identity conflicts require manual review. `SENT` records keep
-the provider message ID as delivery evidence. Terminal recipient snapshots are
-scrubbed after the configured retention period, while durable Order/event and
-owner-recipient identities remain.
-
-### `apps.orders`
-
-Owns authenticated, owner-filtered Order history, the internal authoritative
-checkout service, immutable customer/address/Product/price snapshots,
-StockReservations, reservation expiry/release/consumption, and fulfillment
-transitions. Checkout is not a public Order mutation endpoint; Payment
-initialization invokes it. Admin Orders are read-only except for the service-
-backed `processing → shipped` and `shipped → delivered` actions.
-
-### `apps.payments`
-
-Owns provider-neutral Payment attempts, callbacks, server-to-server
-verification, reconciliation, full Refund obligations, safe customer status
-output, and audited superuser recovery actions. It accepts no client-controlled
-amount, currency, provider, callback, or redirect destination. Provider I/O
-runs between short database claim/finalization transactions. The subsystem is
-disabled by default and this repository registers no real provider adapter.
-
-## Background work
-
-Celery is configured in `config/celery.py` and discovers application tasks.
-
-- User OTP requests store generation-bound codes in the security cache with durable challenge state and queue `send_otp_sms_task`. The Users-owned task uses the shared provider-neutral transport when SMS is enabled; it does not create Notification rows or persist OTP messages.
-- Notifications queues delivery by integer outbox ID and periodically sweeps due delivery and retention-scrub work. `SENT` means provider-accepted, not handset-delivered.
-- Product-image creation queues `generate_product_image_thumbnail` after the database transaction commits. The task creates a WebP thumbnail in a deterministic `by-image-id/<id>/` namespace that cannot collide with legacy flat thumbnail names; row locking and validation of any referenced thumbnail make Celery redelivery idempotent.
-- Payments queues idempotent Refund execution after commit and uses periodic
-  database sweeps to recover due Payment reconciliation, Refund retries, and
-  retained transport-metadata scrubbing.
-
-The single Celery Beat process has exactly these schedules:
-
-| Schedule | Interval | Purpose |
+| Application | Owns | Boundary |
 | --- | --- | --- |
-| `orders-sweep-expired-reservations` | 60 seconds | Queue at most 100 database-expired waiting Orders for idempotent release/cancellation. |
-| `payments-sweep-reconcilable` | 60 seconds | Queue due `PENDING`, `REDIRECT_READY`, and `VERIFYING` Payments; `MANUAL_REVIEW` is excluded. |
-| `payments-sweep-pending-refunds` | 60 seconds | Queue due `PENDING`/stale `PROCESSING` Refund obligations. |
-| `payments-scrub-audit-metadata` | 24 hours | Remove expired Payment IP/user-agent transport evidence. |
-| `notifications-sweep-due-sms-deliveries` | 60 seconds | Queue due `PENDING`/stale `SENDING` outbox rows while SMS is enabled. |
-| `notifications-scrub-expired-sms-recipients` | 24 hours | Remove expired phone snapshots from terminal `SENT`/`FAILED` rows while SMS is enabled. |
+| `apps.users` | Users, addresses, profiles, credentials, OTP challenges, JWT issuance/revocation | Users OTP delivery is separate from Order notifications |
+| `apps.products` | Products, categories, brands, ordered fragrance notes, images, catalogue queries/cache | Product visibility and stock are server-owned |
+| `apps.cart` | One owner-bound Cart and Product/quantity lines | Purchase intent; no stock or price reservation |
+| `apps.orders` | Checkout snapshots, StockReservations, expiry/cancellation and fulfillment transitions | Sole authority for Order and reservation lifecycle |
+| `apps.payments` | Payment attempts, provider verification, reconciliation, full Refund obligations | Calls Orders services; does not independently rewrite Order/stock state |
+| `apps.notifications` | Durable Order-SMS obligations, delivery claims and retry/manual-review state | Does not change Order, Payment, Refund, or stock state |
+| `apps.lib` | Shared cache, security, permissions, logging, pagination, upload validation, task and SMS primitives | Shared infrastructure rather than domain workflow ownership |
 
-Beat and Celery delivery are recovery mechanisms, not sources of truth.
-PostgreSQL deadlines, constraints, statuses, leases, and idempotency identities
-remain authoritative when the broker, worker, or scheduler is delayed.
+API route groups are defined in [`config/urls.py`](../config/urls.py).
+Notifications has no public API. See [API](api.md) for endpoint contracts.
 
-## Data, cache, and authentication
+## Persistence and integrity
 
-PostgreSQL stores durable users, addresses, fragrance catalogue records,
-reusable note relations, product images, carts, Orders, Payments, Refunds, and
-Simple JWT outstanding/blacklist records. Users, Products, Cart, and Orders
-currently have `0001_initial`; Payments additionally has
-`0002_manual_review_stops_automatic_reconciliation`; Notifications additionally
-has `0002_remove_smsdelivery_notifications_order_event_unique_and_more`.
-The repository does not contain legacy identity, fragrance-domain, or
-ordered-note data migrations. The catalogue cache uses a versioned schema
-namespace so stale representations cannot be reused.
+### PostgreSQL and validation boundaries
 
-### Durable database invariants
+Durable records include users/addresses, catalogue relations and image metadata,
+Cart lines, Order/OrderItem/StockReservation records, Payment/Refund evidence,
+SMS outbox rows, `OTPChallenge`, and Simple JWT outstanding/blacklist records.
+Uploaded file bytes remain outside PostgreSQL.
 
-- Users: active accounts retain at least one identity; non-empty usernames and
-  emails are unique case-insensitively, and phones are unique.
-- Products: SKU, UUID, slug, and non-null barcode uniqueness; non-negative
-  stock; positive prices/volume; discounts below regular price; one primary
-  image; and unique ordered fragrance-note positions/notes within each layer.
-- Cart: one Cart per user, one Product line per Cart, and quantity at least one.
-- Orders: one user/idempotency-key result, at most one waiting Order per user,
-  `total = subtotal + shipping_amount`, valid status/timestamp combinations,
-  one Product snapshot per Order, exact line totals, and one reservation per
-  OrderItem with a consistent lifecycle. User and Product commercial references
-  use `PROTECT`; deleting a source Address only clears the live reference while
-  preserving its UUID and shipping snapshot.
-- Payments and Refunds: globally unique Payment idempotency keys; unique
-  provider session/transaction/refund identities; at most one open attempt and
-  one applied Payment per Order; verified/failed/manual-review evidence checks;
-  one full Refund obligation per Payment; and no automatic work attached to a
-  manual-review Payment.
-- Notifications: unique customer Order/event obligations, unique owner
-  Order/event/recipient obligations, unique provider message identities, valid
-  event/recipient pairings, canonical actionable phones, paired leases, and
-  status/evidence consistency.
+| Domain | Examples of database protection |
+| --- | --- |
+| Users | Active account requires username or phone; phone uniqueness; conditional case-insensitive username/email uniqueness |
+| Products | SKU/slug/UUID/barcode uniqueness, nonnegative stock, discount below regular price, positive volume, introduction-year lower bound, one primary image, unique note/position per layer |
+| Cart | One Cart per owner, one Product per Cart, quantity at least one |
+| Orders | User/idempotency-key uniqueness, one waiting Order per user, nonnegative totals and `total = subtotal + shipping_amount`, line-total equations, reservation/status/timestamp consistency |
+| Payments/Refunds | Provider identity uniqueness, one open attempt and one applied Payment per Order, one full Refund obligation per Payment, state/evidence/lease consistency |
+| Notifications | Unique customer Order/event and owner Order/event/recipient obligations, provider-message identity uniqueness, recipient/event and lifecycle consistency |
 
-Redis has two configured cache aliases with separate URLs:
+Not every validation rule is a database constraint. Product price positivity,
+future-year rejection, barcode format, category-cycle validation, and public
+slug format/immutability rely on the supported validation/service/Admin paths.
+Arbitrary ORM writes or bulk updates can bypass those paths. Database constraints
+remain the final protection for the invariants actually declared there.
 
-- `default` uses `CACHE_REDIS_URL` for ordinary catalogue caching. Its
-  versioned product list/detail responses are shared by anonymous and
-  authenticated non-staff users, while staff bypass the shared cache. It is
-  configured to ignore cache exceptions, so a cache failure can fall back to
-  the database. Cart responses are never stored in this cache.
-- `security` uses `SECURITY_REDIS_URL` for OTP codes, attempt counters, locks,
-  leases, password-login guard and throttle state, signup-throttle state,
-  refresh throttles, and OTP phone/IP throttle histories. Profile-phone codes
-  use a purpose scoped to the authenticated user. It does not suppress
-  exceptions; security-cache errors produce a 503 response instead of bypassing
-  authentication protection. Catalogue-read throttling remains on the ordinary
-  `default` cache with catalogue caching.
+Commercial references protect users and Products from deletion through Order
+history. Deleting a source Address clears its live foreign key while preserving
+the Order's source-address UUID and shipping snapshot. Historical snapshots are
+not recalculated from current profile, catalogue, or shipping configuration.
 
-JWT authentication is the DRF default. Access tokens are sent as Bearer
-credentials; rotating refresh tokens are kept in a host-only HttpOnly cookie
-and never returned to browser JavaScript. The custom refresh serializer
-validates Simple JWT's password-hash revocation claim while locking the user
-row, then rotates and blacklists the submitted refresh. Password changes use
-that same lock, blacklist all outstanding refresh tokens, and invalidate earlier
-access tokens. Cookie-backed auth mutations require a trusted Origin and
-explicit credentialed CORS. See [authentication.md](authentication.md).
+### Migration state
 
-## Configuration and logging
+The current domain migration inventory is deliberately small:
 
-`config.settings.base` loads the root `.env` file with `django-environ`. Docker
-Compose also uses that file for interpolation and injects it into the `web`,
-`celery`, and `celery-beat` services. Copy either tracked environment-specific
-example to `.env` to select the Django settings module. Production requires
-Django and JWT signing keys, PostgreSQL, separate cache URLs, Celery URLs,
-host/origin policy, the exact server-owned shipping setting, and
-transport-hardening values.
+- Users has `0001_initial` and
+  [`0002_otpchallenge`](../apps/users/migrations/0002_otpchallenge.py). The latter
+  adds durable scope, generation, expiry, and redemption state; it does not store
+  OTP codes or recipient phone fields in the challenge row.
+- Products, Cart, and Orders currently have `0001_initial`.
+- Payments additionally has `0002_manual_review_stops_automatic_reconciliation`.
+- Notifications additionally has
+  `0002_remove_smsdelivery_notifications_order_event_unique_and_more`, adding
+  recipient-user identity and the separate customer/owner uniqueness rules.
 
-The backend supports `en` and `fa` through Django `LocaleMiddleware` and the
-project `locale/` catalogue. It negotiates only human-readable text; stable API
-keys, statuses, codes, stored enums, task/cache/audit identifiers, and Product
-content remain untranslated. The catalogue response cache is safe because it
-contains those stable raw values rather than localized choice labels. The React
-storefront remains English; frontend localization is deferred.
+These files describe the checked-in migration history, not an automatic upgrade
+strategy for an older installation. Existing production schema/history
+reconciliation remains an operator-reviewed concern; see [Deployment](deployment.md).
 
-Settings configure JSON logging for container output rather than application
-log files. The `activity` logger uses stdout; `security`, `system`, and Django
-error loggers use stderr. Most record categories are `activity`, `security`, or
-`system`; allowlisted financial lifecycle events use category `financial` on
-the activity logger. Operational filtering does not depend on a filename.
+### Redis and cache separation
 
-`RequestIDMiddleware` generates an opaque ID for every HTTP request, returns
-it as `X-Request-ID`, and scopes it to structured application logs as both
-`request_id` and `correlation_id`. While executing an OTP task, the worker
-uses the task ID as its correlation ID. Records contain only an allowlisted set of fields: timestamp,
-level, logger/category, event, IDs, authenticated user ID, a safe route path,
-and exception type. Financial/notification events may additionally contain
-public domain UUIDs, the configured provider label, event type, attempt, and a
-bounded outcome. Records never serialize request bodies, headers, query
-strings, exception messages, passwords, OTP codes, JWTs, credentials, phone
-numbers, provider session/transaction/message identities, or other sensitive
-PII.
+Development and production use one Redis instance with separate logical databases:
 
-## Testing
+| Setting/alias | Template database | Role and failure policy |
+| --- | --- | --- |
+| `CACHE_REDIS_URL` / `default` | `/0` | Catalogue response caching and ordinary DRF/catalogue throttles; cache exceptions may be ignored where configured |
+| `SECURITY_REDIS_URL` / `security` | `/1` | OTP codes/generations, attempts, locks, leases, password-login guard, and custom security-throttle history; protection failures return 503 |
+| `CELERY_BROKER_URL` | `/2` | Task transport, including sensitive OTP task payloads |
+| `CELERY_RESULT_BACKEND` | `/3` | Task results with configured expiry |
 
-Pytest uses `config.settings.test`, which substitutes SQLite, separate
-local-memory cache namespaces, eager Celery tasks, and in-memory email. The root
-`conftest.py` clears every configured cache alias around each test. Coverage is
-measured over production code with branch tracking, excludes tests and
-migrations, and requires at least 85%.
+Logical databases separate key spaces, not capacity, availability, or access
+control. Shared Redis uses AOF with `appendfsync everysec` and `noeviction`.
+Persistence supports restart recovery but is neither a backup nor a distributed
+transaction with PostgreSQL. See [Security](security.md) for the trust boundary
+and [Deployment](deployment.md) for capacity/retention considerations.
 
-```bash
-venv/bin/python -m pytest
-venv/bin/python manage.py check --settings=config.settings.test
-venv/bin/python manage.py makemigrations --check --dry-run \
-  --settings=config.settings.test
-```
+## Identity, OTP, and session architecture
 
-PostgreSQL row locking, case-insensitive identity constraints, concurrent
-signup, concurrent first Cart creation and same-item increments, unrelated-user
-Cart lock isolation, Order checkout/reservation transitions, Payment
-initialization/reconciliation transaction behavior, Notification delivery
-claims, Redis security-cache state, normalized phone/IP throttle keys, and
-concurrent OTP consumption are covered by tests explicitly marked `integration`.
-`config.settings.integration` reads test service endpoints from
-the environment; `docker/docker-compose.integration.yml` supplies isolated
-local defaults, and the CI integration job supplies PostgreSQL 16 and Redis 7.
+Users retain display casing for trimmed username/email identities while lookup
+and uniqueness are case-insensitive. `is_active` controls account access;
+`is_profile_complete` is derived from customer details and an address. Incomplete
+profiles may use normal authenticated endpoints, including Cart. Payment
+initialization additionally requires an active complete profile.
 
-```bash
-docker compose -f docker/docker-compose.integration.yml up -d --wait
-venv/bin/python -m pytest \
-  -o addopts="--strict-config --strict-markers" \
-  -m integration --ds=config.settings.integration -q
-docker compose -f docker/docker-compose.integration.yml down
-```
+Direct username/password signup and login issue Simple JWT sessions. Dedicated
+services separate authenticated password change, initial password setup for
+eligible OTP-only accounts, and SMS recovery for existing password accounts.
+Profile updates reject credential changes. Authenticated profile-phone APIs
+attach a phone only to the requesting account after verification, while it has
+no phone already.
 
-Keep views thin, put mutations in services, reads in selectors, and enforce critical invariants in models and database constraints. Preserve existing route and response contracts unless an explicit compatibility decision says otherwise.
+### Durable OTP redemption and temporary Redis state
 
-## Orders and inventory reservations
+[`OTPVerificationGuard`](../apps/lib/security_cache.py) coordinates two stores:
 
-`Product.stock` is available-to-sell inventory. Cart writes never reserve it.
-The trusted Orders checkout service locks Product rows in ascending numeric PK
-order, snapshots current `final_price` and product/customer/address data, creates
-one ACTIVE reservation per immutable OrderItem, decrements available stock once,
-and clears the captured CartItems in the same PostgreSQL transaction.
+| Store | State |
+| --- | --- |
+| PostgreSQL `OTPChallenge` | HMAC-derived scope primary key, generation UUID, expiry, redeemed timestamp |
+| Redis security cache | Code plus matching generation, TTL, failed-attempt counter, lockout and short admission lease |
 
-For a newly created Order, checkout reads the one validated server setting,
-`ORDER_SHIPPING_FLAT_RATE_IRT`, and snapshots it as `shipping_amount` (the
-tracked default is exact `350000.00 IRT`, or 350,000 toman). It calculates
-`subtotal` from OrderItem line totals and `total = subtotal + shipping_amount`.
-An idempotent replay returns its stored Order before rereading the setting, so
-historical snapshots remain stable. Payment creation uses only `Order.total`.
+Scopes include purpose and phone. `signup`, `login`, and `password-reset` have
+distinct purposes; `password-set:<user-id>` and `profile-phone:<user-id>` also
+bind the scope to the authenticated account. Initial setup uses the account
+phone; profile-phone verification uses the candidate phone.
 
-`Order.reservation_expires_at` is the only 15-minute reservation deadline;
-StockReservation has no expiry or quantity field. ACTIVE reservations consume
-on server-verified future payment without another stock decrement. Failed or
-expired unpaid orders release ACTIVE reservations and restore each immutable
-OrderItem quantity exactly once. At or after the deadline, payment verification
-must cancel/release and record a late-payment condition; it never reactivates a
-cancelled order.
+The implemented sequence is:
 
-Celery Beat schedules a bounded (100 Orders) database query once per 60
-seconds. It is recovery/scheduling only: delayed or lost tasks never extend
-the database deadline, and creating a checkout synchronously reconciles an
-expired unswept waiting Order before a replacement attempt. Provider I/O never
-participates in an Orders transaction.
+1. **Issue/resend:** create/find and lock the challenge row; rotate its generation,
+   set its expiry, clear its redemption timestamp, and write the generation/code
+   pair to Redis with a TTL. Resend does not reset the existing attempts/lockout
+   keys. It avoids repeating the immediately active cached code.
+2. **Verify:** acquire a short token-owned Redis lease to reduce overlapping work,
+   then lock the challenge in a database transaction. Recheck lockout, database
+   expiry/redemption, cached generation, and code using constant-time comparison.
+3. **Apply:** run the success callback inside that transaction. Account changes,
+   token records where issued/revoked, and `redeemed_at` commit together. Relevant
+   callbacks lock and revalidate the user; signup additionally relies on identity
+   uniqueness when creating a new account.
+4. **Clean up:** after commit, lock/recheck the challenge before deleting the
+   matching generation's cache state. Cleanup does not remove a newer resend.
+   Lease release compares ownership atomically in Redis.
 
-## Payments and Refunds
+The PostgreSQL lock/redemption is authoritative for committed success. Lease
+expiry does not replace that protection. If the success callback or database
+commit fails, redemption and domain writes roll back and the unchanged code can
+be retried while valid. Cleanup failure after success leaves redeemed database
+state, so leftover Redis values cannot authorize a second success for that
+generation.
 
-`apps.payments` is a bounded financial domain layered on Orders. `Payment`
-uses an internal integer key plus an immutable public UUID, snapshots only the
-locked `Order.total`, and records normalized provider identities and recovery
-leases. `Refund` records one full captured-amount obligation per Payment.
-PostgreSQL constraints enforce idempotency, provider identity uniqueness, one
-open attempt and one Order-funding Payment, and one Refund per Payment.
-`MANUAL_REVIEW` remains an unresolved attempt for that uniqueness rule, but is
-not a reconcilable state: it has no operation lease or due reconciliation time
-until an explicit superuser service action rearms it.
+There is no distributed transaction: a Redis write can survive a PostgreSQL
+issuance rollback, or Redis state can disappear independently. Missing or
+mismatched generations fail closed and require reissuance. Post-commit SMS task
+publication/delivery is another failure boundary, not proof that the user
+received a code. The Users task sends through the shared transport and has no
+durable Notification outbox row. See [Authentication](authentication.md) for the
+full flows and [Security](security.md#otp-protection-and-cross-store-limits)
+for limits and controls.
 
-Initialization and verification use local/external/local phases: short
-transactions claim an operation, provider I/O runs without database locks, and
-the final transaction locks Order before Payment. Payments never writes Order
-state directly; it calls Orders transition services. Orders therefore remains
-authoritative for strict `now < reservation_expires_at` eligibility and all
-reservation/stock transitions. Late, duplicate, and amount-mismatched captures
-remain financially verified and create a durable full Refund.
+### JWT ownership
 
-Celery sweeps due Payment reconciliation and Refund execution every 60 seconds
-and scrubs retained Payment IP/user-agent evidence daily. Database uniqueness
-and provider UUID idempotency—not Redis or task delivery—provide financial
-safety. A new Payment is created only after a trusted, canonical initiator IP
-has been obtained; this is enforced by the service before checkout can reserve
-stock. Financial lifecycle events use allowlisted structured correlation fields
-only, while IP and user-agent evidence stays in the database. Payments is
-disabled by default because no real provider adapter is registered; the
-provider registry itself remains the mechanism for a later reviewed adapter.
-Superuser Admin actions can explicitly rearm a `MANUAL_REVIEW` Payment, retry
-a manual-review Refund, or record one externally completed Refund with an
-external reference and explicit confirmation. Delegated staff may inspect only
-the safe, owner-bounded fields and cannot perform these financial actions.
+The backend issues a bearer access token and a rotating refresh token. Browser
+responses expose only access tokens in JSON; refresh lives in a host-only
+HttpOnly cookie. The React access token is memory-only. Refresh locks the user
+and validates password state before rotation/blacklisting. Password change/setup
+and recovery revoke old refresh sessions and invalidate access tokens tied to
+the previous password state. Logout blacklists the supplied refresh token and
+expires its cookie; it is not an access-token blacklist.
 
-## Customer storefront
+## Catalogue and image lifecycle
 
-The React application is deployed independently of Django and preserves the
-backend as the server-state authority:
+Products use an internal integer key, a stable response UUID, and an immutable
+lowercase public slug. UUID-shaped slugs are rejected by validation; product
+URLs use slugs. Categories represent product types; ordered through-model rows
+represent top, middle/heart, and base fragrance-note layers.
 
-```text
-React route/page
-    ↓
-Domain API module
-    ↓
-Central request/JWT client
-    ↓
-Django API view → serializer → service/selector → PostgreSQL
-```
+[`apps/products/selectors.py`](../apps/products/selectors.py) joins Category/Brand
+and prefetches a ranked representative image for each list row. Detail queries
+load images and ordered note links. Filtering/search/ordering and pagination
+remain server-side. Anonymous and authenticated non-staff reads share the same
+versioned catalogue response cache; staff bypass it because they may retrieve
+inactive product details. Cart and owner-specific data are not cached there.
+Signals and service writes invalidate catalogue namespaces after commit.
 
-`src/api/` owns URL construction, normalized API/network errors, Bearer access
-headers, one shared refresh operation, and one retry after an authenticated
-401. Pages do not scatter raw `fetch()` calls. `AuthContext` restores and ends
-the browser session; `CartContext` loads and synchronizes the authenticated
-owner's Cart. Product catalogue/detail data remains page-local because it is
-not shared application state. Account profile data and independent form drafts
-also remain page-local and memory-only; no profile context or browser-storage
-PII cache is introduced.
+Image metadata and storage cannot commit atomically. The supported API/Admin
+paths validate uploads and use collision-resistant original object names. API
+creation owns an outermost database transaction; the Admin inline participates
+in Admin's transaction and compensates newly stored originals on rollback.
+Primary-image changes lock the Product and use a conditional uniqueness constraint.
 
-Routes are `/` for the catalogue, `/products/:slug` for Product Detail,
-`/login`, `/signup`, authenticated `/account`, authenticated `/cart`, and a
-catch-all 404. The shared storefront layout owns the direct compact Header and
-Persian development notice. Product filtering and
-pagination use backend query parameters and browser URL state; the frontend
-does not recreate authoritative catalogue filtering or price calculations.
+Thumbnail work is queued after commit using an image ID, not file bytes. The
+worker locks the image row, validates/reuses an existing WebP derivative, or
+creates a bounded WebP at a deterministic `by-image-id/<id>/` path. Missing rows
+are harmless and retries/redelivery reuse valid referenced data. Deletion reloads
+locked rows and defers unreferenced-file cleanup until commit. Cleanup failures
+are logged and can leave orphaned files; reference checks favor preserving valid
+data over aggressive deletion. A failed thumbnail enqueue is logged rather than
+turning a committed upload into a failed HTTP response; no periodic thumbnail
+recovery sweep is configured.
 
-The Account page reads the current user through the profile selector endpoint
-and uses the existing profile-update service contract for mutations. Server
-responses remain authoritative for fields and `is_profile_complete`. Phone
-verification, Orders, and Tickets remain unavailable. Password change and
-initial setup use distinct services and forms; recovery has a capability-gated
-`/forgot-password` route.
+## Cart, checkout, and financial workflows
 
-In development, Vite runs directly on the host at `127.0.0.1:5173` and proxies
-relative `/api/` and `/media/` requests to Docker-published Django at
-`localhost:8000`. PostgreSQL and Redis remain Docker-internal. Production
-builds require the public build-time `VITE_API_BASE_URL` and emit static files
-for host Nginx. CI packages that output in a SHA-labeled `FROM scratch` carrier
-image; deployment extracts it into an immutable release directory and
-atomically switches the active symlink. There is no Vite server or Node runtime
-in production, and the carrier image is never run as a frontend service.
+### Cart: live purchase intent
 
-Host monitoring, alerting, database/media backup automation, backup storage,
-and restore drills are external production operations. No repository file
-configures them; the deployment runbook states the required boundary without
-inventing host-managed implementation.
+Cart stores owner plus Product/quantity pairs, without price, stock, or expiry
+snapshots. Reads resolve current price, availability, and images and never create
+a Cart. Unavailable lines remain visible. Mutations are synchronous transactions
+that lock user → Cart → CartItem, serializing one owner's writes without a global
+Cart lock. Product stock is read without a Product lock because Cart does not
+reserve inventory. Clearing retains an existing empty Cart.
+
+### Orders: stock and historical authority
+
+Payment initialization can invoke the internal Orders checkout service; customer
+Order endpoints expose only owner-filtered reads. New checkout locks/revalidates
+the user, verifies an owned address, locks Cart, then locks Product rows in
+ascending numeric PK order and the captured CartItems. It limits checkout
+to 100 distinct products, checks current activity/stock, and atomically:
+
+- creates immutable customer/address/Product/price snapshots;
+- snapshots the exact validated `ORDER_SHIPPING_FLAT_RATE_IRT` as shipping;
+- calculates `subtotal` and `total = subtotal + shipping_amount`;
+- creates an ACTIVE reservation per OrderItem and decrements available stock;
+- clears only the captured CartItems.
+
+The tracked shipping default is exact `350000.00 IRT` (350,000 toman).
+User/idempotency-key replay returns stored snapshots; changing shipping
+configuration does not rewrite history. A user can have at most one waiting
+Order. Checkout reconciles an expired unswept waiting Order in its own committed
+transaction before attempting its replacement.
+
+`Product.stock` is available-to-sell stock. Orders use one 15-minute
+`reservation_expires_at` deadline; reservations have no independent quantity or
+expiry field. Order transition services lock Order, then ordered Products,
+items, and reservations. On-time verified payment consumes ACTIVE reservations
+without another stock decrement. Unpaid expiry/failure releases ACTIVE
+reservations and restores their immutable line quantities once. At or after the
+deadline, verification cannot reactivate a cancelled Order; it records a late
+payment outcome. Admin fulfillment uses service-backed processing → shipped →
+delivered transitions.
+
+### Payments and Refunds: external evidence and obligations
+
+Payments owns attempts against an Order, not checkout stock rules. Initialization
+accepts an owned Order or address plus an idempotency UUID, requires a canonical
+initiator IP, and derives the immutable amount only from the locked `Order.total`.
+Amounts are decimal toman (`IRT`); provider-specific unit conversion belongs in
+the adapter.
+
+Claim/provider/finalization phases keep provider network I/O outside the local
+claim transactions. Verification finalization locks Order before Payment and
+calls Orders transitions. Callback/browser input is a lookup hint; a valid
+server-to-server capture result is the financial evidence. Payment identity and
+application constraints prevent the same capture from funding multiple Orders
+or multiple Payments from funding one Order.
+
+Late, duplicate, or amount/currency-mismatched captures remain financial facts
+and create a full captured-amount Refund obligation. Refund execution claims
+Payment/Refund state, calls the provider outside its claim transaction, and
+checks its operation token before finalization. Payment/Refund UUIDs provide
+stable provider idempotency references; the eventual adapter must honor the
+contract. Reconciliation handles unresolved attempts; `MANUAL_REVIEW` is still
+an open attempt for uniqueness but has no automatic lease/due reconciliation
+time until explicitly rearmed. Audited superuser actions handle financial
+recovery and externally completed Refund evidence.
+
+### Notifications: durable delivery obligations
+
+When SMS is enabled, Order transitions insert outbox obligations inside the
+Order transaction: processing creates customer confirmation plus an owner alert
+for each active superuser with a valid account phone; shipping creates a customer
+shipment notice. Missing/malformed superuser phones are skipped; ordinary staff
+are not recipients. When SMS is disabled, those event functions create no new
+rows; enabling it later does not backfill those events.
+
+Outbox uniqueness prevents duplicate logical obligations. After commit, workers
+receive only delivery IDs. Publication failure leaves a due row for the periodic
+sweeper. The worker claims/commits a delivery lease, performs provider I/O without
+holding the claim lock, then finalizes only if its token still owns the operation.
+States are `PENDING`, `SENDING`, `SENT`, `FAILED`, and `MANUAL_REVIEW`.
+
+Known safe transport failures and ambiguity with an idempotent provider use
+bounded exponential backoff/jitter. Rejection is terminal; non-idempotent
+ambiguity, stale non-idempotent claims, protocol/configuration failures, or
+exhausted attempts require manual review. `SENT` means provider-accepted, not
+handset-delivered. The row retains recipient/evidence but not rendered SMS text;
+fixed server-controlled templates are rendered at send time.
+
+## Concurrency and recovery boundaries
+
+Locks are workflow-specific rather than one universal lock hierarchy. Examples:
+
+| Workflow | Relevant serialization |
+| --- | --- |
+| OTP success | Challenge row, then user where required by its callback; durable redemption in the same transaction |
+| Profile/address mutations | User before owned address; Admin address reassignment locks affected owners |
+| Cart | User → Cart → CartItem; Product reads remain live/unreserved |
+| Checkout | User/existing Order, owned address/Cart, ordered Products, captured CartItems |
+| Order transitions | Order → ordered Products → OrderItems → reservations |
+| Payment verification finalization | Order before Payment/current related attempt |
+| Refund execution | Payment before Refund; operation token guards finalization |
+| SMS delivery | Delivery-row claim plus operation-token check after external I/O |
+
+These mechanisms address tested races and durable invariants, not every possible
+caller or failure. Direct writes must preserve the owning service contract.
+External side effects cannot be rolled back by PostgreSQL; uncertainty needs
+reconciliation or manual review rather than a claim of exactly-once delivery.
+
+## Asynchronous processing
+
+[`config/celery.py`](../config/celery.py) discovers tasks and loads Django settings.
+JSON serialization, late acknowledgements, and rejection on worker loss make
+retry/redelivery relevant. Individual tasks define retryable errors and limits;
+a global retry setting is not automatic retry for every exception.
+
+`transaction.on_commit()` prevents implemented enqueue paths from running before
+their data commits. It does not atomically commit a broker message with the
+transaction. Notifications has durable due rows to recover failed publication;
+OTP sending and thumbnail enqueueing do not have that same outbox guarantee.
+
+One Beat process schedules the following tasks from shared settings:
+
+| Schedule | Interval | Responsibility |
+| --- | --- | --- |
+| `orders-sweep-expired-reservations` | 60 seconds | Queue up to 100 expired waiting Orders |
+| `payments-sweep-reconcilable` | 60 seconds | Due pending/redirect-ready/verifying attempts; excludes manual review |
+| `payments-sweep-pending-refunds` | 60 seconds | Due pending/stale processing Refunds |
+| `payments-scrub-audit-metadata` | 24 hours | Expired Payment IP/user-agent evidence |
+| `notifications-sweep-due-sms-deliveries` | 60 seconds | Due pending/stale sending rows while SMS is enabled |
+| `notifications-scrub-expired-sms-recipients` | 24 hours | Expired terminal recipient snapshots while SMS is enabled |
+
+Database deadlines and lifecycle state remain authoritative when Beat, Redis,
+or workers are delayed. A delayed expiry task does not extend a reservation.
+
+## Frontend integration
+
+React Router defines catalogue, slug-addressed product detail, login, signup,
+`/forgot-password`, protected `/account` and `/cart`, and a not-found route.
+The central API client handles URLs, JSON/errors, bearer headers, one shared
+in-flight refresh and one protected-request retry. Web Locks serialize
+cookie-session operations across tabs where supported.
+
+Auth Context restores/adopts/ends sessions. Refresh 401 means anonymous; network,
+429, and server failures expose a retryable restoration state. Cart Context
+mounts its stateful provider only when authenticated, serializes client mutations,
+and replaces state with backend responses; DELETE is followed by a GET.
+Backend owner checks remain authoritative regardless of route guards.
+
+Catalogue/profile data and form drafts remain page-local and memory-only.
+Account provides separate personal/address and password forms. Password change
+and eligible initial setup clear the old session and navigate to Login;
+SMS recovery adopts its replacement session and navigates to Account.
+Initial setup/recovery are implemented but capability-gated. SMS login/signup,
+phone verification, customer Orders/Tickets, checkout, and payments remain
+unavailable in the current UI. See the [frontend guide](../frontend/README.md).
+
+## Runtime and release topology
+
+| Concern | Development | Production layout |
+| --- | --- | --- |
+| Django | Source-mounted `runserver`, loopback host port | Gunicorn from published application image, loopback upstream |
+| React | Host Vite server with API/media proxy | Static build served by host-managed Nginx |
+| PostgreSQL/Redis | Internal Compose services `db`/`redis`, named volumes | Internal services with persistent volumes |
+| Worker/Beat | Source mounts and separate processes | Same published image as Django, separate services, one Beat |
+| Files | Checkout media/static paths | Persistent host bind mounts shared with application/Nginx as needed |
+| Edge/TLS | Local development HTTP | Host Nginx/TLS managed outside Compose |
+
+The final Python image runs as UID/GID `10001`. Compose publishes only Django
+to loopback in both layouts; Host Python cannot resolve/reach the private
+services simply by activating a virtual environment. See [Development](development.md).
+
+Production configuration loads the private root `.env`. CI builds/tests the
+frontend and backend and validates release artifacts; matching SHA images are
+published after the complete gate on `main`. The frontend image is a scratch
+filesystem carrier, never a running Node service. Manual CD resolves image
+digests, runs checks/migrations/static collection, checks web readiness and
+worker/Beat stability, then activates the validated frontend symlink. It is not
+a fully atomic cross-service/database deployment and does not reverse migrations
+on rollback. See [Deployment](deployment.md) for runtime operations and [CI/CD](ci-cd.md) for pipeline and release orchestration.
+
+The public health endpoints distinguish process responsiveness, app-registry
+startup, and database/security-cache readiness. They do not establish complete
+schema, worker, or provider health. The shared development health-check Host
+mismatch is documented in [Troubleshooting](troubleshooting.md#health-status-and-the-development-host-mismatch).
+
+## Verification and design trade-offs
+
+The default backend suite uses SQLite/LocMem and eager Celery; real PostgreSQL/
+Redis tests exercise selected transaction, constraint, lock, and security-state
+races. Frontend Vitest uses jsdom and mocked APIs. CI also checks lint, static
+security patterns, migration drift, production Compose, final-image translations,
+and frontend release structure. See [Testing](testing.md) for commands and limits.
+
+The design keeps synchronous domain invariants in PostgreSQL and defers expensive
+or recoverable work. Its current limits include:
+
+- No real registered SMS or Payment provider; adapter contracts and fake-provider
+  tests do not establish live delivery, capture, or Refund behavior.
+- One VPS and one shared Redis instance; logical databases do not provide
+  independent failure or resource isolation.
+- Non-transactional storage and broker publication can leave orphaned files or
+  unqueued work; recovery coverage differs by workflow.
+- No repository-managed host monitoring/alerting, backup scheduling/storage, or
+  verified restore automation. Volumes and AOF are not backups.
+- No managed object-storage integration or automated dependency-vulnerability
+  monitoring platform configured here.
+- Existing-installation migration reconciliation and provider-specific operational
+  validation require separate review.
+
+Human-readable backend messages support `en`/`fa`; JSON keys, enum values,
+URLs, task/cache/audit identifiers, and Product content remain stable. The React
+UI remains English apart from its Persian development notice. These boundaries
+allow presentation changes without changing machine contracts.
