@@ -40,6 +40,7 @@ class AddressInline(admin.TabularInline):
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
+    change_form_template = "backoffice/customer_change_form.html"
     actions = ("delete_selected_users",)
     add_form = CustomUserCreationForm
     form = CustomUserChangeForm

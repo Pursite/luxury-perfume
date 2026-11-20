@@ -1,0 +1,11 @@
+{% extends "admin/index.html" %}
+{% load static %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'backoffice/panel.css' %}">{% endblock %}
+
+{% block content %}
+{% if backoffice_access.dashboard %}
+<p class="backoffice-entry"><a class="button" href="{% url 'admin:backoffice:dashboard' %}">Open store dashboard</a></p>
+{% endif %}
+{{ block.super }}
+{% endblock %}

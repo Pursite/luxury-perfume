@@ -1,0 +1,550 @@
+.backoffice-entry {
+    margin: 0 0 1.5rem;
+}
+
+.backoffice #content {
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.backoffice #content > h1 {
+    margin-bottom: 1rem;
+    color: var(--body-fg);
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    font-weight: 650;
+    letter-spacing: -.025em;
+}
+
+.backoffice-content {
+    max-width: 80rem;
+    direction: ltr;
+    text-align: left;
+}
+
+.backoffice-content :focus-visible {
+    outline: 2px solid var(--link-fg);
+    outline-offset: 3px;
+}
+
+.backoffice-nav,
+.backoffice-presets,
+.backoffice-pagination,
+.backoffice-summary-actions,
+.backoffice-section-header,
+.backoffice-filter-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    align-items: center;
+}
+
+.backoffice-nav {
+    gap: .25rem;
+    padding: .3rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--hairline-color);
+    border-radius: .6rem;
+    background: var(--darkened-bg);
+}
+
+.backoffice-nav a,
+.backoffice-presets a,
+.backoffice-pagination a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.25rem;
+    box-sizing: border-box;
+    padding: .35rem .75rem;
+    border-radius: .35rem;
+    font-weight: 600;
+}
+
+.backoffice-nav a:hover,
+.backoffice-presets a:hover,
+.backoffice-pagination a:hover {
+    background: var(--selected-bg);
+}
+
+.backoffice-nav a[aria-current],
+.backoffice-presets a[aria-current] {
+    background: var(--button-bg);
+    color: var(--button-fg);
+    text-decoration: none;
+}
+
+.backoffice-panel {
+    min-width: 0;
+    margin: 1rem 0;
+    padding: clamp(.85rem, 2vw, 1.25rem);
+    border: 1px solid var(--hairline-color);
+    border-radius: .65rem;
+    background: var(--body-bg);
+}
+
+.backoffice-attention {
+    border-top: 3px solid var(--primary);
+}
+
+.backoffice-section-header {
+    justify-content: space-between;
+    margin-bottom: .85rem;
+}
+
+.backoffice-panel h2 {
+    margin: 0;
+    color: var(--body-fg);
+    font-size: 1.1rem;
+    font-weight: 650;
+}
+
+.backoffice-section-header p,
+.backoffice-note {
+    color: var(--body-quiet-color);
+}
+
+.backoffice-section-header p {
+    margin: .3rem 0 0;
+}
+
+.backoffice-count {
+    padding: .3rem .65rem;
+    border-radius: 2rem;
+    background: var(--darkened-bg);
+    color: var(--body-fg);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.backoffice-empty {
+    margin: 0;
+    padding: .85rem 1rem;
+    border-radius: .4rem;
+    background: var(--darkened-bg);
+    color: var(--body-quiet-color);
+}
+
+.backoffice-filters {
+    padding: .8rem;
+    margin: 0 0 1rem;
+    border-radius: .45rem;
+    background: var(--darkened-bg);
+}
+
+.backoffice-filter-fields {
+    align-items: start;
+}
+
+.backoffice-filters label {
+    display: block;
+    margin-bottom: .35rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+}
+
+.backoffice-filters input {
+    box-sizing: border-box;
+    width: 11rem;
+    max-width: 100%;
+    min-height: 2.5rem;
+    margin: 0;
+}
+
+.backoffice-filters .backoffice-button {
+    margin-top: 1.6rem;
+}
+
+.backoffice .backoffice-button {
+    display: inline-block;
+    box-sizing: border-box;
+    min-height: 2.5rem;
+    padding: .55rem .8rem;
+    border: 0;
+    border-radius: .35rem;
+    background: var(--button-bg);
+    color: var(--button-fg);
+    font: inherit;
+    font-weight: 600;
+    line-height: 1.4rem;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.backoffice .backoffice-button:hover {
+    background: var(--button-hover-bg);
+}
+
+.backoffice .backoffice-button[hidden] {
+    display: none;
+}
+
+.backoffice-metrics,
+.backoffice-panels {
+    display: grid;
+    gap: .8rem;
+}
+
+.backoffice-metrics {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    margin: 0;
+    padding: 0;
+}
+
+.backoffice-panels {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+    margin: .85rem 0 1.25rem;
+}
+
+.backoffice-kpis > div,
+.backoffice-queue a {
+    min-width: 0;
+    padding: .9rem 1rem;
+    border: 1px solid var(--hairline-color);
+    border-radius: .45rem;
+}
+
+.backoffice-kpis > div {
+    background: var(--darkened-bg);
+}
+
+.backoffice-kpis dt,
+.backoffice-details dt {
+    font-weight: 600;
+}
+
+.backoffice-kpis dd {
+    margin: .35rem 0 0;
+    color: var(--body-fg);
+    font-size: clamp(1.35rem, 2.65vw, 2.1rem);
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.backoffice-kpis dd small,
+.backoffice-kpis .backoffice-kpi-note {
+    color: var(--body-quiet-color);
+    font-size: .85rem;
+    font-weight: 400;
+}
+
+.backoffice-queue li {
+    list-style: none;
+}
+
+.backoffice-queue a {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: .6rem;
+    height: 100%;
+    box-sizing: border-box;
+    border-left: 3px solid var(--status-color, var(--primary));
+    color: var(--body-fg);
+    text-decoration: none;
+}
+
+.backoffice-queue a:hover {
+    background: var(--darkened-bg);
+}
+
+.backoffice-queue a:is(:hover, :focus-visible) span:first-of-type {
+    text-decoration: underline;
+}
+
+.backoffice-queue strong {
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.backoffice-sales-chart {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: clamp(7rem, 20vw, 11rem) auto;
+    gap: .45rem .75rem;
+    padding: .8rem 0;
+}
+
+.backoffice-chart-scale,
+.backoffice-chart-dates {
+    display: flex;
+    justify-content: space-between;
+    gap: .5rem;
+    color: var(--body-quiet-color);
+    font-size: .8rem;
+}
+
+.backoffice-chart-scale {
+    flex-direction: column;
+    text-align: right;
+    max-width: 15ch;
+    overflow-wrap: anywhere;
+}
+
+.backoffice-chart-dates {
+    grid-column: 2;
+}
+
+.backoffice-chart-plot {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 1px;
+    border-block: 1px solid var(--hairline-color);
+    background: repeating-linear-gradient(
+        to top, transparent 0 calc(25% - 1px), var(--hairline-color) calc(25% - 1px) 25%
+    );
+}
+
+.backoffice-chart-column {
+    display: flex;
+    align-items: end;
+    justify-content: center;
+}
+
+.backoffice-chart-bar {
+    width: 80%;
+    max-width: 2.75rem;
+    height: 1px;
+    background: var(--hairline-color);
+}
+
+.backoffice-chart-bar.has-sales {
+    height: var(--bar-height);
+    min-height: 2px;
+    border-radius: .2rem .2rem 0 0;
+    background: var(--link-fg);
+}
+
+.backoffice-chart-data summary {
+    width: fit-content;
+    max-width: 100%;
+    padding: .5rem 0;
+    color: var(--link-fg);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.backoffice-details {
+    display: grid;
+    grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr);
+    gap: .5rem 1rem;
+}
+
+.backoffice-details dd,
+.backoffice-id {
+    overflow-wrap: anywhere;
+}
+
+.backoffice-details dd {
+    margin: 0;
+}
+
+.backoffice-id {
+    font-variant-numeric: tabular-nums;
+}
+
+.backoffice-table-wrap {
+    overflow-x: auto;
+}
+
+.backoffice-table {
+    width: 100%;
+}
+
+.backoffice-table td,
+.backoffice-table th {
+    padding: .65rem .75rem;
+    vertical-align: middle;
+}
+
+.backoffice-table thead th {
+    background: var(--darkened-bg);
+}
+
+.backoffice-table tbody tr:nth-child(even) {
+    background: var(--darkened-bg);
+}
+
+.backoffice-table-meta {
+    display: block;
+    margin-top: .15rem;
+    color: var(--body-quiet-color);
+}
+
+.backoffice-date-compact {
+    display: none;
+}
+
+.backoffice-table .backoffice-number {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.backoffice-summary tfoot tr:last-child {
+    background: var(--darkened-bg);
+}
+
+.backoffice [data-status="processing"] {
+    --status-color: #367eb9;
+}
+
+.backoffice [data-status="shipped"] {
+    --status-color: #865dbb;
+}
+
+.backoffice [data-status="delivered"],
+.backoffice [data-status="active"] {
+    --status-color: #27816a;
+}
+
+.backoffice [data-status="waiting_for_payment"] {
+    --status-color: #ac731e;
+}
+
+.backoffice [data-status="cancelled"],
+.backoffice [data-status="overdue"],
+.backoffice [data-status="out-of-stock"] {
+    --status-color: #b64e64;
+}
+
+.backoffice-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .2rem .55rem;
+    border: 1px solid var(--hairline-color);
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--status-color, var(--hairline-color)) 12%, var(--body-bg));
+    color: var(--body-fg);
+    font-size: .8rem;
+    white-space: nowrap;
+}
+
+.backoffice-badge::before {
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: var(--status-color, var(--body-quiet-color));
+    content: "";
+}
+
+.backoffice-pagination,
+.backoffice-summary-actions {
+    margin: .85rem 0 0;
+}
+
+.backoffice-pagination {
+    justify-content: space-between;
+}
+
+.backoffice-summary h2 {
+    margin-bottom: .5rem;
+}
+
+@media (max-width: 600px) {
+    .backoffice-filter-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .backoffice-filters input {
+        width: 100%;
+    }
+
+    .backoffice-date-filter .backoffice-button {
+        grid-column: 1 / -1;
+        justify-self: start;
+        margin-top: 0;
+    }
+
+    .backoffice-queue {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .backoffice-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .backoffice-kpis > div:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+
+    .backoffice-table td,
+    .backoffice-table th {
+        padding: .5rem;
+    }
+
+    .backoffice-badge {
+        white-space: normal;
+    }
+
+    .backoffice-order-table .backoffice-placed {
+        display: none;
+    }
+
+    .backoffice-date-compact {
+        display: block;
+        font-size: .8rem;
+        font-weight: 400;
+    }
+}
+
+@media print {
+    @page {
+        margin: 14mm;
+    }
+
+    .backoffice-print #header,
+    .backoffice-print #nav-sidebar,
+    .backoffice-print #toggle-nav-sidebar,
+    .backoffice-print .breadcrumbs,
+    .backoffice-print .backoffice-nav,
+    .backoffice-print .backoffice-summary-actions,
+    .backoffice-print .skip-to-content-link {
+        display: none;
+    }
+
+    .backoffice-print #content,
+    .backoffice-print .backoffice-summary {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        color: #111;
+        background: #fff;
+    }
+
+    body.backoffice-print {
+        color-scheme: light;
+        --body-bg: #fff;
+        --body-fg: #111;
+        --body-quiet-color: #222;
+        --darkened-bg: #f1f1f1;
+        --hairline-color: #aaa;
+    }
+
+    .backoffice-print .backoffice-table-wrap {
+        overflow: visible;
+    }
+
+    .backoffice-print .backoffice-table thead {
+        display: table-header-group;
+    }
+
+    .backoffice-print .backoffice-table tfoot {
+        display: table-row-group;
+    }
+
+    .backoffice-print .backoffice-table tr,
+    .backoffice-print .backoffice-details {
+        break-inside: avoid;
+    }
+
+    .backoffice-print .backoffice-table td,
+    .backoffice-print .backoffice-table th {
+        padding: .3rem .4rem;
+        overflow-wrap: anywhere;
+        font-size: 9pt;
+    }
+}

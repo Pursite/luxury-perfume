@@ -179,13 +179,13 @@ Ordinary profile writes and phone verification issue no JWT and preserve session
 | Method and path | Access | Request / behavior | Success |
 | --- | --- | --- | --- |
 | `GET /api/v1/products/` | Public; catalogue-read throttle | Lists active products | 200; paginated product list |
-| `POST /api/v1/products/` | Authenticated staff only; existing user throttle | Product write fields | 201; product detail |
+| `POST /api/v1/products/` | Staff with `products.add_product`; existing user throttle | Product write fields | 201; product detail |
 | `GET /api/v1/products/<product_slug>/` | Public; catalogue-read throttle | Retrieves an active product; staff can retrieve inactive products | 200; product detail |
-| `PUT /api/v1/products/<product_slug>/` | Authenticated staff only; existing user throttle | Complete product write fields | 200; product detail |
-| `PATCH /api/v1/products/<product_slug>/` | Authenticated staff only; existing user throttle | Partial product write fields | 200; product detail |
-| `DELETE /api/v1/products/<product_slug>/` | Authenticated staff only; existing user throttle | — | 204; no body |
-| `POST /api/v1/products/<product_slug>/images/upload/` | Authenticated staff only | Multipart form data | 201; image object |
-| `DELETE /api/v1/products/images/<image_id>/` | Authenticated staff only | `image_id` is an integer | 204; no body |
+| `PUT /api/v1/products/<product_slug>/` | Staff with `products.change_product`; existing user throttle | Complete product write fields | 200; product detail |
+| `PATCH /api/v1/products/<product_slug>/` | Staff with `products.change_product`; existing user throttle | Partial product write fields | 200; product detail |
+| `DELETE /api/v1/products/<product_slug>/` | Staff with `products.delete_product`; existing user throttle | — | 204; no body |
+| `POST /api/v1/products/<product_slug>/images/upload/` | Staff with `products.add_productimage` | Multipart form data | 201; image object |
+| `DELETE /api/v1/products/images/<image_id>/` | Staff with `products.delete_productimage` | `image_id` is an integer | 204; no body |
 
 `product_slug` is the product's exact, case-sensitive public slug. Product
 slugs must be lowercase, cannot use canonical UUID syntax, and cannot change
@@ -211,6 +211,10 @@ fields, including note layers, are preserved on PUT/PATCH; creation uses model
 defaults where available. PATCH validates supplied changes against existing
 Product values.
 No public Category, Brand, or FragranceNote management endpoints are registered.
+
+Catalogue writes require authentication and the listed Django model permission
+in addition to staff status. Permissions may come from an Admin Group or a
+direct grant.
 
 `price` and non-null `discount_price` must be at least `0.01`, with at most 12
 digits including two decimal places. Stock is a non-negative integer.
@@ -584,9 +588,9 @@ Refund obligation. A null refund does not promise that none can arise later.
   identity/OTP errors, invalid Payment callback input, or failure to derive a
   trusted client IP for Payment initialization.
 - `401 Unauthorized` — missing, invalid, or stale JWT credentials on a protected endpoint; failed username/password authentication; or invalid/replayed refresh tokens.
-- `403 Forbidden` — an authenticated non-staff user attempted a staff-only
-  operation, a Payment initiator lacks a complete active profile, or a
-  cookie-setting, refresh, or logout authentication request has a missing or
+- `403 Forbidden` — an authenticated user lacks staff status or the catalogue
+  model permission for a write, a Payment initiator lacks a complete active
+  profile, or a cookie-setting, refresh, or logout request has a missing or
   untrusted Origin.
 - `404 Not Found` — unknown or non-visible product/image, inactive or missing Cart-add Product, missing owned CartItem/Order/Payment, or unknown enabled callback provider/session.
 - `303 See Other` — a browser Payment callback redirects to the configured result URL with only `payment_uuid`.

@@ -1,0 +1,26 @@
+{% extends "backoffice/base.html" %}
+
+{% block panel_content %}
+<section class="backoffice-panel" aria-labelledby="customer-heading">
+    <header class="backoffice-section-header">
+        <h2 id="customer-heading">Customer information</h2>
+        <a href="{% url 'admin:users_customuser_change' customer.pk %}">Open customer in Admin</a>
+    </header>
+    <dl class="backoffice-details">
+        <dt>Name</dt><dd>{% if customer.first_name or customer.last_name %}{{ customer.first_name }} {{ customer.last_name }}{% else %}—{% endif %}</dd>
+        <dt>Username</dt><dd>{{ customer.username|default:"—" }}</dd>
+        <dt>Email</dt><dd>{{ customer.email|default:"—" }}</dd>
+        <dt>Phone</dt><dd>{{ customer.phone_number|default:"—" }}</dd>
+        <dt>Account created</dt><dd>{{ customer.created_at|date:"M j, Y" }}</dd>
+        <dt>Status</dt><dd><span class="backoffice-badge" data-status="{{ customer.is_active|yesno:'active,inactive' }}">{{ customer.is_active|yesno:"Active,Inactive" }}</span></dd>
+    </dl>
+</section>
+<section class="backoffice-panel" aria-labelledby="history-heading">
+    <header class="backoffice-section-header">
+        <h2 id="history-heading">Order history</h2>
+        <span class="backoffice-count">{{ page.paginator.count }} order{{ page.paginator.count|pluralize }}</span>
+    </header>
+    {% include "backoffice/order_table.html" with orders=page.object_list table_heading="history-heading" empty_message="This customer has not placed any orders yet." %}
+    {% include "backoffice/pagination.html" %}
+</section>
+{% endblock %}

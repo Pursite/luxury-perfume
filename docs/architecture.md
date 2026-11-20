@@ -54,6 +54,7 @@ cannot protect concurrent writes or direct ORM callers.
 | `apps.orders` | Checkout snapshots, StockReservations, expiry/cancellation and fulfillment transitions | Sole authority for Order and reservation lifecycle |
 | `apps.payments` | Payment attempts, provider verification, reconciliation, full Refund obligations | Calls Orders services; does not independently rewrite Order/stock state |
 | `apps.notifications` | Durable Order-SMS obligations, delivery claims and retry/manual-review state | Does not change Order, Payment, Refund, or stock state |
+| `apps.backoffice` | Django Admin dashboard, operational views, and permission-scoped read queries | Domain services remain responsible for business mutations |
 | `apps.lib` | Shared cache, security, permissions, logging, pagination, upload validation, task and SMS primitives | Shared infrastructure rather than domain workflow ownership |
 
 API route groups are defined in [`config/urls.py`](../config/urls.py).

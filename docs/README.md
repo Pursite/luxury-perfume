@@ -12,6 +12,7 @@ Implementation and tests ultimately resolve disagreements with documentation.
 | Reader | Suggested path |
 | --- | --- |
 | New contributor | [Contributing](../CONTRIBUTING.md) → [Development](development.md) → [Testing](testing.md) |
+| Store operator | [Backoffice](backoffice.md) → [Security](security.md#django-admin-boundaries) |
 | Backend/API developer | [Architecture](architecture.md) → [API](api.md) → [Authentication](authentication.md) |
 | Frontend developer | [Frontend README](../frontend/README.md) → [Design](../frontend/DESIGN.md) → [API](api.md) |
 | Security reviewer | [Security](security.md) → [Authentication](authentication.md) → [Architecture](architecture.md) |
@@ -29,6 +30,7 @@ and cross-link instead of duplicating full instructions.
 | [Architecture](architecture.md) | Request layers, domain boundaries, persistence/integrity, concurrency, asynchronous recovery, and runtime design change |
 | [Development](development.md) | Local Docker/host setup, environment requirements, management commands, and daily workflow change |
 | [API Reference](api.md) | HTTP paths/methods, permissions, request/response contracts, filtering, pagination, or error behavior change |
+| [Backoffice](backoffice.md) | Django Admin store workflows, staff roles, and dashboard metrics |
 | [Authentication](authentication.md) | Identity, profile, password, OTP, refresh-cookie/JWT lifecycle, or session workflows change |
 | [Security](security.md) | Controls, trust boundaries, proxy/cache/throttle policies, logging protections, or known limitations change |
 | [Testing](testing.md) | Verification commands, fixtures/isolation, PostgreSQL/Redis integration, frontend checks, or coverage semantics change |

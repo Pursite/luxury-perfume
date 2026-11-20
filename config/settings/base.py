@@ -15,7 +15,7 @@ DB_CONNECT_TIMEOUT_SECONDS = env.int("DB_CONNECT_TIMEOUT_SECONDS", default=3)
 REDIS_SOCKET_TIMEOUT_SECONDS = env.float("REDIS_SOCKET_TIMEOUT_SECONDS", default=2)
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "apps.backoffice.apps.BackofficeAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.orders",
     "apps.payments",
     "apps.notifications",
+    "apps.backoffice.apps.BackofficeConfig",
 ]
 
 MIDDLEWARE = [
@@ -40,6 +41,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
+    "apps.backoffice.middleware.AdminLanguageMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",

@@ -19,7 +19,7 @@ authentication, and throttles; authentication routes do not all use `AllowAny`.
 | Auth capabilities | Explicit `AllowAny`, authentication disabled; exposes only SMS capability |
 | Profile reads/updates/onboarding, phone verification, password change/setup | `IsAuthenticated`; operate on the requesting account |
 | Product reads | Explicit public access; active catalogue for anonymous/non-staff, with inactive detail access for staff |
-| Product/image mutations | Authenticated `is_staff` through `IsAdmin`; separate from Django Admin model permissions |
+| Product/image mutations | Authenticated `is_staff` through `IsAdmin` plus the operation's Django model permission |
 | Cart and Order reads | Authenticated owner-scoped state; foreign identifiers do not confer access |
 | Payment initialization/detail | Authenticated, owner-bound; initialization additionally requires complete active profile and dedicated throttle |
 | Payment callback | Explicit public access with authentication disabled, dedicated throttle, registered provider parsing, and server-to-server verification |
@@ -44,13 +44,17 @@ Admin querysets and object permissions enforce that boundary; mutation services
 lock current owners and recheck protected relationships.
 
 Cart Admin is read-only. Cart, Order, Payment/Refund, and SMS Admin querysets
-exclude privileged owners from delegated staff access. Order shipping/delivery
-uses service-backed actions and model permissions. Financial reconciliation/
-manual Refund actions and SMS manual-review rearming are superuser-only; manual
-completion/retry actions require explicit confirmation where implemented and
-write Admin audit records. Read-only financial fields do not grant arbitrary
-state editing. See [`apps/users/admin.py`](../apps/users/admin.py) and the
-respective domain Admin modules for the exact permissions.
+exclude privileged owners from delegated staff access. Backoffice applies the
+same ownership boundary to details and aggregates and checks the relevant
+model permission before reading data. Order shipping and delivery require
+`orders.change_order`, recheck the owner under lock for delegated staff, and
+write an Admin audit record in the transition transaction.
+
+Financial reconciliation, manual Refund actions, and SMS manual-review retries
+are superuser-only. SMS rearming and confirmed external Refund completion write
+Admin audit records. SMS rearming requires explicit confirmation and a usable
+provider. Deliveries that may have reached the provider also require safe
+provider idempotency. Financial fields remain read-only. [Backoffice roles](backoffice.md#staff-roles)
 
 ## Passwords and JWT sessions
 

@@ -1,0 +1,22 @@
+{% if orders %}
+<div class="backoffice-table-wrap" tabindex="0" role="region" aria-labelledby="{{ table_heading }}">
+    <table class="backoffice-table backoffice-order-table">
+        <thead><tr><th scope="col">Order</th><th scope="col" class="backoffice-placed">Placed</th><th scope="col">Status</th><th scope="col" class="backoffice-number">Total (IRT)</th></tr></thead>
+        <tbody>
+            {% for order in orders %}
+            <tr>
+                <th scope="row">
+                    <a class="backoffice-id" href="{% url 'admin:orders_order_change' order.pk %}">{{ order.uuid }}</a>
+                    <time class="backoffice-table-meta backoffice-date-compact" datetime="{{ order.created_at|date:'c' }}">{{ order.created_at|date:"M j, Y H:i" }}</time>
+                </th>
+                <td class="backoffice-placed"><time datetime="{{ order.created_at|date:'c' }}">{{ order.created_at|date:"M j, Y" }} <span class="backoffice-table-meta">{{ order.created_at|date:"H:i" }}</span></time></td>
+                <td><span class="backoffice-badge" data-status="{{ order.status }}">{{ order.get_status_display }}</span></td>
+                <td class="backoffice-number">{{ order.total|floatformat:"2g" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="backoffice-empty">{{ empty_message }}</p>
+{% endif %}

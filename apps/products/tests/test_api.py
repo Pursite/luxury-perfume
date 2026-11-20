@@ -2,6 +2,7 @@ from io import BytesIO
 import time
 
 import pytest
+from django.contrib.auth.models import Group, Permission
 from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
@@ -21,7 +22,62 @@ from apps.products.tests.factories import (
     ProductImageFactory,
 )
 from apps.products.views import ProductListCreateAPIView
+from apps.users.models import CustomUser
 from apps.users.tests.factories import UserFactory
+
+
+@pytest.mark.parametrize(
+    ("operation", "method", "required_permission", "expected"),
+    [
+        ("create", "post", "add_product", 201),
+        ("update", "put", "change_product", 200),
+        ("patch", "patch", "change_product", 200),
+        ("delete", "delete", "delete_product", 204),
+        ("upload", "post", "add_productimage", 201),
+        ("delete_image", "delete", "delete_productimage", 204),
+    ],
+)
+@pytest.mark.django_db
+def test_catalogue_api_requires_the_matching_model_permission(
+    api_client, operation, method, required_permission, expected, product_payload, image_file,
+):
+    product = ProductFactory()
+    image = ProductImage.objects.create(product=product, image="products/existing.jpg")
+    detail_url = reverse("apps.products:product-detail", kwargs={"product_slug": product.slug})
+    url = {
+        "create": reverse("apps.products:product-list"),
+        "upload": reverse("apps.products:product-image-upload", kwargs={"product_slug": product.slug}),
+        "delete_image": reverse("apps.products:product-image-delete", kwargs={"image_id": image.pk}),
+    }.get(operation, detail_url)
+    data = {
+        "create": product_payload,
+        "update": {**product_payload, "slug": product.slug},
+        "patch": {"stock": 1},
+        "upload": {"image": image_file()},
+    }.get(operation)
+    submit = getattr(api_client, method)
+    data_format = "multipart" if operation == "upload" else "json"
+
+    operator = UserFactory(is_staff=True)
+    group = Group.objects.create(name="Catalogue operators")
+    group.permissions.add(
+        Permission.objects.get(codename="view_product"), Permission.objects.get(codename="view_order"),
+    )
+    operator.groups.add(group)
+    api_client.force_authenticate(user=operator)
+    assert submit(url, data, format=data_format).status_code == status.HTTP_403_FORBIDDEN
+
+    permission = Permission.objects.get(content_type__app_label="products", codename=required_permission)
+    group.permissions.add(permission)
+    customer = UserFactory()
+    customer.groups.add(group)
+    api_client.force_authenticate(user=customer)
+    assert submit(url, data, format=data_format).status_code == status.HTTP_403_FORBIDDEN
+
+    if operation == "upload":
+        data = {"image": image_file()}
+    api_client.force_authenticate(user=CustomUser.objects.get(pk=operator.pk))
+    assert submit(url, data, format=data_format).status_code == expected
 
 
 def _add_note(product, note, layer, position=1):
@@ -666,7 +722,9 @@ class TestProductImageAPIView:
             == status.HTTP_403_FORBIDDEN
         )
 
-        api_client.force_authenticate(user=UserFactory(is_staff=True))
+        image_operator = UserFactory(is_staff=True)
+        image_operator.user_permissions.add(Permission.objects.get(codename="add_productimage"))
+        api_client.force_authenticate(user=image_operator)
         unknown_url = url.replace(
             product.slug,
             "missing-product",

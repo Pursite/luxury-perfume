@@ -1,6 +1,15 @@
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 from apps.orders.models import Order, OrderItem
+
+
+def get_order_attention_conditions():
+    return {
+        "to_ship": Q(status=Order.Status.PROCESSING),
+        "in_transit": Q(status=Order.Status.SHIPPED),
+        "overdue": Q(status=Order.Status.WAITING_FOR_PAYMENT, reservation_expires_at__lte=timezone.now()),
+    }
 
 
 def get_user_orders_queryset(*, user):

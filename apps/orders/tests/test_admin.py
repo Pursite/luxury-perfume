@@ -1,18 +1,20 @@
 import pytest
 from uuid import uuid4
 from django.contrib import admin
-from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.admin.models import CHANGE, DELETION, LogEntry
 from django.contrib.auth.models import Permission
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
 from django.urls import reverse
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.utils import timezone
 
 from apps.orders.models import Order
+from apps.notifications.models import SmsDelivery
 from apps.users.models import CustomUser
 from apps.users.tests.factories import AddressFactory, UserFactory
 from apps.cart.models import Cart, CartItem
 from apps.orders.services.checkout import create_waiting_order
+from apps.orders.services.transitions import mark_order_shipped
 from apps.products.models import Product
 from apps.products.tests.factories import ProductFactory
 
@@ -210,3 +212,99 @@ def test_order_admin_real_urls_enforce_privileged_owner_boundary(client):
     client.force_login(superuser)
     assert client.get(reverse("admin:orders_order_change", args=[staff_owned.pk])).status_code == 200
     assert client.get(reverse("admin:orders_order_change", args=[superuser_owned.pk])).status_code == 200
+
+
+def _processing_order():
+    order, _product = _commercial_order()
+    Order.objects.filter(pk=order.pk).update(status=Order.Status.PROCESSING, processing_at=timezone.now())
+    order.refresh_from_db()
+    return order
+
+
+def _fulfillment_post(client, order, action):
+    return client.post(
+        reverse("admin:orders_order_changelist"),
+        {"action": action, ACTION_CHECKBOX_NAME: [str(order.pk)], "index": "0"},
+    )
+
+
+def test_order_admin_view_permission_alone_cannot_ship_or_deliver(client):
+    staff = UserFactory(is_staff=True)
+    staff.user_permissions.add(Permission.objects.get(codename="view_order"))
+    client.force_login(staff)
+    processing = _processing_order()
+    shipped = _processing_order()
+    Order.objects.filter(pk=shipped.pk).update(status=Order.Status.SHIPPED, shipped_at=timezone.now())
+
+    actions = admin.site._registry[Order].get_actions(_request(staff))
+    assert "mark_selected_shipped" not in actions
+    assert "mark_selected_delivered" not in actions
+    _fulfillment_post(client, processing, "mark_selected_shipped")
+    _fulfillment_post(client, shipped, "mark_selected_delivered")
+    processing.refresh_from_db()
+    shipped.refresh_from_db()
+    assert processing.status == Order.Status.PROCESSING
+    assert shipped.status == Order.Status.SHIPPED
+    assert not LogEntry.objects.filter(user=staff).exists()
+
+
+def test_fulfillment_actions_require_csrf_and_audit_successful_transitions(client, settings):
+    settings.SMS_ENABLED = True
+    settings.SMS_PROVIDER = "order-admin-test"
+    staff = UserFactory(is_staff=True)
+    staff.user_permissions.add(Permission.objects.get(codename="change_order"))
+    order = _processing_order()
+    csrf_client = Client(enforce_csrf_checks=True)
+    csrf_client.force_login(staff)
+    assert _fulfillment_post(csrf_client, order, "mark_selected_shipped").status_code == 403
+    order.refresh_from_db()
+    assert order.status == Order.Status.PROCESSING
+
+    client.force_login(staff)
+    assert _fulfillment_post(client, order, "mark_selected_shipped").status_code == 302
+    assert _fulfillment_post(client, order, "mark_selected_delivered").status_code == 302
+    _fulfillment_post(client, order, "mark_selected_delivered")
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.DELIVERED
+    assert order.shipped_at and order.delivered_at
+    assert SmsDelivery.objects.filter(order=order, event_type=SmsDelivery.EventType.CUSTOMER_ORDER_SHIPPED).count() == 1
+    assert list(LogEntry.objects.filter(user=staff, object_id=str(order.pk), action_flag=CHANGE)
+                .order_by("pk").values_list("change_message", flat=True)) == [
+        "Order marked as shipped.", "Order marked as delivered.",
+    ]
+
+
+def test_fulfillment_rechecks_owner_after_order_was_selected():
+    order = _processing_order()
+    staff = UserFactory(is_staff=True)
+    staff.user_permissions.add(Permission.objects.get(codename="change_order"))
+    request = RequestFactory().post(reverse("admin:orders_order_changelist"))
+    request.user = staff
+    model_admin = admin.site._registry[Order]
+    CustomUser.objects.filter(pk=order.user_id).update(is_staff=True)
+
+    # The supplied selection no longer reflects the current owner privileges.
+    assert model_admin._apply_fulfillment(
+        request, Order.objects.filter(pk=order.pk), Order.Status.PROCESSING,
+        mark_order_shipped, "Order marked as shipped.",
+    ) == 0
+    order.refresh_from_db()
+    assert order.status == Order.Status.PROCESSING
+    assert not LogEntry.objects.filter(user=staff).exists()
+
+
+def test_order_audit_failure_rolls_back_shipping_and_sms_outbox(client, mocker, settings):
+    settings.SMS_ENABLED = True
+    settings.SMS_PROVIDER = "order-admin-test"
+    staff = UserFactory(is_staff=True, is_superuser=True)
+    order = _processing_order()
+    mocker.patch.object(admin.site._registry[Order], "log_change", side_effect=RuntimeError("Audit failed"))
+    client.force_login(staff)
+
+    with pytest.raises(RuntimeError, match="Audit failed"):
+        _fulfillment_post(client, order, "mark_selected_shipped")
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.PROCESSING
+    assert not SmsDelivery.objects.filter(order=order).exists()

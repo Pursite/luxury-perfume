@@ -46,7 +46,7 @@ See [Architecture](docs/architecture.md) for the mechanisms and their limits.
 | Username/password and sessions | Signup/login, cookie refresh/logout; usable without SMS | Signup/login and session restoration |
 | Account and credentials | Profile/address reads/updates; current-password-verified Change Password | Account/address forms and Change Password |
 | OTP and phone | Signup/login, profile-phone verification, initial Set Password, and recovery implemented; require operational SMS | Eligible setup/recovery are capability-gated; SMS signup/login stay disabled; phone verification UI is absent |
-| Catalogue | Public active Products, filtering/search/ordering/pagination, ordered fragrance notes/images, shared non-staff cache; staff-only mutations/uploads | Catalogue and slug-addressed Product Detail/gallery |
+| Catalogue | Public active Products, filtering/search/ordering/pagination, ordered fragrance notes/images, shared non-staff cache, and staff writes gated by model permissions | Catalogue and slug-addressed Product Detail/gallery |
 | Cart | Authenticated owner-derived state, live prices/stock, synchronous writes; no guest Cart or reservation | Authenticated Cart with backend-authoritative totals/availability |
 | Orders/inventory | Read-only customer history API, internal checkout snapshots/reservations, service-backed Admin fulfillment | Customer Order history, checkout, and Ticket screens are absent |
 | Payments/Refunds | Provider-neutral attempts, verification, reconciliation and Refund obligations; disabled without a real adapter | Online payment control is unavailable; no completed payment-result flow |
@@ -197,6 +197,7 @@ Start with the [documentation hub](docs/README.md) for reader-oriented paths.
 | Topic | Guide |
 | --- | --- |
 | Design and local setup | [Architecture](docs/architecture.md), [Development](docs/development.md) |
+| Store administration | [Backoffice](docs/backoffice.md) |
 | HTTP and identity | [API](docs/api.md), [Authentication](docs/authentication.md) |
 | Controls and limitations | [Security](docs/security.md) |
 | Verification and diagnosis | [Testing](docs/testing.md), [Troubleshooting](docs/troubleshooting.md) |

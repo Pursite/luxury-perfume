@@ -1,0 +1,38 @@
+{% extends "backoffice/base.html" %}
+{% load l10n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{{ return_url }}">SMS deliveries</a> &rsaquo; Confirm retry</div>
+{% endblock %}
+
+{% block panel_content %}
+<section class="backoffice-panel" aria-labelledby="retry-heading">
+    <header class="backoffice-section-header">
+        <div>
+            <h2 id="retry-heading">Review selected deliveries</h2>
+            <p id="retry-description">Confirming queues a background retry for eligible deliveries. Their attempt history is retained.</p>
+        </div>
+        <span class="backoffice-count">{{ selection|length }} selected</span>
+    </header>
+    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-labelledby="retry-heading">
+        <table class="backoffice-table">
+            <thead><tr><th scope="col">Delivery ID</th><th scope="col">Event</th><th scope="col">Order ID</th></tr></thead>
+            <tbody>
+                {% for delivery in selection %}
+                <tr><th scope="row" class="backoffice-id">{{ delivery.uuid }}</th><td>{{ delivery.get_event_type_display }}</td><td class="backoffice-id">{{ delivery.order.uuid }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <form method="post" class="backoffice-summary-actions" aria-describedby="retry-description">
+        {% csrf_token %}
+        {% for delivery in selection %}
+        <input type="hidden" name="{{ action_checkbox_name }}" value="{{ delivery.pk|unlocalize }}">
+        {% endfor %}
+        <input type="hidden" name="action" value="rearm_selected_manual_review">
+        <input type="hidden" name="confirm_sms_retry" value="yes">
+        <button type="submit" class="button backoffice-button">Confirm and queue retry</button>
+        <a href="{{ return_url }}">Cancel</a>
+    </form>
+</section>
+{% endblock %}
