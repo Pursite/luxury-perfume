@@ -1,0 +1,16 @@
+<div class="backoffice-table-wrap" tabindex="0" role="region" aria-label="Orders">
+    <table class="backoffice-table">
+        <thead><tr><th scope="col">Order</th><th scope="col">Placed</th><th scope="col">Status</th><th scope="col" class="backoffice-number">Total (IRT)</th></tr></thead>
+        <tbody>
+            {% for order in orders %}
+            <tr>
+                <th scope="row"><a href="{% url 'admin:orders_order_change' order.pk %}">{{ order.uuid }}</a></th>
+                <td class="backoffice-nowrap">{{ order.created_at|date:"M j, Y H:i" }}</td>
+                <td><span class="backoffice-badge" data-status="{{ order.status }}">{{ order.get_status_display }}</span></td>
+                <td class="backoffice-number">{{ order.total|floatformat:"2" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4">No orders found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

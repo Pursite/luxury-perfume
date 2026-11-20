@@ -1,0 +1,49 @@
+{% extends "backoffice/base.html" %}
+{% load static %}
+
+{% block extrahead %}{{ block.super }}<script src="{% static 'backoffice/print.js' %}" defer></script>{% endblock %}
+
+{% block panel_content %}
+<p class="backoffice-summary-actions">
+    <a class="button" href="{% url 'admin:orders_order_change' order.pk %}">Open order in Admin</a>
+    <button type="button" id="print-order-summary" hidden>Print summary</button>
+</p>
+<section class="backoffice-panel backoffice-summary" aria-label="Order summary">
+    <p class="backoffice-note">Order summary for store operations. This document does not serve as a tax invoice.</p>
+    <div class="backoffice-panels">
+        <div>
+            <h2>Order details</h2>
+            <dl class="backoffice-details">
+                <dt>Order ID</dt><dd>{{ order.uuid }}</dd>
+                <dt>Placed</dt><dd>{{ order.created_at|date:"M j, Y H:i" }}</dd>
+                <dt>Status</dt><dd><span class="backoffice-badge" data-status="{{ order.status }}">{{ order.get_status_display }}</span></dd>
+            </dl>
+        </div>
+        <div>
+            <h2>Customer and shipping</h2>
+            <dl class="backoffice-details">
+                <dt>Customer</dt><dd>{{ order.customer_first_name }} {{ order.customer_last_name }}</dd>
+                <dt>Email</dt><dd>{{ order.customer_email|default:"—" }}</dd>
+                <dt>Phone</dt><dd>{{ order.customer_phone_number|default:"—" }}</dd>
+                <dt>Shipping address</dt><dd>{{ order.shipping_full_address|linebreaksbr }}{% if order.shipping_postal_code %}<br>{{ order.shipping_postal_code }}{% endif %}</dd>
+            </dl>
+        </div>
+    </div>
+    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-label="Purchased items">
+        <table class="backoffice-table">
+            <thead><tr><th scope="col">Product</th><th scope="col">SKU</th><th scope="col" class="backoffice-number">Quantity</th><th scope="col" class="backoffice-number">Unit price (IRT)</th><th scope="col" class="backoffice-number">Line total (IRT)</th></tr></thead>
+            <tbody>
+                {% for item in order.items.all %}
+                <tr><th scope="row">{{ item.product_name }}</th><td>{{ item.product_sku }}</td><td class="backoffice-number">{{ item.quantity }}</td><td class="backoffice-number">{{ item.unit_price|floatformat:"2" }}</td><td class="backoffice-number">{{ item.line_total|floatformat:"2" }}</td></tr>
+                {% empty %}<tr><td colspan="5">No items on this order.</td></tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr><th scope="row" colspan="4">Subtotal</th><td class="backoffice-number">{{ order.subtotal|floatformat:"2" }}</td></tr>
+                <tr><th scope="row" colspan="4">Shipping</th><td class="backoffice-number">{{ order.shipping_amount|floatformat:"2" }}</td></tr>
+                <tr><th scope="row" colspan="4">Order total (IRT)</th><td class="backoffice-number"><strong>{{ order.total|floatformat:"2" }}</strong></td></tr>
+            </tfoot>
+        </table>
+    </div>
+</section>
+{% endblock %}

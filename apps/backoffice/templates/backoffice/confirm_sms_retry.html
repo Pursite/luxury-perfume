@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% load l10n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:notifications_smsdelivery_changelist' %}">SMS deliveries</a> &rsaquo; Confirm retry</div>
+{% endblock %}
+
+{% block content %}
+<p>Re-arm the following deliveries for a background retry?</p>
+<ul>{% for delivery_id, delivery_uuid in selection %}<li>{{ delivery_uuid }}</li>{% endfor %}</ul>
+<form method="post">
+    {% csrf_token %}
+    {% for delivery_id, delivery_uuid in selection %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ delivery_id|unlocalize }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="rearm_selected_manual_review">
+    <input type="hidden" name="confirm_sms_retry" value="yes">
+    <input type="submit" value="Confirm retry">
+    <a href="{% url 'admin:notifications_smsdelivery_changelist' %}" class="button">Cancel</a>
+</form>
+{% endblock %}

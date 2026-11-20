@@ -36,6 +36,8 @@ class IsAdminOrReadOnly(permissions.BasePermission):
 
 
 class IsAdmin(permissions.BasePermission):
+    def __init__(self, *, model_permission=None):
+        self.model_permission = model_permission
 
     def has_permission(self, request, view):
         is_staff = bool(
@@ -47,4 +49,6 @@ class IsAdmin(permissions.BasePermission):
                 user=request.user,
                 path=request.path,
             )
-        return is_staff
+        return is_staff and (
+            self.model_permission is None or request.user.has_perm(self.model_permission)
+        )

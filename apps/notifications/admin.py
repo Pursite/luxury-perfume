@@ -1,10 +1,17 @@
 from django.contrib import admin, messages
-from django.contrib.admin.models import LogEntry
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.template.response import TemplateResponse
 
 from apps.lib.sms.phone import mask_iranian_mobile
 from apps.notifications.models import SmsDelivery
-from apps.notifications.services.delivery import rearm_manual_delivery
+from apps.notifications.services.delivery import ManualSmsRetryError, rearm_manual_delivery
+
+
+MAX_MANUAL_RETRIES_PER_ACTION = 50
 
 
 @admin.register(SmsDelivery)
@@ -69,31 +76,62 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
             fields.remove("provider_message_id")
         return fields
 
-    @admin.action(description="Re-arm selected manual-review SMS deliveries")
+    def has_manual_retry_permission(self, request):
+        return (
+            self.admin_site.has_permission(request)
+            and request.user.is_superuser
+            and self.has_change_permission(request)
+        )
+
+    @admin.action(permissions=("manual_retry",), description="Re-arm selected manual-review SMS deliveries")
     def rearm_selected_manual_review(self, request, queryset):
-        if not request.user.is_superuser:
-            self.message_user(request, "Only superusers can re-arm SMS deliveries.", level=messages.ERROR)
+        if not self.has_manual_retry_permission(request):
+            raise PermissionDenied
+
+        selection = list(
+            queryset.filter(status=SmsDelivery.Status.MANUAL_REVIEW)
+            .order_by("pk").values_list("pk", "uuid")[:MAX_MANUAL_RETRIES_PER_ACTION + 1]
+        )
+        if len(selection) > MAX_MANUAL_RETRIES_PER_ACTION:
+            self.message_user(request, "Select at most 50 manual-review deliveries per retry.", level=messages.WARNING)
+            return
+        if not selection:
+            self.message_user(request, "No selected deliveries are awaiting manual review.", level=messages.WARNING)
             return
         if request.POST.get("confirm_sms_retry") != "yes":
+            request.current_app = self.admin_site.name
+            return TemplateResponse(
+                request,
+                "backoffice/confirm_sms_retry.html",
+                {
+                    **self.admin_site.each_context(request),
+                    "title": "Confirm SMS delivery retry",
+                    "selection": selection,
+                    "action_checkbox_name": ACTION_CHECKBOX_NAME,
+                },
+            )
+
+        rearmed = 0
+        for delivery_id, _delivery_uuid in selection:
+            try:
+                with transaction.atomic():
+                    delivery = rearm_manual_delivery(delivery_id=delivery_id)
+                    LogEntry.objects.create(
+                        user_id=request.user.pk,
+                        content_type=ContentType.objects.get_for_model(SmsDelivery),
+                        object_id=str(delivery.pk),
+                        object_repr=str(delivery.uuid),
+                        action_flag=CHANGE,
+                        change_message="SMS delivery manually re-armed after explicit confirmation.",
+                    )
+            except ManualSmsRetryError:
+                continue
+            rearmed += 1
+        if rearmed:
+            self.message_user(request, f"{rearmed} SMS delivery record(s) re-armed.", level=messages.SUCCESS)
+        if rearmed < len(selection):
             self.message_user(
                 request,
-                "Retry was not performed. Re-submit with explicit retry confirmation.",
+                f"{len(selection) - rearmed} delivery record(s) could not be safely re-armed. Check status and provider readiness.",
                 level=messages.WARNING,
             )
-            return
-        rearmed = 0
-        for delivery_id in queryset.filter(status=SmsDelivery.Status.MANUAL_REVIEW).values_list("pk", flat=True):
-            try:
-                delivery = rearm_manual_delivery(delivery_id=delivery_id)
-            except ValueError:
-                continue
-            LogEntry.objects.log_action(
-                user_id=request.user.pk,
-                content_type_id=ContentType.objects.get_for_model(SmsDelivery).pk,
-                object_id=str(delivery.pk),
-                object_repr=str(delivery.uuid),
-                action_flag=LogEntry.ActionFlag.CHANGE,
-                change_message="SMS delivery manually re-armed after explicit confirmation.",
-            )
-            rearmed += 1
-        self.message_user(request, f"{rearmed} SMS delivery record(s) re-armed.", level=messages.SUCCESS)

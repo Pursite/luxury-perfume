@@ -4,7 +4,11 @@ from datetime import timedelta
 from threading import Barrier, Event
 
 import pytest
-from django.db import close_old_connections, transaction
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.contrib.admin.models import LogEntry
+from django.contrib.auth.models import Permission
+from django.db import close_old_connections, connection, transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.cart.models import Cart, CartItem
@@ -31,7 +35,7 @@ from apps.users.services.user_service import (
     UserDeletionProtectedError,
     delete_users_service,
 )
-from apps.users.tests.factories import AddressFactory
+from apps.users.tests.factories import AddressFactory, UserFactory
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db(transaction=True)]
@@ -589,3 +593,45 @@ def test_j_admin_stock_delta_waits_for_checkout_and_preserves_both_mutations():
     item = order.items.get()
     assert item.product_id == product.pk
     assert item.reservation.status == StockReservation.Status.ACTIVE
+
+
+def test_admin_shipping_rechecks_owner_promotion_under_postgres_lock(client):
+    address = AddressFactory()
+    product = ProductFactory(stock=1)
+    _cart(address=address, product=product)
+    order, _created = _checkout(
+        user_id=address.user_id, address_id=address.pk, key="28425f4a-1cdb-40dc-b0ca-b6ac675a8138",
+    )
+    confirm_verified_payment(order_id=order.pk)
+    operator = UserFactory(is_staff=True)
+    operator.user_permissions.add(Permission.objects.get(codename="change_order"))
+    client.force_login(operator)
+    lock_attempted = Event()
+
+    def observe_owner_lock(execute, sql, params, many, context):
+        if "FOR UPDATE" in sql and '"users_customuser"' in sql:
+            lock_attempted.set()
+        return execute(sql, params, many, context)
+
+    def submit_action():
+        close_old_connections()
+        try:
+            with connection.execute_wrapper(observe_owner_lock):
+                return client.post(
+                    reverse("admin:orders_order_changelist"),
+                    {"action": "mark_selected_shipped", ACTION_CHECKBOX_NAME: [str(order.pk)], "index": "0"},
+                )
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with transaction.atomic():
+            CustomUser.objects.filter(pk=address.user_id).update(is_staff=True)
+            action = executor.submit(submit_action)
+            assert lock_attempted.wait(timeout=10)
+        assert action.result(timeout=10).status_code == 302
+
+    order.refresh_from_db()
+    assert order.status == Order.Status.PROCESSING
+    assert order.shipped_at is None
+    assert not LogEntry.objects.filter(user=operator).exists()

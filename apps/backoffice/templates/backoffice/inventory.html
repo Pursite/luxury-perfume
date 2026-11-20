@@ -1,0 +1,26 @@
+{% extends "backoffice/base.html" %}
+
+{% block panel_content %}
+<form method="get" class="backoffice-filters">
+    {{ form.as_div }}
+    <button type="submit">Apply threshold</button>
+</form>
+<p class="backoffice-note">Active products with available stock at or below the threshold.</p>
+{% if page is not None %}
+<section class="backoffice-panel" aria-labelledby="stock-heading">
+    <h2 id="stock-heading">Matching products ({{ page.paginator.count }})</h2>
+    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-label="Low-stock products">
+        <table class="backoffice-table">
+            <thead><tr><th scope="col">Product</th><th scope="col">SKU</th><th scope="col" class="backoffice-number">Available stock</th></tr></thead>
+            <tbody>
+                {% for product in page %}
+                <tr><th scope="row"><a href="{% url 'admin:products_product_change' product.pk %}">{{ product.name }}</a></th><td>{{ product.sku }}</td><td class="backoffice-number">{{ product.stock }}</td></tr>
+                {% empty %}<tr><td colspan="3">No active products match this threshold.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "backoffice/pagination.html" %}
+</section>
+{% endif %}
+{% endblock %}

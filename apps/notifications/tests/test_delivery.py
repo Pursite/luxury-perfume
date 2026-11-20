@@ -126,6 +126,7 @@ class SmsDeliveryServiceTests(TestCase):
         assert provider.calls == []
 
     def test_superuser_rearm_preserves_attempt_history(self):
+        register_provider("test-sms", FakeSmsProvider())
         delivery = self._delivery()
         delivery.status = SmsDelivery.Status.MANUAL_REVIEW
         delivery.attempt_count = 5

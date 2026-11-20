@@ -19,6 +19,10 @@ from apps.notifications.models import SmsDelivery
 from apps.notifications.templates import render_message
 
 
+class ManualSmsRetryError(ValueError):
+    """The delivery cannot safely be retried by an administrator."""
+
+
 def _provider_for(delivery):
     try:
         provider = get_provider(delivery.provider)
@@ -251,9 +255,19 @@ def rearm_manual_delivery(*, delivery_id):
     with transaction.atomic():
         delivery = SmsDelivery.objects.select_for_update().get(pk=delivery_id)
         if delivery.status != SmsDelivery.Status.MANUAL_REVIEW:
-            raise ValueError("Only manual-review SMS deliveries can be re-armed.")
+            raise ManualSmsRetryError("Only manual-review SMS deliveries can be re-armed.")
         if not delivery.recipient_phone:
-            raise ValueError("A scrubbed or invalid recipient cannot be re-armed.")
+            raise ManualSmsRetryError("A scrubbed or invalid recipient cannot be re-armed.")
+        if not settings.SMS_ENABLED or not (provider := _provider_for(delivery)):
+            raise ManualSmsRetryError("The SMS provider is unavailable.")
+        try:
+            invalid_provider = bool(tuple(provider.configuration_errors()))
+        except Exception:
+            invalid_provider = True
+        if invalid_provider:
+            raise ManualSmsRetryError("The SMS provider is unavailable.")
+        if delivery.failure_code != "provider_configuration" and not getattr(provider, "supports_idempotent_send", False):
+            raise ManualSmsRetryError("This retry requires an idempotent SMS provider.")
         delivery.status = SmsDelivery.Status.PENDING
         delivery.manual_review_at = None
         delivery.failure_code = ""

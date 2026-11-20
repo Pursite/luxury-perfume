@@ -1,0 +1,8 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+{% if original and perms.orders.view_order or original and perms.orders.change_order %}
+<li><a href="{% url 'admin:backoffice:customer_detail' original.pk %}">Purchase history</a></li>
+{% endif %}
+{{ block.super }}
+{% endblock %}

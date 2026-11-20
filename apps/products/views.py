@@ -69,7 +69,7 @@ class ProductListCreateAPIView(APIView):
 
     def get_permissions(self):
         if self.request.method == "POST":
-            return [IsAdmin()]
+            return [IsAdmin(model_permission="products.add_product")]
         return [permissions.AllowAny()]
 
     def get(self, request, *args, **kwargs):
@@ -128,7 +128,12 @@ class ProductDetailAPIView(APIView):
     def get_permissions(self):
         if self.request.method in permissions.SAFE_METHODS:
             return [permissions.AllowAny()]
-        return [IsAdmin()]
+        model_permission = {
+            "PUT": "products.change_product",
+            "PATCH": "products.change_product",
+            "DELETE": "products.delete_product",
+        }.get(self.request.method)
+        return [IsAdmin(model_permission=model_permission)]
 
     def get_object(self):
         include_inactive = bool(
@@ -197,9 +202,12 @@ class ProductDetailAPIView(APIView):
 class ProductImageUploadAPIView(APIView):
     """Administrator-only multipart image upload addressed by the product slug."""
 
-    permission_classes = (IsAdmin,)
     throttle_classes = (AnonRateThrottle, UserRateThrottle)
     parser_classes = (MultiPartParser, FormParser)
+
+    def get_permissions(self):
+        model_permission = "products.add_productimage" if self.request.method == "POST" else None
+        return [IsAdmin(model_permission=model_permission)]
 
     def post(self, request, product_slug, *args, **kwargs):
         product = get_product_by_slug(
@@ -228,8 +236,11 @@ class ProductImageUploadAPIView(APIView):
 class ProductImageDeleteAPIView(APIView):
     """Administrator-only delete for an internally identified product image."""
 
-    permission_classes = (IsAdmin,)
     throttle_classes = (AnonRateThrottle, UserRateThrottle)
+
+    def get_permissions(self):
+        model_permission = "products.delete_productimage" if self.request.method == "DELETE" else None
+        return [IsAdmin(model_permission=model_permission)]
 
     def delete(self, request, image_id, *args, **kwargs):
         product_image = get_product_image_by_id(image_id=image_id)

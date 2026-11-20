@@ -1,4 +1,6 @@
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 
 from apps.orders.models import Order, OrderItem
 from apps.orders.services.transitions import (
@@ -6,6 +8,7 @@ from apps.orders.services.transitions import (
     mark_order_delivered,
     mark_order_shipped,
 )
+from apps.users.models import CustomUser
 
 
 class OrderItemInline(admin.TabularInline):
@@ -41,6 +44,7 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    change_form_template = "backoffice/order_change_form.html"
     list_display = ("uuid", "user", "status", "total", "reservation_expires_at", "created_at")
     list_filter = ("status", "created_at")
     search_fields = ("uuid", "user__phone_number", "user__username", "customer_phone_number", "customer_email")
@@ -79,24 +83,39 @@ class OrderAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.action(description="Mark selected processing orders as shipped")
+    @admin.action(permissions=("change",), description="Mark selected processing orders as shipped")
     def mark_selected_shipped(self, request, queryset):
-        changed = 0
-        for order_id in queryset.filter(status=Order.Status.PROCESSING).values_list("pk", flat=True):
-            try:
-                mark_order_shipped(order_id=order_id)
-            except InvalidOrderTransitionError:
-                continue
-            changed += 1
+        changed = self._apply_fulfillment(
+            request, queryset, Order.Status.PROCESSING, mark_order_shipped, "Order marked as shipped.",
+        )
         self.message_user(request, f"{changed} order(s) marked as shipped.", level=messages.SUCCESS)
 
-    @admin.action(description="Mark selected shipped orders as delivered")
+    @admin.action(permissions=("change",), description="Mark selected shipped orders as delivered")
     def mark_selected_delivered(self, request, queryset):
+        changed = self._apply_fulfillment(
+            request, queryset, Order.Status.SHIPPED, mark_order_delivered, "Order marked as delivered.",
+        )
+        self.message_user(request, f"{changed} order(s) marked as delivered.", level=messages.SUCCESS)
+
+    def _apply_fulfillment(self, request, queryset, status, transition, audit_message):
+        if not self.admin_site.has_permission(request) or not self.has_change_permission(request):
+            raise PermissionDenied
+
         changed = 0
-        for order_id in queryset.filter(status=Order.Status.SHIPPED).values_list("pk", flat=True):
+        selection = queryset.filter(status=status).values_list("pk", "user_id")
+        for order_id, owner_id in selection.iterator():
             try:
-                mark_order_delivered(order_id=order_id)
+                with transaction.atomic():
+                    if not request.user.is_superuser:
+                        # Match checkout's user-before-order lock order.
+                        owner_is_customer = CustomUser.objects.select_for_update().filter(
+                            pk=owner_id, is_staff=False, is_superuser=False,
+                        ).exists()
+                        if not owner_is_customer:
+                            continue
+                    order = transition(order_id=order_id)
+                    self.log_change(request, order, audit_message)
             except InvalidOrderTransitionError:
                 continue
             changed += 1
-        self.message_user(request, f"{changed} order(s) marked as delivered.", level=messages.SUCCESS)
+        return changed

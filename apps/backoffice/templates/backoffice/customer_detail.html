@@ -1,0 +1,20 @@
+{% extends "backoffice/base.html" %}
+
+{% block panel_content %}
+<section class="backoffice-panel" aria-labelledby="customer-heading">
+    <h2 id="customer-heading">Customer information</h2>
+    <dl class="backoffice-details">
+        <dt>Name</dt><dd>{{ customer.first_name }} {{ customer.last_name }}</dd>
+        <dt>Username</dt><dd>{{ customer.username|default:"—" }}</dd>
+        <dt>Email</dt><dd>{{ customer.email|default:"—" }}</dd>
+        <dt>Phone</dt><dd>{{ customer.phone_number|default:"—" }}</dd>
+        <dt>Account created</dt><dd>{{ customer.created_at|date:"M j, Y" }}</dd>
+    </dl>
+    <p><a href="{% url 'admin:users_customuser_change' customer.pk %}">Open customer in Admin</a></p>
+</section>
+<section class="backoffice-panel" aria-labelledby="history-heading">
+    <h2 id="history-heading">Order history ({{ page.paginator.count }})</h2>
+    {% include "backoffice/order_table.html" with orders=page.object_list %}
+    {% include "backoffice/pagination.html" %}
+</section>
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "backoffice/base.html" %}
+
+{% block panel_content %}
+{% if access.orders or access.customers or access.sales %}
+<form method="get" class="backoffice-filters">
+    {{ form.as_div }}
+    <button type="submit">Apply dates</button>
+</form>
+<p class="backoffice-note">Dates are inclusive and use the store time zone ({{ store_timezone }}).</p>
+{% endif %}
+
+{% if metrics %}
+<dl class="backoffice-metrics">
+    {% if access.orders %}
+    <div><dt>Total orders</dt><dd>{{ metrics.orders.total }}</dd></div>
+    <div><dt>Orders requiring attention</dt><dd>{{ metrics.orders.attention }}</dd></div>
+    {% endif %}
+    {% if access.customers %}
+    <div><dt>New customers</dt><dd>{{ metrics.new_customers }}</dd></div>
+    {% endif %}
+    {% if access.sales %}
+    <div><dt>Verified sales applied to orders</dt><dd>{{ metrics.sales.total|floatformat:"2" }} <small>IRT</small></dd></div>
+    {% endif %}
+</dl>
+
+<div class="backoffice-panels">
+    {% if access.orders %}
+    <section class="backoffice-panel" aria-labelledby="attention-heading">
+        <h2 id="attention-heading">Fulfillment and payment deadlines</h2>
+        <dl class="backoffice-counts">
+            <div><dt>Ready to ship</dt><dd>{{ metrics.orders.to_ship }}</dd></div>
+            <div><dt>Shipped, awaiting delivery</dt><dd>{{ metrics.orders.in_transit }}</dd></div>
+            <div><dt>Overdue payment reservations</dt><dd>{{ metrics.orders.overdue }}</dd></div>
+        </dl>
+    </section>
+    {% endif %}
+
+    {% if access.sales %}
+    <section class="backoffice-panel" aria-labelledby="sales-heading">
+        <h2 id="sales-heading">Daily verified sales</h2>
+        {% if metrics.sales.total %}
+        <div class="backoffice-chart" tabindex="0" role="region" aria-labelledby="sales-heading">
+            <table class="backoffice-table">
+                <thead><tr><th scope="col">Date</th><th scope="col">Relative sales</th><th scope="col" class="backoffice-number">Amount (IRT)</th></tr></thead>
+                <tbody>
+                    {% for point in metrics.sales.points %}
+                    <tr>
+                        <th scope="row" class="backoffice-nowrap">{{ point.day|date:"M j, Y" }}</th>
+                        <td class="backoffice-chart-bar"><meter min="0" max="100" value="{{ point.percent }}" aria-hidden="true"></meter></td>
+                        <td class="backoffice-number">{{ point.amount|floatformat:"2" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No verified, order-applied sales in this period.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+
+{% if access.orders %}
+<section class="backoffice-panel" aria-labelledby="recent-heading">
+    <h2 id="recent-heading">Recent orders</h2>
+    {% include "backoffice/order_table.html" with orders=metrics.recent_orders %}
+</section>
+{% endif %}
+{% elif access.inventory and not access.orders and not access.customers and not access.sales %}
+<p>Review available stock and find products at or below your low-stock threshold.</p>
+<p><a class="button" href="{% url 'admin:backoffice:inventory' %}">Open inventory</a></p>
+{% endif %}
+{% endblock %}
