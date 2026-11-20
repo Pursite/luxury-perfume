@@ -8,13 +8,15 @@ continues to use the shared locale settings.
 ## Daily work
 
 - **Dashboard** shows an inclusive date range of up to 90 days in the store
-  time zone. The default covers today and the previous 29 days. Orders and new
-  customer accounts use creation time. Orders requiring attention include
-  processing orders, shipped orders awaiting delivery, and unpaid orders with
-  expired reservations in that range.
+  time zone. Use **Today**, **Last 7 Days**, or **Last 30 Days**, or enter a
+  custom range. Orders and new customer accounts use creation time.
+- **Orders requiring attention** covers all order dates, even when the date
+  range is narrow. Select **Ready to ship**, **Awaiting delivery**, or
+  **Overdue payment reservations** to open the matching Order Admin list.
 - **Sales** uses the verification date and sums captured IRT amounts for
   verified Payments applied to Orders. Late or duplicate captures that were
   never applied are excluded. This is a gross sales figure before refunds.
+  Expand **View daily sales values** for the exact amounts shown in the chart.
 - **Order summary** opens from **Printable summary** on an Order in Admin.
   Use **Print summary** or the browser's print command. Customer, shipping, line
   items, and money come from the checkout snapshot. The document is an operational
@@ -51,7 +53,8 @@ actions appear in the Order's Django Admin history. The order state and its audi
 record commit together.
 
 For SMS, select up to 50 records awaiting manual review, choose **Re-arm selected
-manual-review SMS deliveries**, and confirm. Eligible deliveries enter the
+manual-review SMS deliveries**, review the order IDs and events, and choose
+**Confirm and queue retry**. Eligible deliveries enter the
 existing background retry workflow. Retry requires `SMS_ENABLED`, a usable
 registered provider for the delivery, and a stored recipient. A retry after a
 potential send also requires an idempotent provider. The delivery retains its

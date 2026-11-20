@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.template.response import TemplateResponse
 
+from apps.backoffice.permissions import get_access
 from apps.lib.sms.phone import mask_iranian_mobile
 from apps.notifications.models import SmsDelivery
 from apps.notifications.services.delivery import ManualSmsRetryError, rearm_manual_delivery
@@ -90,7 +91,8 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
 
         selection = list(
             queryset.filter(status=SmsDelivery.Status.MANUAL_REVIEW)
-            .order_by("pk").values_list("pk", "uuid")[:MAX_MANUAL_RETRIES_PER_ACTION + 1]
+            .select_related(None).select_related("order").only("uuid", "event_type", "order__uuid")
+            .order_by("pk")[:MAX_MANUAL_RETRIES_PER_ACTION + 1]
         )
         if len(selection) > MAX_MANUAL_RETRIES_PER_ACTION:
             self.message_user(request, "Select at most 50 manual-review deliveries per retry.", level=messages.WARNING)
@@ -106,16 +108,19 @@ class SmsDeliveryAdmin(admin.ModelAdmin):
                 {
                     **self.admin_site.each_context(request),
                     "title": "Confirm SMS delivery retry",
+                    "access": get_access(request.user),
+                    "section": "sms",
+                    "return_url": request.get_full_path(),
                     "selection": selection,
                     "action_checkbox_name": ACTION_CHECKBOX_NAME,
                 },
             )
 
         rearmed = 0
-        for delivery_id, _delivery_uuid in selection:
+        for selected in selection:
             try:
                 with transaction.atomic():
-                    delivery = rearm_manual_delivery(delivery_id=delivery_id)
+                    delivery = rearm_manual_delivery(delivery_id=selected.pk)
                     LogEntry.objects.create(
                         user_id=request.user.pk,
                         content_type=ContentType.objects.get_for_model(SmsDelivery),

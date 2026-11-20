@@ -81,13 +81,13 @@ class SmsDeliveryAdminTests(TestCase):
         delivery.save()
         return delivery
 
-    def _retry_post(self, client, delivery, *, confirm=True):
+    def _retry_post(self, client, delivery, *, confirm=True, query_params=None):
         form = {"action": "rearm_selected_manual_review", ACTION_CHECKBOX_NAME: [str(delivery.pk)]}
         if confirm:
             form["confirm_sms_retry"] = "yes"
         else:
             form["index"] = "0"
-        return client.post(reverse("admin:notifications_smsdelivery_changelist"), form)
+        return client.post(reverse("admin:notifications_smsdelivery_changelist"), form, query_params=query_params)
 
     @override_settings(SMS_ENABLED=True)
     def test_sms_retry_requires_confirmation_and_audits_one_rearm(self):
@@ -103,9 +103,14 @@ class SmsDeliveryAdminTests(TestCase):
             patch("apps.notifications.tasks.execute_sms_delivery_task.apply_async") as enqueue,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            preview = self._retry_post(self.client, delivery, confirm=False)
+            preview = self._retry_post(
+                self.client, delivery, confirm=False, query_params={"status__exact": SmsDelivery.Status.MANUAL_REVIEW},
+            )
             self.assertContains(preview, "Confirm SMS delivery retry")
             self.assertContains(preview, str(delivery.uuid))
+            self.assertContains(preview, str(delivery.order.uuid))
+            self.assertContains(preview, delivery.get_event_type_display())
+            self.assertContains(preview, '?status__exact=MANUAL_REVIEW">Cancel</a>')
             self.assertNotContains(preview, delivery.recipient_phone)
             delivery.refresh_from_db()
             assert delivery.status == SmsDelivery.Status.MANUAL_REVIEW

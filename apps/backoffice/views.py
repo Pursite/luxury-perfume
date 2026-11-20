@@ -10,6 +10,7 @@ from apps.backoffice.permissions import get_access
 from apps.backoffice.selectors import (
     get_dashboard_data,
     get_low_stock_products,
+    get_order_attention,
     get_order_summary,
     get_visible_customer,
 )
@@ -33,16 +34,21 @@ def dashboard(request):
         raise PermissionDenied
 
     form = DashboardDateForm(request.GET if "start" in request.GET or "end" in request.GET else None)
+    dates = form.initial
+    if form.is_bound:
+        dates = form.cleaned_data if form.is_valid() else None
     context = {
         "form": form,
         "access": access,
         "title": "Store dashboard",
         "section": "dashboard",
         "store_timezone": timezone.get_default_timezone_name(),
+        "presets": form.presets(dates),
     }
-    if form.is_bound and not form.is_valid():
+    if access.orders:
+        context["attention"] = get_order_attention(request.user)
+    if dates is None:
         return _render(request, "dashboard", **context, status=400)
-    dates = form.cleaned_data if form.is_bound else form.initial
     return _render(
         request, "dashboard", **context,
         metrics=get_dashboard_data(user=request.user, access=access, **dates),
@@ -55,7 +61,7 @@ def order_summary(request, order_uuid):
     if not access.orders:
         raise PermissionDenied
     order = get_order_summary(request.user, order_uuid)
-    return _render(request, "order_summary", access=access, title="Order Summary", order=order)
+    return _render(request, "order_summary", access=access, title="Order Summary", section="order", order=order)
 
 
 @require_safe
@@ -66,7 +72,7 @@ def customer_detail(request, customer_id):
     customer = get_visible_customer(request.user, customer_id)
     orders = get_user_orders_queryset(user=customer).only("id", "uuid", "status", "total", "created_at")
     page = Paginator(orders, 50).get_page(request.GET.get("page"))
-    return _render(request, "customer_detail", access=access, title="Customer history", customer=customer, page=page)
+    return _render(request, "customer_detail", access=access, title="Customer history", section="customer", customer=customer, page=page)
 
 
 @require_safe

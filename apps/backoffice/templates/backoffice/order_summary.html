@@ -1,12 +1,13 @@
 {% extends "backoffice/base.html" %}
 {% load static %}
 
+{% block bodyclass %}{{ block.super }} backoffice-print{% endblock %}
 {% block extrahead %}{{ block.super }}<script src="{% static 'backoffice/print.js' %}" defer></script>{% endblock %}
 
 {% block panel_content %}
 <p class="backoffice-summary-actions">
-    <a class="button" href="{% url 'admin:orders_order_change' order.pk %}">Open order in Admin</a>
-    <button type="button" id="print-order-summary" hidden>Print summary</button>
+    <button class="button backoffice-button" type="button" id="print-order-summary" hidden>Print summary</button>
+    <a href="{% url 'admin:orders_order_change' order.pk %}">Open order in Admin</a>
 </p>
 <section class="backoffice-panel backoffice-summary" aria-label="Order summary">
     <p class="backoffice-note">Order summary for store operations. This document does not serve as a tax invoice.</p>
@@ -14,7 +15,7 @@
         <div>
             <h2>Order details</h2>
             <dl class="backoffice-details">
-                <dt>Order ID</dt><dd>{{ order.uuid }}</dd>
+                <dt>Order ID</dt><dd class="backoffice-id">{{ order.uuid }}</dd>
                 <dt>Placed</dt><dd>{{ order.created_at|date:"M j, Y H:i" }}</dd>
                 <dt>Status</dt><dd><span class="backoffice-badge" data-status="{{ order.status }}">{{ order.get_status_display }}</span></dd>
             </dl>
@@ -29,7 +30,8 @@
             </dl>
         </div>
     </div>
-    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-label="Purchased items">
+    <h2 id="purchased-items">Purchased items</h2>
+    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-labelledby="purchased-items">
         <table class="backoffice-table">
             <thead><tr><th scope="col">Product</th><th scope="col">SKU</th><th scope="col" class="backoffice-number">Quantity</th><th scope="col" class="backoffice-number">Unit price (IRT)</th><th scope="col" class="backoffice-number">Line total (IRT)</th></tr></thead>
             <tbody>

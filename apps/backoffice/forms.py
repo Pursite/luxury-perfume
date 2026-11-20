@@ -37,6 +37,13 @@ class DashboardDateForm(forms.Form):
                 raise forms.ValidationError("Choose a date range of 90 days or less.")
         return cleaned
 
+    def presets(self, selected_dates):
+        presets = []
+        for label, days in (("Today", 1), ("Last 7 Days", 7), ("Last 30 Days", 30)):
+            dates = {"start": self.today - timedelta(days=days - 1), "end": self.today}
+            presets.append({"label": label, "active": dates == selected_dates, **dates})
+        return presets
+
 
 class InventoryFilterForm(forms.Form):
     threshold = forms.IntegerField(

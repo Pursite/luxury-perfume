@@ -12,11 +12,11 @@
 <div class="backoffice-content">
     <nav class="backoffice-nav" aria-label="Store management">
         <a href="{% url 'admin:backoffice:dashboard' %}"{% if section == 'dashboard' %} aria-current="page"{% endif %}>Dashboard</a>
-        {% if access.orders %}<a href="{% url 'admin:orders_order_changelist' %}">Orders</a>{% endif %}
-        {% if access.customers %}<a href="{% url 'admin:users_customuser_changelist' %}">Customers</a>{% endif %}
+        {% if access.orders %}<a href="{% url 'admin:orders_order_changelist' %}"{% if section == 'order' %} aria-current="location"{% endif %}>Orders</a>{% endif %}
+        {% if access.customers %}<a href="{% url 'admin:users_customuser_changelist' %}"{% if section == 'customer' %} aria-current="location"{% endif %}>Customers</a>{% endif %}
         {% if access.inventory %}<a href="{% url 'admin:backoffice:inventory' %}"{% if section == 'inventory' %} aria-current="page"{% endif %}>Inventory</a>{% endif %}
         {% if access.sales %}<a href="{% url 'admin:payments_payment_changelist' %}">Payments</a>{% endif %}
-        {% if perms.notifications.view_smsdelivery or perms.notifications.change_smsdelivery %}<a href="{% url 'admin:notifications_smsdelivery_changelist' %}">SMS deliveries</a>{% endif %}
+        {% if perms.notifications.view_smsdelivery or perms.notifications.change_smsdelivery %}<a href="{% url 'admin:notifications_smsdelivery_changelist' %}"{% if section == 'sms' %} aria-current="location"{% endif %}>SMS deliveries</a>{% endif %}
     </nav>
     {% block panel_content %}{% endblock %}
 </div>

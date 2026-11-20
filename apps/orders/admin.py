@@ -3,12 +3,29 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
 from apps.orders.models import Order, OrderItem
+from apps.orders.selectors import get_order_attention_conditions
 from apps.orders.services.transitions import (
     InvalidOrderTransitionError,
     mark_order_delivered,
     mark_order_shipped,
 )
 from apps.users.models import CustomUser
+
+
+class OrderAttentionFilter(admin.SimpleListFilter):
+    title = "operational attention"
+    parameter_name = "attention"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("to_ship", "Ready to ship"),
+            ("in_transit", "Awaiting delivery"),
+            ("overdue", "Overdue payment reservations"),
+        )
+
+    def queryset(self, request, queryset):
+        condition = get_order_attention_conditions().get(self.value())
+        return queryset.filter(condition) if condition is not None else queryset
 
 
 class OrderItemInline(admin.TabularInline):
@@ -46,7 +63,7 @@ class OrderItemInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
     change_form_template = "backoffice/order_change_form.html"
     list_display = ("uuid", "user", "status", "total", "reservation_expires_at", "created_at")
-    list_filter = ("status", "created_at")
+    list_filter = (OrderAttentionFilter, "status", "created_at")
     search_fields = ("uuid", "user__phone_number", "user__username", "customer_phone_number", "customer_email")
     list_select_related = ("user", "source_address")
     date_hierarchy = "created_at"

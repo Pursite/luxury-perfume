@@ -1,26 +1,39 @@
 {% extends "backoffice/base.html" %}
 
 {% block panel_content %}
-<form method="get" class="backoffice-filters">
-    {{ form.as_div }}
-    <button type="submit">Apply threshold</button>
-</form>
-<p class="backoffice-note">Active products with available stock at or below the threshold.</p>
-{% if page is not None %}
 <section class="backoffice-panel" aria-labelledby="stock-heading">
-    <h2 id="stock-heading">Matching products ({{ page.paginator.count }})</h2>
-    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-label="Low-stock products">
+    <header class="backoffice-section-header">
+        <div>
+            <h2 id="stock-heading">Available stock</h2>
+            <p id="stock-filter-help">Active products with stock at or below the threshold. Use zero to find products that are out of stock.</p>
+        </div>
+        {% if page is not None %}<span class="backoffice-count">{{ page.paginator.count }} matching</span>{% endif %}
+    </header>
+    <form method="get" class="backoffice-filters" aria-describedby="stock-filter-help">
+        {{ form.non_field_errors }}
+        <div class="backoffice-filter-fields">
+            <div>{{ form.threshold.label_tag }}{{ form.threshold }}{{ form.threshold.errors }}</div>
+            <button class="button backoffice-button" type="submit">Apply threshold</button>
+        </div>
+    </form>
+    {% if page %}
+    <div class="backoffice-table-wrap" tabindex="0" role="region" aria-labelledby="stock-heading">
         <table class="backoffice-table">
             <thead><tr><th scope="col">Product</th><th scope="col">SKU</th><th scope="col" class="backoffice-number">Available stock</th></tr></thead>
             <tbody>
                 {% for product in page %}
-                <tr><th scope="row"><a href="{% url 'admin:products_product_change' product.pk %}">{{ product.name }}</a></th><td>{{ product.sku }}</td><td class="backoffice-number">{{ product.stock }}</td></tr>
-                {% empty %}<tr><td colspan="3">No active products match this threshold.</td></tr>
+                <tr>
+                    <th scope="row"><a href="{% url 'admin:products_product_change' product.pk %}">{{ product.name }}</a></th>
+                    <td>{{ product.sku }}</td>
+                    <td class="backoffice-number">{% if product.stock %}{{ product.stock }}{% else %}<span class="backoffice-badge" data-status="out-of-stock">0 · Out of stock</span>{% endif %}</td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
     {% include "backoffice/pagination.html" %}
+    {% elif page is not None %}
+    <p class="backoffice-empty">No active products match this threshold.</p>
+    {% endif %}
 </section>
-{% endif %}
 {% endblock %}
